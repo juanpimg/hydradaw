@@ -983,6 +983,18 @@ export async function loadSavedProject(): Promise<boolean> {
     }
   }
 
+  return applySerializedProject(data, clips);
+}
+
+/**
+ * Aplica un proyecto deserializado al store + motor.
+ * Extraído de `loadSavedProject` para reutilizarlo en la importación
+ * de archivos (pantalla de inicio): nunca lanza, devuelve éxito.
+ */
+export async function applySerializedProject(
+  data: SerializedProject,
+  clips: RestoredAudioClip[]
+): Promise<boolean> {
   try {
     useDawStore.setState({
       projectName: data.projectName,
@@ -1016,6 +1028,49 @@ export async function loadSavedProject(): Promise<boolean> {
     console.warn('[persistence] No se pudo restaurar el proyecto:', err);
     return false;
   }
+}
+
+/**
+ * Lee solo el nombre del proyecto guardado, sin aplicarlo ni crear
+ * contexto de audio. Para la pantalla de inicio ("seguir editando «X»").
+ * Devuelve `null` si no hay nada guardado o el payload no es válido.
+ */
+export async function peekSavedProjectName(): Promise<string | null> {
+  try {
+    const raw: unknown = await get(PERSISTENCE_KEY);
+    if (raw == null) return null;
+    const data = deserializeProject(raw);
+    if (!data || typeof data.projectName !== 'string' || data.projectName.length === 0) return null;
+    return data.projectName;
+  } catch (err) {
+    console.warn('[persistence] No se pudo leer el nombre del proyecto guardado:', err);
+    return null;
+  }
+}
+
+/**
+ * Importa un proyecto desde un archivo (.hydra/.json ya parseado).
+ * Regenera stems demo si hay contexto; el audio real de usuario queda
+ * marcado para reimportar (el archivo no incluye los blobs WAV).
+ * No toca el registro de IndexedDB directamente: el autosave lo
+ * persistirá tras la importación. Nunca lanza.
+ */
+export async function importProjectFromJson(
+  raw: unknown
+): Promise<{ ok: boolean; name?: string }> {
+  const data = deserializeProject(raw);
+  if (!data) return { ok: false };
+
+  let ctx: BaseAudioContext | null = null;
+  try {
+    ctx = await audioEngine.ensureContext();
+  } catch (err) {
+    console.warn('[persistence] Sin Web Audio: se importan metadatos sin regenerar audio.', err);
+  }
+
+  const clips = restoreClips(data.clips, ctx);
+  const ok = await applySerializedProject(data, clips);
+  return ok ? { ok: true, name: data.projectName } : { ok: false };
 }
 
 export async function clearSavedProject(): Promise<void> {

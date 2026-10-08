@@ -100,6 +100,7 @@ interface DawState {
 
   // Project Templates & Persistence
   loadDemoProject: () => Promise<void>;
+  createBlankProject: () => Promise<void>;
 }
 
 export const useDawStore = create<DawState>((set, get) => ({
@@ -653,5 +654,39 @@ export const useDawStore = create<DawState>((set, get) => ({
     });
 
     await audioEngine.syncTracks(tracks);
+  },
+
+  // Pantalla de inicio: proyecto vacío (conserva zoom/vista/toasts).
+  // El autosave persistirá el lienzo en blanco tras el arranque.
+  createBlankProject: async () => {
+    get().clips.forEach((c) => {
+      c.audioBuffer = null;
+    });
+    audioEngine.stop();
+
+    set({
+      projectName: 'Proyecto sin título',
+      bpm: 120,
+      timeSignature: [4, 4],
+      currentTime: 0,
+      duration: 16,
+      isPlaying: false,
+      isRecording: false,
+      isLooping: false,
+      loopStart: 0,
+      loopEnd: 16,
+      metronome: false,
+      masterVolume: 1.0,
+      masterMute: false,
+      selectedTrackId: null,
+      selectedClipId: null,
+      tracks: [],
+      clips: [],
+    });
+
+    audioEngine.setTempo(120);
+    audioEngine.getMasterBus()?.setVolume(1.0);
+    audioEngine.getMasterBus()?.setMute(false);
+    await audioEngine.syncTracks([]);
   },
 }));
