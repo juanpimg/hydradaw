@@ -1,12 +1,25 @@
-import React, { useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useDawStore } from '../../store/useDawStore';
 
 export const Ruler: React.FC = () => {
   const { duration, zoom, bpm, timeSignature, currentTime, setCurrentTime } = useDawStore();
   const rulerRef = useRef<HTMLDivElement>(null);
+  // Fix: suscribe al resize con listener + cleanup en lugar de leer window.innerWidth solo en render.
+  const [viewportWidth, setViewportWidth] = useState(() =>
+    typeof window !== 'undefined' ? window.innerWidth : 0
+  );
+
+  useEffect(() => {
+    const onResize = () => setViewportWidth(window.innerWidth);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
 
   const beatDuration = 60 / bpm;
-  const barDuration = beatDuration * timeSignature[0];
+  // Fix: usa el denominador del compás (p.ej. 6/8 → pulso de corchea = mitad de negra).
+  const denom = timeSignature[1] || 4;
+  const beatLen = beatDuration * (4 / denom);
+  const barDuration = beatLen * timeSignature[0];
   const totalBars = Math.ceil(duration / barDuration);
   const totalWidth = duration * zoom;
 
@@ -33,7 +46,7 @@ export const Ruler: React.FC = () => {
             <div
               key={beatIdx}
               className="h-1.5 w-px bg-dark-border/40"
-              style={{ marginLeft: `${beatDuration * zoom}px` }}
+              style={{ marginLeft: `${beatLen * zoom}px` }}
             />
           ))}
         </div>
@@ -46,7 +59,7 @@ export const Ruler: React.FC = () => {
       ref={rulerRef}
       onClick={handleSeek}
       className="h-7 bg-dark-surfaceLight/50 border-b border-dark-border relative cursor-pointer select-none overflow-hidden"
-      style={{ width: `${Math.max(window.innerWidth, totalWidth)}px` }}
+      style={{ width: `${Math.max(viewportWidth, totalWidth)}px` }}
     >
       {bars}
 

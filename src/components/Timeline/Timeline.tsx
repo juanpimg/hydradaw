@@ -1,4 +1,4 @@
-import React, { useRef, useEffect } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useDawStore } from '../../store/useDawStore';
 import { audioEngine } from '../../audio/AudioEngine';
 import { Ruler } from './Ruler';
@@ -30,7 +30,21 @@ export const Timeline: React.FC = () => {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const playheadRef = useRef<HTMLDivElement>(null);
 
-  // Playhead smooth position sync at 60 FPS
+  // Fix: viewport reactivo con listener de resize + cleanup en lugar de leer window.innerWidth en render.
+  const [viewportWidth, setViewportWidth] = useState(() =>
+    typeof window !== 'undefined' ? window.innerWidth : 0
+  );
+
+  useEffect(() => {
+    const onResize = () => setViewportWidth(window.innerWidth);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+
+  // Fix (doble loop rAF): se mantiene este loop local del playhead (mutación directa del DOM sin
+  // re-renders) separado del loop de telemetría del engine (meters + time callbacks). Unificarlos
+  // obligaría al playhead a pasar por estado React o a los meters a tocar el DOM; la separación evita
+  // re-renders a 60fps. Playhead smooth position sync at 60 FPS
   useEffect(() => {
     let animId: number;
     const syncPlayhead = () => {
@@ -100,7 +114,7 @@ export const Timeline: React.FC = () => {
     }
   };
 
-  const totalWidth = Math.max(window.innerWidth - 240, duration * zoom);
+  const totalWidth = Math.max(viewportWidth - 240, duration * zoom);
 
   return (
     <div className="flex-1 flex flex-col bg-dark-bg overflow-hidden relative select-none">

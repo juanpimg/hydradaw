@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { AudioTrack, AudioClip, PluginInstance } from '../types/daw';
 import { audioEngine } from '../audio/AudioEngine';
+import { splitClipOperation, trimLeftOperation, trimRightOperation } from '../audio/timelineOps';
 import { generateDemoTrackBuffer, generateWaveformPeaks } from '../audio/waveformUtils';
 import { BUILTIN_PLUGINS } from '../audio/builtinPlugins';
 
@@ -68,6 +69,7 @@ interface DawState {
   updateClip: (id: string, updates: Partial<AudioClip>) => void;
   removeClip: (id: string) => void;
   splitClip: (clipId: string, atTime: number) => void;
+  trimClip: (clipId: string, edge: 'left' | 'right', deltaSeconds: number) => void;
 
   // Plugins
   addPluginToTrack: (trackId: string, pluginId: string) => void;
@@ -108,11 +110,19 @@ export const useDawStore = create<DawState>((set, get) => ({
   clips: [],
 
   setProjectName: (projectName) => set({ projectName }),
-  setBpm: (bpm) => set({ bpm }),
+  // Fix(wave2): propaga el tempo al engine para que play/render usen el bpm vigente.
+  setBpm: (bpm) => {
+    set({ bpm });
+    audioEngine.setTempo(bpm);
+  },
   setCurrentTime: (currentTime) => {
     set({ currentTime });
     if (get().isPlaying) {
       const { tracks, clips } = get();
+      // Fix(wave2): se mantiene el reinicio vía play() con estado fresco. Los BufferSource de
+      // Web Audio son one-shot y no admiten seek sin replanificar; engine.seek() hace el mismo
+      // reinicio interno pero con caché posiblemente obsoleta (addClip no resincroniza clips),
+      // por eso se pasa aquí tracks/clips vigentes en lugar de usar seek().
       audioEngine.play(tracks, clips, currentTime);
     }
   },
@@ -172,8 +182,17 @@ export const useDawStore = create<DawState>((set, get) => ({
     }
   },
 
-  toggleLoop: () => set((s) => ({ isLooping: !s.isLooping })),
-  toggleMetronome: () => set((s) => ({ metronome: !s.metronome })),
+  // Fix(wave4): loop y metrónomo cableados al engine (setLoop/setMetronome reales).
+  toggleLoop: () => {
+    const next = !get().isLooping;
+    set({ isLooping: next });
+    audioEngine.setLoop(next, get().loopStart, get().loopEnd);
+  },
+  toggleMetronome: () => {
+    const next = !get().metronome;
+    set({ metronome: next });
+    audioEngine.setMetronome(next);
+  },
 
   addTrack: (name, type = 'audio') => {
     const colors = ['#06b6d4', '#10b981', '#a855f7', '#f59e0b', '#ec4899', '#3b82f6'];
@@ -276,32 +295,35 @@ export const useDawStore = create<DawState>((set, get) => ({
 
   splitClip: (clipId, atTime) => {
     const clip = get().clips.find((c) => c.id === clipId);
-    if (!clip || !clip.audioBuffer) return;
+    if (!clip) return;
+    // Fix(wave2): delega en splitClipOperation (minDuration 0.2, ids únicos); null = no mutar.
+    const result = splitClipOperation(clip, atTime);
+    if (!result) return;
 
-    if (atTime <= clip.startTime || atTime >= clip.startTime + clip.duration) return;
-
-    const firstDuration = atTime - clip.startTime;
-    const secondDuration = clip.duration - firstDuration;
-    const secondOffset = clip.offset + firstDuration;
-
-    const clip1: AudioClip = {
-      ...clip,
-      duration: firstDuration,
-      peaks: generateWaveformPeaks(clip.audioBuffer, 500),
-    };
-
-    const clip2: AudioClip = {
-      ...clip,
-      id: 'clip_' + Date.now(),
-      startTime: atTime,
-      duration: secondDuration,
-      offset: secondOffset,
-      peaks: generateWaveformPeaks(clip.audioBuffer, 500),
-    };
+    // Fix(wave2): regenera picos si hay audioBuffer (como hacía el store antes); sin buffer
+    // se conservan los picos existentes para no romper clips sin audio decodificado.
+    const withPeaks = (c: AudioClip): AudioClip =>
+      c.audioBuffer ? { ...c, peaks: generateWaveformPeaks(c.audioBuffer, 500) } : c;
+    const clip1 = withPeaks(result.clip1);
+    const clip2 = withPeaks(result.clip2);
 
     set((state) => ({
       clips: state.clips.map((c) => (c.id === clipId ? clip1 : c)).concat(clip2),
       selectedClipId: clip2.id,
+    }));
+  },
+
+  // Fix(wave2): nueva acción trimClip que delega en trimLeft/RightOperation y regen picos.
+  trimClip: (clipId, edge, deltaSeconds) => {
+    const clip = get().clips.find((c) => c.id === clipId);
+    if (!clip) return;
+    const trimmed =
+      edge === 'left' ? trimLeftOperation(clip, deltaSeconds) : trimRightOperation(clip, deltaSeconds);
+    const next: AudioClip = trimmed.audioBuffer
+      ? { ...trimmed, peaks: generateWaveformPeaks(trimmed.audioBuffer, 500) }
+      : trimmed;
+    set((state) => ({
+      clips: state.clips.map((c) => (c.id === clipId ? next : c)),
     }));
   },
 
@@ -384,6 +406,9 @@ export const useDawStore = create<DawState>((set, get) => ({
       });
       return { tracks };
     });
+    // Fix(wave2): propaga al engine para que los knobs suenen en vivo
+    // (patrón igual que add/remove/toggle, que llaman a rebuildTrackEffects).
+    audioEngine.updateTrackPluginParam(trackId, instanceId, paramId, value);
   },
 
   loadDemoProject: async () => {

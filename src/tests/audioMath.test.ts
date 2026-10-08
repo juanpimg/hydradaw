@@ -1,63 +1,13 @@
 import { describe, it, expect } from 'vitest';
-
-/**
- * Standard Audio Math Utilities
- * Authoritative implementations matching AES and Web Audio API specifications
- */
-export function dbToLinear(db: number): number {
-  if (db <= -100) return 0;
-  return Math.pow(10, db / 20);
-}
-
-export function linearToDb(linear: number): number {
-  if (linear <= 0) return -Infinity;
-  return 20 * Math.log10(linear);
-}
-
-export function secondsToSamples(seconds: number, sampleRate: number): number {
-  if (seconds < 0) return 0;
-  return Math.floor(seconds * sampleRate);
-}
-
-export function samplesToSeconds(samples: number, sampleRate: number): number {
-  if (samples < 0 || sampleRate <= 0) return 0;
-  return samples / sampleRate;
-}
-
-export function calculateLinearPan(pan: number): { left: number; right: number } {
-  // Clamped between -1 and +1
-  const clampedPan = Math.max(-1, Math.min(1, pan));
-  return {
-    left: (1 - clampedPan) / 2,
-    right: (1 + clampedPan) / 2,
-  };
-}
-
-export function calculateConstantPowerPan(pan: number): { left: number; right: number } {
-  const clampedPan = Math.max(-1, Math.min(1, pan));
-  const angle = ((clampedPan + 1) * Math.PI) / 4; // 0 to PI/2
-  const cos = Math.cos(angle);
-  const sin = Math.sin(angle);
-  return {
-    left: Math.abs(cos) < 1e-10 ? 0 : cos,
-    right: Math.abs(sin) < 1e-10 ? 0 : sin,
-  };
-}
-
-export function calculatePeakAndRMS(samples: Float32Array): { peak: number; rms: number } {
-  if (samples.length === 0) return { peak: 0, rms: 0 };
-  let sum = 0;
-  let peak = 0;
-  for (let i = 0; i < samples.length; i++) {
-    const abs = Math.abs(samples[i]);
-    if (abs > peak) peak = abs;
-    sum += abs * abs;
-  }
-  return {
-    peak,
-    rms: Math.sqrt(sum / samples.length),
-  };
-}
+import {
+  dbToLinear,
+  linearToDb,
+  secondsToSamples,
+  samplesToSeconds,
+  calculateLinearPan,
+  calculateConstantPowerPan,
+  calculatePeakAndRMS,
+} from '../audio/audioMath';
 
 describe('HydraDAW Audio Math & DSP Calculations', () => {
   describe('Tier 1: Feature Coverage (dBFS <-> Linear Gain)', () => {

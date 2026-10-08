@@ -83,6 +83,9 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     const startX = e.clientX;
     const initialStartTime = clip.startTime;
     const initialDuration = clip.duration;
+    const initialOffset = clip.offset;
+    // Fix: duración máxima disponible en el buffer para clampear trimRight.
+    const bufferDuration = clip.audioBuffer?.duration ?? clip.buffer?.duration ?? Number.POSITIVE_INFINITY;
 
     // Detect if clicking near left or right edge for trimming
     const rect = e.currentTarget.getBoundingClientRect();
@@ -95,11 +98,17 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
       const deltaTime = deltaX / zoom;
 
       if (isTrimLeft) {
-        const newStart = Math.max(0, initialStartTime + deltaTime);
-        const newDuration = Math.max(0.2, initialDuration - deltaTime);
-        updateClip(clip.id, { startTime: newStart, duration: newDuration });
+        // Fix: clamp del delta y actualización de offset para no desincronizar el audio del buffer.
+        const maxDelta = initialDuration - 0.2;
+        const clampedDelta = Math.max(-initialStartTime, -initialOffset, Math.min(maxDelta, deltaTime));
+        const newStart = Math.max(0, initialStartTime + clampedDelta);
+        const newDuration = Math.max(0.2, initialDuration - clampedDelta);
+        const newOffset = Math.max(0, initialOffset + clampedDelta);
+        updateClip(clip.id, { startTime: newStart, duration: newDuration, offset: newOffset });
       } else if (isTrimRight) {
-        const newDuration = Math.max(0.2, initialDuration + deltaTime);
+        // Fix: clamp contra buffer.duration para no extender más allá del audio disponible.
+        const maxDuration = Math.max(0.2, bufferDuration - initialOffset);
+        const newDuration = Math.min(Math.max(0.2, initialDuration + deltaTime), maxDuration);
         updateClip(clip.id, { duration: newDuration });
       } else {
         // Move clip
@@ -120,6 +129,9 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
   return (
     <div
       onMouseDown={handleMouseDown}
+      // Fix: el lane deselecciona en onClick; sin esto el click posterior al
+      // mousedown borraba la selección y ningún clip quedaba seleccionable con ratón.
+      onClick={(e) => e.stopPropagation()}
       className={`absolute top-1 bottom-1 rounded-lg overflow-hidden cursor-move border transition-shadow select-none ${
         isSelected
           ? 'border-white ring-2 ring-cyan-400 shadow-lg shadow-cyan-500/30 z-10'

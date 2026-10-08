@@ -1,5 +1,6 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useDawStore } from './store/useDawStore';
+import { loadSavedProject, startAutosave } from './store/persistence';
 import { Header } from './components/Header/Header';
 import { Timeline } from './components/Timeline/Timeline';
 import { MixerConsole } from './components/Mixer/MixerConsole';
@@ -8,13 +9,25 @@ import { PluginRackModal } from './components/Plugins/PluginRackModal';
 import { ExportModal } from './components/Export/ExportModal';
 
 export default function App() {
-  const { activeView, tracks, loadDemoProject } = useDawStore();
+  const { activeView, loadDemoProject } = useDawStore();
 
-  // Auto-load demo tracks on first launch if empty
+  // Restaura el proyecto guardado (o demo si no hay nada) + autosave.
+  // Guard contra React StrictMode (efecto doble en dev).
+  const initRef = useRef(false);
   useEffect(() => {
-    if (tracks.length === 0) {
-      loadDemoProject();
-    }
+    if (initRef.current) return;
+    initRef.current = true;
+    let stopAutosave: (() => void) | undefined;
+    (async () => {
+      const restored = await loadSavedProject();
+      if (!restored) {
+        await loadDemoProject();
+      }
+      stopAutosave = startAutosave();
+    })();
+    return () => {
+      stopAutosave?.();
+    };
   }, []);
 
   return (

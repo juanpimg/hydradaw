@@ -47,61 +47,6 @@ class TestAudioBuffer implements AudioBuffer {
   }
 }
 
-/**
- * Specification 32-bit IEEE Float WAV Encoder
- * Used to verify the reference binary contract for 32-bit audio bouncing
- */
-export function encode32BitFloatWav(buffer: AudioBuffer): Uint8Array {
-  const numChannels = buffer.numberOfChannels;
-  const sampleRate = buffer.sampleRate;
-  const length = buffer.length;
-  const bytesPerSample = 4;
-  const blockAlign = numChannels * bytesPerSample;
-  const byteRate = sampleRate * blockAlign;
-  const dataSize = length * blockAlign;
-  const bufferSize = 44 + dataSize;
-
-  const arrayBuffer = new ArrayBuffer(bufferSize);
-  const view = new DataView(arrayBuffer);
-
-  function writeAscii(offset: number, text: string) {
-    for (let i = 0; i < text.length; i++) {
-      view.setUint8(offset + i, text.charCodeAt(i));
-    }
-  }
-
-  // RIFF chunk
-  writeAscii(0, 'RIFF');
-  view.setUint32(4, 36 + dataSize, true);
-  writeAscii(8, 'WAVE');
-
-  // fmt chunk
-  writeAscii(12, 'fmt ');
-  view.setUint32(16, 16, true);
-  view.setUint16(20, 3, true); // 3 = IEEE Float format
-  view.setUint16(22, numChannels, true);
-  view.setUint32(24, sampleRate, true);
-  view.setUint32(28, byteRate, true);
-  view.setUint16(32, blockAlign, true);
-  view.setUint16(34, 32, true); // 32 bits per sample
-
-  // data chunk
-  writeAscii(36, 'data');
-  view.setUint32(40, dataSize, true);
-
-  // Write 32-bit float samples
-  let offset = 44;
-  for (let i = 0; i < length; i++) {
-    for (let c = 0; c < numChannels; c++) {
-      const sample = buffer.getChannelData(c)[i];
-      view.setFloat32(offset, sample, true);
-      offset += 4;
-    }
-  }
-
-  return new Uint8Array(arrayBuffer);
-}
-
 describe('HydraDAW RIFF WAV Encoding & Binary Formats', () => {
   const textDecoder = new TextDecoder('ascii');
 
@@ -243,7 +188,7 @@ describe('HydraDAW RIFF WAV Encoding & Binary Formats', () => {
       const sampleRate = 96000;
       const length = 100;
       const mockBuffer = new TestAudioBuffer(2, length, sampleRate);
-      const wav = encode32BitFloatWav(mockBuffer);
+      const wav = encodeWav(mockBuffer, 32);
 
       const view = new DataView(wav.buffer);
       expect(textDecoder.decode(wav.subarray(0, 4))).toBe('RIFF');
@@ -260,13 +205,23 @@ describe('HydraDAW RIFF WAV Encoding & Binary Formats', () => {
       const ch0 = new Float32Array([0.75, 1.25]); // 1.25 retains headroom above 0 dBFS!
       const ch1 = new Float32Array([-0.5, -2.0]);
       const mockBuffer = new TestAudioBuffer(2, 2, 44100, [ch0, ch1]);
-      const wav = encode32BitFloatWav(mockBuffer);
+      const wav = encodeWav(mockBuffer, 32);
 
       const view = new DataView(wav.buffer);
       expect(view.getFloat32(44, true)).toBeCloseTo(0.75, 6);
       expect(view.getFloat32(48, true)).toBeCloseTo(-0.5, 6);
       expect(view.getFloat32(52, true)).toBeCloseTo(1.25, 6);
       expect(view.getFloat32(56, true)).toBeCloseTo(-2.0, 6);
+    });
+
+    it('computes exact total file length for real 32-bit float encoder', () => {
+      const length = 1000;
+      const mockBuffer = new TestAudioBuffer(2, length, 48000);
+      const wav = encodeWav(mockBuffer, 32);
+      expect(wav.length).toBe(44 + length * 2 * 4);
+      const view = new DataView(wav.buffer);
+      expect(view.getUint32(4, true)).toBe(36 + length * 2 * 4);
+      expect(view.getUint32(40, true)).toBe(length * 2 * 4);
     });
   });
 

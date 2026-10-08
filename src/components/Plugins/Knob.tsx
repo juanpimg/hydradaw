@@ -1,4 +1,4 @@
-import React, { useRef } from 'react';
+import React from 'react';
 
 interface KnobProps {
   label: string;
@@ -23,8 +23,7 @@ export const Knob: React.FC<KnobProps> = ({
   onChange,
   size = 40,
 }) => {
-  const knobRef = useRef<HTMLDivElement>(null);
-
+  // Fix: eliminado knobRef sin usar (nunca se leía .current); sin cambios visuales ni de comportamiento.
   // Normalize value to 0..1
   const normalized = Math.max(0, Math.min(1, (value - min) / (max - min)));
   // Angle: -135deg to +135deg (total 270 degrees)
@@ -68,7 +67,6 @@ export const Knob: React.FC<KnobProps> = ({
 
       {/* Rotary Dial */}
       <div
-        ref={knobRef}
         onMouseDown={handleMouseDown}
         onDoubleClick={handleDoubleClick}
         className="relative rounded-full bg-gradient-to-b from-dark-surfaceLight to-dark-surface border-2 border-dark-border hover:border-cyan-500/60 shadow-md cursor-ns-resize transition-colors flex items-center justify-center"
