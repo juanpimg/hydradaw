@@ -1,9 +1,9 @@
+# HydraDAW — cabeceras Cloudflare Pages.
+# COOP same-origin + COEP credentialless en prod; dev usa require-corp
+# (vite.config.ts). Web Audio no exige aislamiento cross-origin; se
+# mantienen por higiene futura (SharedArrayBuffer / WASM threads).
+# Permissions-Policy: solo self puede pedir microfono (grabacion local).
 /*
-  Fix(waveB-shell): COOP same-origin + COEP credentialless en prod; dev usa
-  require-corp (vite.config.ts) para paridad con assets locales del mismo
-  origen. Web Audio no exige aislamiento cross-origin, se mantienen por
-  higiene futura (SharedArrayBuffer / WASM threads si se adoptan).
-  Permissions-Policy: solo self puede pedir micrófono (grabación local).
   Cross-Origin-Opener-Policy: same-origin
   Cross-Origin-Embedder-Policy: credentialless
   X-Content-Type-Options: nosniff
