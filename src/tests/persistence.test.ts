@@ -1,3 +1,5 @@
+// Fix(waveB-ts): noUncheckedIndexedAccess — aserciones non-null (!) en indexaciones
+// garantizadas por el setup de cada test; sin cambios de semántica ni comportamiento.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 vi.mock('idb-keyval', () => {
@@ -150,15 +152,15 @@ describe('persistence: serializeProject', () => {
     expect(out.clips.every((c) => c.demoKind === null && c.needsReimport === true)).toBe(true);
     expect(out.clips[0]).toMatchObject({ startTime: 2, duration: 8, offset: 1, sourceName: 'Guitar.wav' });
     expect(out.tracks[0]).toMatchObject({ volume: 0.7, pan: 0.5 });
-    expect(out.tracks[0].plugins[0].parameters).toEqual({ lowGain: 2 });
+    expect(out.tracks[0]!.plugins[0]!.parameters).toEqual({ lowGain: 2 });
   });
 
   it('no acumula el marcador ⚠️ al serializar clips pendientes', () => {
     const state = baseState();
     state.clips = [{ ...demoClip('clip_user_1', 'track_1', '⚠️ Guitar.wav (reimportar)') }];
     const out = serializeProject(state);
-    expect(out.clips[0].name).toBe('Guitar.wav');
-    expect(out.clips[0].sourceName).toBe('Guitar.wav');
+    expect(out.clips[0]!.name).toBe('Guitar.wav');
+    expect(out.clips[0]!.sourceName).toBe('Guitar.wav');
   });
 });
 
@@ -175,7 +177,7 @@ describe('persistence: deserializeProject', () => {
       isLooping: true,
     });
     expect(back!.tracks[0]).toMatchObject({ volume: 0.95, pan: -0.2 });
-    expect(back!.tracks[0].plugins[0].parameters).toEqual({ lowGain: 2 });
+    expect(back!.tracks[0]!.plugins[0]!.parameters).toEqual({ lowGain: 2 });
     expect(back!.clips[0]).toMatchObject({ demoKind: 'drums', needsReimport: false });
   });
 
@@ -234,20 +236,20 @@ describe('persistence: restoreClips', () => {
   it('regenera buffers y picos demo; marca clips de usuario como pendientes', () => {
     const ctx = makeFakeAudioContext();
     const clips = restoreClips(serializeProject(baseState()).clips, ctx);
-    expect(clips[0].audioBuffer).not.toBeNull();
-    expect(clips[0].peaks.length).toBeGreaterThan(0);
-    expect(clips[0].needsReimport).toBe(false);
+    expect(clips[0]!.audioBuffer).not.toBeNull();
+    expect(clips[0]!.peaks.length).toBeGreaterThan(0);
+    expect(clips[0]!.needsReimport).toBe(false);
   });
 
   it('clips de usuario quedan con buffer null, picos vacíos y marcador visible', () => {
     const state = baseState();
     state.clips = [{ ...demoClip('clip_u1', 'track_1', 'Voz.wav'), duration: 4 }];
     const clips = restoreClips(serializeProject(state).clips, makeFakeAudioContext());
-    expect(clips[0].audioBuffer).toBeNull();
-    expect(clips[0].peaks.length).toBe(0);
-    expect(clips[0].needsReimport).toBe(true);
-    expect(clips[0].name).toContain('Voz.wav');
-    expect(clips[0].name).toContain('⚠️');
+    expect(clips[0]!.audioBuffer).toBeNull();
+    expect(clips[0]!.peaks.length).toBe(0);
+    expect(clips[0]!.needsReimport).toBe(true);
+    expect(clips[0]!.name).toContain('Voz.wav');
+    expect(clips[0]!.name).toContain('⚠️');
   });
 });
 
@@ -323,9 +325,9 @@ describe('persistence: storage + autosave (idb-keyval mockeado)', () => {
       const stop = startAutosave(subscribeFn);
       expect(subscribeFn).toHaveBeenCalledTimes(1);
 
-      listeners[0]();
-      listeners[0]();
-      listeners[0]();
+      listeners[0]!();
+      listeners[0]!();
+      listeners[0]!();
       expect(set).not.toHaveBeenCalled();
 
       await vi.advanceTimersByTimeAsync(1999);
@@ -403,12 +405,12 @@ describe('persistence: audio de usuario (WAV por clip)', () => {
     const data = deserializeProject(raw);
     expect(data).not.toBeNull();
     const clips = restoreClips(data!.clips, ctx);
-    expect(clips[0].audioBuffer).toBeNull();
-    expect(clips[0].needsReimport).toBe(true);
+    expect(clips[0]!.audioBuffer).toBeNull();
+    expect(clips[0]!.needsReimport).toBe(true);
 
     const res = await restoreAudioBuffers(clips, ctx);
     expect(res).toEqual({ restored: 1, failed: 0, missing: 0 });
-    const restoredBuf = clips[0].audioBuffer!;
+    const restoredBuf = clips[0]!.audioBuffer!;
     expect(restoredBuf.numberOfChannels).toBe(original.numberOfChannels);
     expect(restoredBuf.duration).toBeCloseTo(original.duration, 6);
     for (let c = 0; c < original.numberOfChannels; c++) {
@@ -416,9 +418,9 @@ describe('persistence: audio de usuario (WAV por clip)', () => {
         Array.from(original.getChannelData(c)),
       );
     }
-    expect(clips[0].peaks.length).toBeGreaterThan(0);
-    expect(clips[0].needsReimport).toBe(false);
-    expect(clips[0].name).toBe('Guitar.wav');
+    expect(clips[0]!.peaks.length).toBeGreaterThan(0);
+    expect(clips[0]!.needsReimport).toBe(false);
+    expect(clips[0]!.name).toBe('Guitar.wav');
   });
 
   it('decodeWavBytes soporta PCM-16 con error de cuantización ≈ 2/32768', () => {
@@ -430,7 +432,7 @@ describe('persistence: audio de usuario (WAV por clip)', () => {
     const b = decoded.getChannelData(0);
     expect(b.length).toBe(a.length);
     let maxDiff = 0;
-    for (let i = 0; i < a.length; i++) maxDiff = Math.max(maxDiff, Math.abs(a[i] - b[i]));
+    for (let i = 0; i < a.length; i++) maxDiff = Math.max(maxDiff, Math.abs(a[i]! - b[i]!));
     expect(maxDiff).toBeLessThanOrEqual(2 / 32768);
   });
 
@@ -446,8 +448,8 @@ describe('persistence: audio de usuario (WAV por clip)', () => {
     );
     const res = await restoreAudioBuffers(clips, ctx);
     expect(res.failed).toBe(1);
-    expect(clips[0].audioBuffer).toBeNull();
-    expect(clips[0].needsReimport).toBe(true);
+    expect(clips[0]!.audioBuffer).toBeNull();
+    expect(clips[0]!.needsReimport).toBe(true);
   });
 
   it('recurre al parser interno si decodeAudioData nativo falla', async () => {
@@ -466,7 +468,7 @@ describe('persistence: audio de usuario (WAV por clip)', () => {
     });
     const res = await restoreAudioBuffers(clips, ctxConNativoRoto);
     expect(res.restored).toBe(1);
-    expect(clips[0].audioBuffer).not.toBeNull();
+    expect(clips[0]!.audioBuffer).not.toBeNull();
   });
 
   it('al guardar borra el audio de clips que ya no existen (anti-huérfanos)', async () => {
@@ -508,7 +510,7 @@ describe('persistence: audio de usuario (WAV por clip)', () => {
     const clips = restoreClips(deserializeProject(raw)!.clips, ctx);
     const res = await restoreAudioBuffers(clips, ctx);
     expect(res).toEqual({ restored: 0, failed: 0, missing: 1 });
-    expect(clips[0].needsReimport).toBe(true);
+    expect(clips[0]!.needsReimport).toBe(true);
   });
 
   it('saveProjectNow nunca lanza aunque todo el almacenamiento falle', async () => {

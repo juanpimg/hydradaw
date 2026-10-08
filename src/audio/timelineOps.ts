@@ -48,8 +48,10 @@ export function splitClipOperation(
   const secondOffset = clip.offset + firstDuration;
 
   // Fix(waveA): capar secondDuration al audio fuente disponible
-  // (`buffer.duration - secondOffset`); null si el resto < minDuration.
-  const sourceDuration = clip.audioBuffer?.duration ?? clip.buffer?.duration;
+  // (`audioBuffer.duration - secondOffset`); null si el resto < minDuration.
+  // Fix(waveB): tolerancia legacy en runtime — datos viejos pueden traer `buffer`
+  // en lugar de `audioBuffer` (el tipo ya solo declara `audioBuffer`).
+  const sourceDuration = clip.audioBuffer?.duration ?? (clip as unknown as { buffer?: AudioBuffer | null }).buffer?.duration;
   if (typeof sourceDuration === 'number' && Number.isFinite(sourceDuration)) {
     const maxSecond = sourceDuration - secondOffset;
     if (maxSecond < minDuration) {
@@ -108,14 +110,17 @@ export function trimLeftOperation(
 /**
  * Trims the right handle by `deltaSeconds` (> 0 extends).
  * Clamps duration to >= `minDuration` and, when an AudioBuffer is available,
- * to <= `buffer.duration - offset` so the clip never exceeds its source.
+ * to <= `audioBuffer.duration - offset` so the clip never exceeds its source.
+ * Fix(waveB): alias `buffer` eliminado — unificado en `audioBuffer` (con fallback legacy en runtime).
  */
 export function trimRightOperation(
   clip: AudioClip,
   deltaSeconds: number,
   minDuration: number = MIN_CLIP_DURATION
 ): AudioClip {
-  const sourceDuration = clip.audioBuffer?.duration ?? clip.buffer?.duration;
+  // Fix(waveB): tolerancia legacy en runtime — datos viejos pueden traer `buffer`
+  // en lugar de `audioBuffer` (el tipo ya solo declara `audioBuffer`).
+  const sourceDuration = clip.audioBuffer?.duration ?? (clip as unknown as { buffer?: AudioBuffer | null }).buffer?.duration;
   let maxDuration = Infinity;
   if (typeof sourceDuration === 'number' && Number.isFinite(sourceDuration)) {
     maxDuration = Math.max(minDuration, sourceDuration - clip.offset);

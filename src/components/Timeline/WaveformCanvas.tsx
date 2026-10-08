@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import { AudioClip } from '../../types/daw';
+import type { AudioClip } from '../../types/daw';
 import { useDawStore } from '../../store/useDawStore';
 import { calculateMagneticSnap } from '../../audio/timelineOps';
 
@@ -63,8 +63,9 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     const step = width / numPairs;
 
     for (let i = 0; i < numPairs; i++) {
-      const min = peaks[i * 2];
-      const max = peaks[i * 2 + 1];
+      // Fix(waveB-ts): noUncheckedIndexedAccess → picos tipados como number|undefined.
+      const min = peaks[i * 2] ?? 0;
+      const max = peaks[i * 2 + 1] ?? 0;
 
       const x = i * step;
       const yTop = halfHeight - Math.abs(max) * (halfHeight - 4);
@@ -93,7 +94,8 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     const initialDuration = clip.duration;
     const initialOffset = clip.offset;
     // Fix: duración máxima disponible en el buffer para clampear trimRight.
-    const bufferDuration = clip.audioBuffer?.duration ?? clip.buffer?.duration ?? Number.POSITIVE_INFINITY;
+    // Fix(waveB): solo `audioBuffer` (alias `buffer` eliminado).
+    const bufferDuration = clip.audioBuffer?.duration ?? Number.POSITIVE_INFINITY;
 
     // Detect if clicking near left or right edge for trimming
     const rect = e.currentTarget.getBoundingClientRect();

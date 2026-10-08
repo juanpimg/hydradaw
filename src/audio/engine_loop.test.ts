@@ -1,3 +1,5 @@
+// Fix(waveB-ts): noUncheckedIndexedAccess — aserciones non-null (!) en indexaciones
+// garantizadas por el setup de cada test; sin cambios de semántica ni comportamiento.
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { AudioEngine } from './AudioEngine';
 import { MasterBus } from './MasterBus';
@@ -212,11 +214,11 @@ describe('wave3: loop real en el engine', () => {
     const clips = [makeClip({ startTime: 0, duration: 16 })];
     const looped = engine.planClipSchedules(clips, 0, 4);
     expect(looped).toHaveLength(1);
-    expect(looped[0].playDuration).toBeLessThanOrEqual(4);
+    expect(looped[0]!.playDuration).toBeLessThanOrEqual(4);
 
     const linear = engine.planClipSchedules(clips, 0, Infinity);
     expect(linear).toHaveLength(1);
-    expect(linear[0].playDuration).toBeCloseTo(16, 9);
+    expect(linear[0]!.playDuration).toBeCloseTo(16, 9);
 
     // Clip que empieza después del loop no se programa en la iteración actual
     const outside = engine.planClipSchedules([makeClip({ startTime: 10, duration: 4 })], 0, 4);
@@ -299,7 +301,7 @@ describe('wave3: metrónomo audible al tempo real', () => {
     const clicks = engine.getMetronomeClickTimes(0, 2);
     expect(clicks).toHaveLength(4);
     expect(clicks.map((c) => c.time)).toEqual([0, 0.5, 1, 1.5]);
-    expect(clicks[0].accent).toBe(true);
+    expect(clicks[0]!.accent).toBe(true);
     expect(clicks.slice(1).every((c) => !c.accent)).toBe(true);
   });
 
@@ -311,7 +313,7 @@ describe('wave3: metrónomo audible al tempo real', () => {
     const step = 60 / 140;
     const clicks = engine.getMetronomeClickTimes(0, step * 2 + 0.001);
     expect(clicks).toHaveLength(3);
-    expect(clicks[1].time).toBeCloseTo(step, 9);
+    expect(clicks[1]!.time).toBeCloseTo(step, 9);
   });
 
   it('6/8: paso de corchea y acento cada 6 clicks', () => {
@@ -321,9 +323,9 @@ describe('wave3: metrónomo audible al tempo real', () => {
     const step = 0.25; // (60/120) * (4/8)
     const clicks = engine.getMetronomeClickTimes(0, step * 6 + 0.001);
     expect(clicks).toHaveLength(7); // 0..6 inclusive (borde)
-    expect(clicks[0].accent).toBe(true);
+    expect(clicks[0]!.accent).toBe(true);
     expect(clicks.slice(1, 6).every((c) => !c.accent)).toBe(true);
-    expect(clicks[6].accent).toBe(true);
+    expect(clicks[6]!.accent).toBe(true);
   });
 
   it('play con metrónomo genera osciladores (2000 Hz acento / 1000 Hz resto)', async () => {

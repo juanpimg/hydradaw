@@ -122,7 +122,8 @@ export class MasterBus {
     let sum = 0;
     let peak = 0;
     for (let i = 0; i < data.length; i++) {
-      const abs = Math.abs(data[i]);
+      // Fix(waveB-ts): noUncheckedIndexedAccess → data[i] es number|undefined.
+      const abs = Math.abs(data[i] ?? 0);
       if (abs > peak) peak = abs;
       sum += abs * abs;
     }

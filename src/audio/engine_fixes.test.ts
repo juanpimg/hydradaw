@@ -1,3 +1,5 @@
+// Fix(waveB-ts): noUncheckedIndexedAccess — aserciones non-null (!) en indexaciones
+// garantizadas por el setup de cada test; sin cambios de semántica ni comportamiento.
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { AudioEngine } from './AudioEngine';
 import { MasterBus } from './MasterBus';
@@ -238,11 +240,11 @@ describe('waveA: fixes del engine', () => {
       duration: 1,
       offset: 0,
       audioBuffer: fakeBuffer(1),
-      buffer: fakeBuffer(1),
+      // Fix(waveB): alias `buffer` eliminado — la toma expone solo `audioBuffer`.
       peaks: new Float32Array([0]),
     };
     (engine as unknown as { isRecording: boolean }).isRecording = true;
-    vi.spyOn(engine, 'stopRecording').mockResolvedValue(fakeClip as unknown as AudioClip & { buffer: AudioBuffer });
+    vi.spyOn(engine, 'stopRecording').mockResolvedValue(fakeClip as unknown as AudioClip & { audioBuffer: AudioBuffer });
     engine.stop();
     await new Promise((r) => setTimeout(r, 0));
     expect(engine.getLastTake()).toBe(fakeClip);
@@ -284,7 +286,7 @@ describe('waveA: fixes del engine', () => {
     expect(stopSpy).toHaveBeenCalled();
     expect(playSpy).toHaveBeenCalledWith(expect.anything(), expect.anything(), 5);
     // Orden: stop antes que play (stop síncrono, play async después).
-    expect(stopSpy.mock.invocationCallOrder[0]).toBeLessThan(playSpy.mock.invocationCallOrder[0]);
+    expect(stopSpy.mock.invocationCallOrder[0]!).toBeLessThan(playSpy.mock.invocationCallOrder[0]!);
     await new Promise((r) => setTimeout(r, 0));
     expect((engine as unknown as { isPlaying: boolean }).isPlaying).toBe(true);
   });
@@ -303,14 +305,14 @@ describe('waveA: fixes del engine', () => {
     const { engine } = setupEngine();
     const toSpy = vi.spyOn(globalThis, 'setTimeout');
     await engine.play([makeTrack()], [makeClip()], 0, { loop: true, loopStart: 0, loopEnd: 4 });
-    const firstDelay = toSpy.mock.calls[toSpy.mock.calls.length - 1][1] as number;
+    const firstDelay = toSpy.mock.calls[toSpy.mock.calls.length - 1]![1] as number;
     // (4 + 0.02) * 1000 = 4020
     expect(firstDelay).toBeCloseTo(4020, 0);
     // Simula wrap tardío (100ms late): el re-schedule debe acortarse.
     (engine as unknown as { loopDueWallMs: number }).loopDueWallMs = Date.now() - 100;
     toSpy.mockClear();
     (engine as unknown as { handleLoopWrap: () => void }).handleLoopWrap();
-    const secondDelay = toSpy.mock.calls[toSpy.mock.calls.length - 1][1] as number;
+    const secondDelay = toSpy.mock.calls[toSpy.mock.calls.length - 1]![1] as number;
     expect(secondDelay).toBeLessThan(firstDelay);
     expect(secondDelay).toBeCloseTo(4020 - 100, -1);
   });

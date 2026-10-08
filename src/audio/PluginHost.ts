@@ -1,5 +1,5 @@
 import { BUILTIN_PLUGINS } from './builtinPlugins';
-import { PluginDefinition, PluginInstance } from '../types/daw';
+import type { PluginDefinition, PluginInstance } from '../types/daw';
 
 export interface ActiveDSPNode {
   instanceId: string;

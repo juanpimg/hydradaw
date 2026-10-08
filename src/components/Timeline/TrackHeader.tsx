@@ -1,5 +1,5 @@
 import React from 'react';
-import { AudioTrack } from '../../types/daw';
+import type { AudioTrack } from '../../types/daw';
 import { useDawStore } from '../../store/useDawStore';
 import { 
   Volume2, 
@@ -20,7 +20,8 @@ export const TrackHeader: React.FC<TrackHeaderProps> = ({ track, isSelected }) =
     updateTrack, 
     removeTrack, 
     setSelectedTrack, 
-    setPluginModal 
+    setPluginModal,
+    pushToast 
   } = useDawStore();
 
   const activePluginsCount = track.plugins.filter((p) => p.enabled).length;
@@ -74,9 +75,9 @@ export const TrackHeader: React.FC<TrackHeaderProps> = ({ track, isSelected }) =
           <button
             onClick={(e) => {
               e.stopPropagation();
-              if (confirm(`¿Eliminar ${track.name}?`)) {
-                removeTrack(track.id);
-              }
+              // Fix(waveB-shell): borrado directo + toast (sin confirm bloqueante; sin undo).
+              removeTrack(track.id);
+              pushToast(`Pista "${track.name}" eliminada (deshecho no disponible).`);
             }}
             className="p-1 rounded text-slate-500 hover:text-red-400 hover:bg-red-950/20 transition-colors"
             title="Eliminar Pista"

@@ -1,15 +1,21 @@
-import { useEffect, useRef } from 'react';
+import { lazy, Suspense, useEffect, useRef } from 'react';
 import { useDawStore } from './store/useDawStore';
 import { loadSavedProject, startAutosave } from './store/persistence';
 import { Header } from './components/Header/Header';
 import { Timeline } from './components/Timeline/Timeline';
 import { MixerConsole } from './components/Mixer/MixerConsole';
 import { TransportBar } from './components/Transport/TransportBar';
-import { PluginRackModal } from './components/Plugins/PluginRackModal';
-import { ExportModal } from './components/Export/ExportModal';
+import { Toaster } from './components/Toast/Toaster';
+
+// Fix(waveB-shell): modales pesados fuera del chunk inicial (se cargan al abrirse).
+const PluginRackModal = lazy(() => import('./components/Plugins/PluginRackModal'));
+const ExportModal = lazy(() => import('./components/Export/ExportModal'));
 
 export default function App() {
   const { activeView, loadDemoProject } = useDawStore();
+  // Fix(waveB-shell): flags para montaje diferido (el lazy solo fetchea al abrir).
+  const exportModalOpen = useDawStore((s) => s.exportModalOpen);
+  const pluginModalTrackId = useDawStore((s) => s.pluginModalTrackId);
 
   // Restaura el proyecto guardado (o demo si no hay nada) + autosave.
   // Fix(waveA): startAutosave filtra por snapshot persistible (excluye
@@ -46,8 +52,12 @@ export default function App() {
       <TransportBar />
 
       {/* Dialog Modals */}
-      <PluginRackModal />
-      <ExportModal />
+      <Suspense fallback={null}>
+        {pluginModalTrackId && <PluginRackModal />}
+        {exportModalOpen && <ExportModal />}
+      </Suspense>
+      {/* Fix(waveB-shell): toasts no bloqueantes. */}
+      <Toaster />
     </div>
   );
 }

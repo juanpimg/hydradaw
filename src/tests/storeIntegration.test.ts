@@ -1,3 +1,5 @@
+// Fix(waveB-ts): noUncheckedIndexedAccess — aserciones non-null (!) en indexaciones
+// garantizadas por el setup de cada test; sin cambios de semántica ni comportamiento.
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { AudioClip, AudioTrack } from '../types/daw';
 
@@ -97,8 +99,8 @@ describe('store integration (wave2)', () => {
     useDawStore.setState({ tracks: [makeTrack()] });
     useDawStore.getState().updatePluginParam('track_1', 'inst_1', 'lowGain', 5);
 
-    const track = useDawStore.getState().tracks[0];
-    expect(track.plugins[0].parameters.lowGain).toBe(5);
+    const track = useDawStore.getState().tracks[0]!;
+    expect(track.plugins[0]!.parameters.lowGain).toBe(5);
     expect(mockedEngine.updateTrackPluginParam).toHaveBeenCalledWith(
       'track_1',
       'inst_1',
@@ -129,12 +131,12 @@ describe('store integration (wave2)', () => {
 
     const clips = useDawStore.getState().clips;
     expect(clips).toHaveLength(2);
-    expect(clips[0].duration).toBeCloseTo(3, 5);
-    expect(clips[1].startTime).toBe(3);
-    expect(clips[1].duration).toBeCloseTo(5, 5);
-    expect(clips[1].offset).toBeCloseTo(3, 5);
-    expect(clips[1].id).toContain('split');
-    expect(useDawStore.getState().selectedClipId).toBe(clips[1].id);
+    expect(clips[0]!.duration).toBeCloseTo(3, 5);
+    expect(clips[1]!.startTime).toBe(3);
+    expect(clips[1]!.duration).toBeCloseTo(5, 5);
+    expect(clips[1]!.offset).toBeCloseTo(3, 5);
+    expect(clips[1]!.id).toContain('split');
+    expect(useDawStore.getState().selectedClipId).toBe(clips[1]!.id);
   });
 
   it('splitClip respeta minDuration 0.2: corte pegado al borde no muta', () => {
@@ -142,7 +144,7 @@ describe('store integration (wave2)', () => {
     useDawStore.getState().splitClip('clip_1', 0.1);
 
     expect(useDawStore.getState().clips).toHaveLength(1);
-    expect(useDawStore.getState().clips[0].duration).toBe(8);
+    expect(useDawStore.getState().clips[0]!.duration).toBe(8);
     expect(useDawStore.getState().selectedClipId).toBeNull();
   });
 
@@ -156,7 +158,7 @@ describe('store integration (wave2)', () => {
     useDawStore.setState({ clips: [makeClip()] });
     useDawStore.getState().trimClip('clip_1', 'left', 2);
 
-    const clip = useDawStore.getState().clips[0];
+    const clip = useDawStore.getState().clips[0]!;
     expect(clip.startTime).toBeCloseTo(2, 5);
     expect(clip.duration).toBeCloseTo(6, 5);
     expect(clip.offset).toBeCloseTo(2, 5);
@@ -165,10 +167,10 @@ describe('store integration (wave2)', () => {
   it('trimClip right extiende/recorta y satura a minDuration', () => {
     useDawStore.setState({ clips: [makeClip()] });
     useDawStore.getState().trimClip('clip_1', 'right', 2);
-    expect(useDawStore.getState().clips[0].duration).toBeCloseTo(10, 5);
+    expect(useDawStore.getState().clips[0]!.duration).toBeCloseTo(10, 5);
 
     useDawStore.getState().trimClip('clip_1', 'right', -100);
-    expect(useDawStore.getState().clips[0].duration).toBeCloseTo(0.2, 5);
+    expect(useDawStore.getState().clips[0]!.duration).toBeCloseTo(0.2, 5);
   });
 
   it('trimClip con clip inexistente no muta', () => {

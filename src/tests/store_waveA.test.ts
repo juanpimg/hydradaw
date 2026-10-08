@@ -1,3 +1,5 @@
+// Fix(waveB-ts): noUncheckedIndexedAccess — aserciones non-null (!) en indexaciones
+// garantizadas por el setup de cada test; sin cambios de semántica ni comportamiento.
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { AudioClip, AudioTrack } from '../types/daw';
 
@@ -86,7 +88,7 @@ beforeEach(() => {
 describe('store waveA', () => {
   it('updateClip sin reproducción no replanifica pero actualiza el clip', () => {
     useDawStore.getState().updateClip('clip_1', { startTime: 2 });
-    expect(useDawStore.getState().clips[0].startTime).toBe(2);
+    expect(useDawStore.getState().clips[0]!.startTime).toBe(2);
     expect(mockedEngine.play).not.toHaveBeenCalled();
   });
 
@@ -96,10 +98,10 @@ describe('store waveA', () => {
     useDawStore.getState().updateClip('clip_1', { startTime: 2 });
 
     expect(mockedEngine.play).toHaveBeenCalledTimes(1);
-    const [tracks, clips, from] = mockedEngine.play.mock.calls[0];
+    const [tracks, clips, from] = mockedEngine.play.mock.calls[0]!;
     expect(tracks).toEqual(useDawStore.getState().tracks);
     expect(clips).toEqual(useDawStore.getState().clips);
-    expect(clips?.[0].startTime).toBe(2);
+    expect(clips?.[0]!.startTime).toBe(2);
     expect(from).toBe(5);
   });
 
@@ -191,7 +193,7 @@ describe('store waveA', () => {
 
   it('trimClip recalcula duration al encoger', () => {
     useDawStore.getState().trimClip('clip_1', 'right', -100);
-    expect(useDawStore.getState().clips[0].duration).toBeCloseTo(0.2, 5);
+    expect(useDawStore.getState().clips[0]!.duration).toBeCloseTo(0.2, 5);
     expect(useDawStore.getState().duration).toBe(16);
   });
 

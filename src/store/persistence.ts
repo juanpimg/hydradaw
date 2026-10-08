@@ -286,7 +286,8 @@ export function serializeProject(state: PersistableProjectState): SerializedProj
       }
       // Fix(waveA): guarda el sampleRate del buffer tal cual estaba al
       // serializar (ver nota sobre remuestreo en `restoreAudioBuffers`).
-      const liveBuffer = c.audioBuffer ?? c.buffer ?? null;
+      // Fix(waveB): solo `audioBuffer` (alias `buffer` eliminado).
+      const liveBuffer = c.audioBuffer ?? null;
       if (liveBuffer && Number.isFinite(liveBuffer.sampleRate) && liveBuffer.sampleRate > 0) {
         clip.sampleRate = liveBuffer.sampleRate;
       }
@@ -669,7 +670,8 @@ export function decodeWavBytes(data: Uint8Array, ctx: BaseAudioContext): AudioBu
       const interleaved = new Float32Array(data.buffer, absOffset, frameCount * numChannels);
       for (let c = 0; c < numChannels; c++) {
         const channel = out.getChannelData(c);
-        for (let i = 0; i < frameCount; i++) channel[i] = interleaved[i * numChannels + c];
+        // Fix(waveB-ts): interleaved[...] es number|undefined en tipo; 0 inalcanzable en rango.
+        for (let i = 0; i < frameCount; i++) channel[i] = interleaved[i * numChannels + c] ?? 0;
       }
       return out;
     }
@@ -887,7 +889,8 @@ export async function saveProjectNow(): Promise<void> {
     for (const c of state.clips) {
       if (inferDemoKind(c) !== null) continue;
       if (bytesById.has(c.id)) continue;
-      const buf = c.audioBuffer ?? c.buffer ?? null;
+      // Fix(waveB): solo `audioBuffer` (alias `buffer` eliminado).
+      const buf = c.audioBuffer ?? null;
       if (!buf) continue;
       let bytes = bytesByBuffer.get(buf);
       if (!bytes) {

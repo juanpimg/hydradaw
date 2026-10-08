@@ -63,7 +63,8 @@ export function calculatePeakAndRMS(samples: Float32Array): { peak: number; rms:
   let sum = 0;
   let peak = 0;
   for (let i = 0; i < samples.length; i++) {
-    const abs = Math.abs(samples[i]);
+    // Fix(waveB-ts): noUncheckedIndexedAccess → samples[i] es number|undefined.
+    const abs = Math.abs(samples[i] ?? 0);
     if (abs > peak) peak = abs;
     sum += abs * abs;
   }

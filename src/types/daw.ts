@@ -44,7 +44,8 @@ export interface AudioClip {
   duration: number;      // Duration on timeline (seconds)
   offset: number;        // Offset into the audio buffer (seconds)
   audioBuffer: AudioBuffer | null;
-  buffer?: AudioBuffer | null; // Compatibility alias
+  // Fix(waveB): alias duplicado `buffer` eliminado — unificado en `audioBuffer`
+  // (un clip con solo `buffer` no sonaba ni se exportaba).
   peaks: Float32Array;   // Pre-calculated min/max waveform peaks for 60fps canvas
   color?: string;
 }

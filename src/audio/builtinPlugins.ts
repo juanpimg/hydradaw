@@ -1,4 +1,4 @@
-import { PluginDefinition } from '../types/daw';
+import type { PluginDefinition } from '../types/daw';
 
 // Fix(waveA): PRNG determinista (mulberry32) para IR reproducible (RT == export).
 export function mulberry32(seed: number): () => number {

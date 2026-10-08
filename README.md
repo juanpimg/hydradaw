@@ -22,5 +22,27 @@ Conecta este repositorio en Cloudflare Pages con:
 
 `public/_headers` aplica COOP/COEP (`credentialless`) y caché inmutable para `/assets/*`.
 
+## Cabeceras y host esperado
+Host: cualquier origen HTTPS estático (Cloudflare Pages por defecto). Equivalentes requeridos:
+
+- `Cross-Origin-Opener-Policy: same-origin`
+- `Cross-Origin-Embedder-Policy: credentialless` (dev: `require-corp`, ver `vite.config.ts`)
+- `X-Content-Type-Options: nosniff`
+- `Permissions-Policy: microphone=(self)`
+- `/assets/*`: `Cache-Control: public, max-age=31536000, immutable`
+
+Web Audio no exige aislamiento; COOP/COEP se mantienen por higiene futura
+(posible SharedArrayBuffer/WASM con hilos). Snippet Nginx equivalente:
+
+```nginx
+add_header Cross-Origin-Opener-Policy "same-origin" always;
+add_header Cross-Origin-Embedder-Policy "credentialless" always;
+add_header X-Content-Type-Options "nosniff" always;
+add_header Permissions-Policy "microphone=(self)" always;
+location /assets/ {
+  add_header Cache-Control "public, max-age=31536000, immutable" always;
+}
+```
+
 ## Estado y siguientes pasos
 Consulta [`HANDOFF.md`](./HANDOFF.md) para el estado actual, arquitectura, limitaciones conocidas y tareas pendientes.

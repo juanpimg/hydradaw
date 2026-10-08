@@ -21,6 +21,7 @@ export const PluginRackModal: React.FC = () => {
     removePluginFromTrack,
     updatePluginParam,
     addPluginToTrack,
+    pushToast,
   } = useDawStore();
 
   const [selectedCatalogPlugin, setSelectedCatalogPlugin] = useState<string>('eq3');
@@ -82,9 +83,10 @@ const customPlugin = {
       const def = pluginHost.registerCustomPlugin(customCode);
       addPluginToTrack(track.id, def.id);
       setImportingCustom(false);
-      alert(`¡Plugin local "${def.name}" importado e insertado en el rack con éxito!`);
+      // Fix(waveB-shell): toast no bloqueante en vez de alert().
+      pushToast(`Plugin local "${def.name}" importado e insertado en el rack.`);
     } catch (err) {
-      alert('Error al compilar plugin local: ' + err);
+      pushToast('Error al compilar plugin local: ' + err);
     }
   };
 
@@ -310,3 +312,6 @@ const customPlugin = {
     </div>
   );
 };
+
+// Fix(waveB-shell): default para React.lazy.
+export default PluginRackModal;

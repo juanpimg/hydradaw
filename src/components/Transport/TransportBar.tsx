@@ -18,6 +18,117 @@ import {
 // dígitos parciales ("1", "12") dispararían setBpm intermedios. Al vivir el
 // draft en este subcomponente, los re-renders del padre conservan su estado y
 // el foco, y el store solo se toca al confirmar.
+// Fix(waveB): inputs de rango de loop con ESTADO LOCAL + commit en onBlur/Enter.
+// Mismo motivo que BpmInput: el padre se re-renderiza a 60fps por currentTime y
+// un value={loopStart} directo pisaría la edición. Valida fin > inicio y clamp
+// 0..duration (duration solo se lee, nunca se modifica).
+const LoopRangeInputs: React.FC<{
+  loopStart: number;
+  loopEnd: number;
+  duration: number;
+  setLoopRange: (start: number, end: number) => void;
+}> = React.memo(({ loopStart, loopEnd, duration, setLoopRange }) => {
+  const [startText, setStartText] = useState(String(loopStart));
+  const [endText, setEndText] = useState(String(loopEnd));
+  const [editingStart, setEditingStart] = useState(false);
+  const [editingEnd, setEditingEnd] = useState(false);
+  const startRef = useRef<HTMLInputElement>(null);
+  const endRef = useRef<HTMLInputElement>(null);
+
+  // Fix(waveB): sincroniza solo cuando no se edita (cambios externos/persistencia).
+  useEffect(() => {
+    if (!editingStart) setStartText(String(loopStart));
+  }, [loopStart, editingStart]);
+  useEffect(() => {
+    if (!editingEnd) setEndText(String(loopEnd));
+  }, [loopEnd, editingEnd]);
+
+  const clamp1 = (v: number) => Math.min(duration, Math.max(0, Math.round(v * 10) / 10));
+
+  const commitStart = () => {
+    const parsed = Number(startText);
+    let next = clamp1(Number.isFinite(parsed) ? parsed : loopStart);
+    // Fix(waveB): valida fin > inicio con paso mínimo de 0.1s.
+    if (next >= loopEnd) next = clamp1(loopEnd - 0.1);
+    setStartText(String(next));
+    setEditingStart(false);
+    if (next !== loopStart) setLoopRange(next, loopEnd);
+  };
+
+  const commitEnd = () => {
+    const parsed = Number(endText);
+    let next = clamp1(Number.isFinite(parsed) ? parsed : loopEnd);
+    // Fix(waveB): valida fin > inicio con paso mínimo de 0.1s.
+    if (next <= loopStart) next = clamp1(loopStart + 0.1);
+    setEndText(String(next));
+    setEditingEnd(false);
+    if (next !== loopEnd) setLoopRange(loopStart, next);
+  };
+
+  const inputClass =
+    'w-10 bg-transparent text-slate-200 font-mono text-xs font-semibold focus:outline-none';
+
+  return (
+    <div
+      className="flex items-center space-x-1 bg-dark-surfaceLight px-1.5 py-1 rounded-lg border border-dark-border"
+      title="Rango del bucle en segundos"
+    >
+      <input
+        ref={startRef}
+        type="number"
+        min={0}
+        max={duration}
+        step={0.1}
+        value={startText}
+        aria-label="Inicio del bucle en segundos"
+        title="Inicio del bucle (segundos)"
+        onFocus={() => setEditingStart(true)}
+        onChange={(e) => {
+          setEditingStart(true);
+          setStartText(e.target.value);
+        }}
+        onBlur={commitStart}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') startRef.current?.blur();
+          if (e.key === 'Escape') {
+            setStartText(String(loopStart));
+            setEditingStart(false);
+            startRef.current?.blur();
+          }
+        }}
+        className={inputClass}
+      />
+      <span aria-hidden="true" className="text-slate-600 text-xs">-</span>
+      <input
+        ref={endRef}
+        type="number"
+        min={0}
+        max={duration}
+        step={0.1}
+        value={endText}
+        aria-label="Fin del bucle en segundos"
+        title="Fin del bucle (segundos)"
+        onFocus={() => setEditingEnd(true)}
+        onChange={(e) => {
+          setEditingEnd(true);
+          setEndText(e.target.value);
+        }}
+        onBlur={commitEnd}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') endRef.current?.blur();
+          if (e.key === 'Escape') {
+            setEndText(String(loopEnd));
+            setEditingEnd(false);
+            endRef.current?.blur();
+          }
+        }}
+        className={inputClass}
+      />
+    </div>
+  );
+});
+LoopRangeInputs.displayName = 'LoopRangeInputs';
+
 const BpmInput: React.FC<{ bpm: number; setBpm: (bpm: number) => void }> = React.memo(({ bpm, setBpm }) => {
   const [text, setText] = useState(String(bpm));
   const [editing, setEditing] = useState(false);
@@ -67,12 +178,17 @@ BpmInput.displayName = 'BpmInput';
 export const TransportBar: React.FC = () => {
   const {
     currentTime,
+    duration,
     bpm,
     setBpm,
     timeSignature,
+    setTimeSignature,
     isPlaying,
     isRecording,
     isLooping,
+    loopStart,
+    loopEnd,
+    setLoopRange,
     metronome,
     play,
     pause,
@@ -170,6 +286,7 @@ export const TransportBar: React.FC = () => {
         </button>
 
         {/* Fix(waveA): loop con aria-pressed para lectores de pantalla. */}
+        {/* Fix(waveB): aria-pressed existente conservado; inputs de rango junto al botón. */}
         <button
           onClick={toggleLoop}
           aria-pressed={isLooping}
@@ -182,6 +299,13 @@ export const TransportBar: React.FC = () => {
         >
           <Repeat className="w-4 h-4" />
         </button>
+        {/* Fix(waveB): rango 0-16 editable; dentro del mismo grupo flex-shrink-0 para no romper overflow-x-auto. */}
+        <LoopRangeInputs
+          loopStart={loopStart}
+          loopEnd={loopEnd}
+          duration={duration}
+          setLoopRange={setLoopRange}
+        />
       </div>
 
       {/* High-Resolution Time Display */}
@@ -212,14 +336,29 @@ export const TransportBar: React.FC = () => {
         </div>
 
         {/* Fix(waveA): compás de solo lectura con aria-label. */}
-        <div
-          role="img"
-          aria-label={`Compás ${timeSignature[0]} por ${timeSignature[1]}`}
+        {/* Fix(waveB): selector de compás con setTimeSignature existente (bonus trivial). */}
+        <select
+          value={`${timeSignature[0]}/${timeSignature[1]}`}
+          aria-label="Compás"
           title="Rejilla (no estira el audio)"
-          className="bg-dark-surfaceLight px-2 py-1 rounded-lg border border-dark-border text-xs text-slate-300 font-mono"
+          onChange={(e) => {
+            const [n, d] = e.target.value.split('/').map(Number);
+            // Fix(waveB-ts): destructuring de number[] da number|undefined en tipo.
+            if (n !== undefined && d !== undefined && Number.isFinite(n) && Number.isFinite(d) && n > 0 && d > 0) setTimeSignature([n, d]);
+          }}
+          className="bg-dark-surfaceLight px-1 py-1 rounded-lg border border-dark-border text-xs text-slate-300 font-mono focus:outline-none cursor-pointer"
         >
-          {timeSignature[0]}/{timeSignature[1]}
-        </div>
+          {['2/4', '3/4', '4/4', '5/4', '6/8', '7/8'].map((sig) => (
+            <option key={sig} value={sig}>
+              {sig}
+            </option>
+          ))}
+          {!['2/4', '3/4', '4/4', '5/4', '6/8', '7/8'].includes(`${timeSignature[0]}/${timeSignature[1]}`) && (
+            <option value={`${timeSignature[0]}/${timeSignature[1]}`}>
+              {timeSignature[0]}/{timeSignature[1]}
+            </option>
+          )}
+        </select>
 
         {/* Fix(waveA): metrónomo con aria-pressed; oculto en pantallas pequeñas. */}
         <button

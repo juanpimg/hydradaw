@@ -65,9 +65,11 @@ export function generateWaveformPeaks(buffer: AudioBuffer, targetPoints: number 
     let max = -1.0;
 
     for (let c = 0; c < channels; c++) {
+      // Fix(waveB-ts): c < channels por construcción; guard solo para el tipo.
       const data = channelData[c];
+      if (data === undefined) continue;
       for (let j = start; j < end; j += 4) { // stride 4 for ultra-fast approximation
-        const val = data[j];
+        const val = data[j] ?? 0;
         if (val < min) min = val;
         if (val > max) max = val;
       }
@@ -136,8 +138,9 @@ export function generateDemoTrackBuffer(
           const tone = Math.sin(2 * Math.PI * 180 * t) * 0.5;
           sample = (noise + tone) * env * 0.7;
         }
-        left[beatStart + i] += sample;
-        right[beatStart + i] += sample;
+        // Fix(waveB-ts): noUncheckedIndexedAccess → lectura indexada es number|undefined.
+        left[beatStart + i] = (left[beatStart + i] ?? 0) + sample;
+        right[beatStart + i] = (right[beatStart + i] ?? 0) + sample;
       }
 
       // Hi-hat on every 8th note
@@ -147,13 +150,15 @@ export function generateDemoTrackBuffer(
         const t = i / sampleRate;
         const env = Math.exp(-t * 80);
         const hat = (rng() * 2 - 1) * env * 0.3;
-        left[eighthStart + i] += hat;
-        right[eighthStart + i] += hat;
+        // Fix(waveB-ts): noUncheckedIndexedAccess → lectura indexada es number|undefined.
+        left[eighthStart + i] = (left[eighthStart + i] ?? 0) + hat;
+        right[eighthStart + i] = (right[eighthStart + i] ?? 0) + hat;
       }
     } else if (type === 'bass') {
       // 808 / Synth Bass line
       const notes = [55, 55, 65.4, 73.4, 49]; // A1, C2, D2, G1
-      const freq = notes[beat % notes.length];
+      // Fix(waveB-ts): índice siempre en rango; ?? 55 solo para el tipo.
+      const freq = notes[beat % notes.length] ?? 55;
       const soundLength = Math.floor(beatDuration * 0.9 * sampleRate);
       for (let i = 0; i < soundLength && beatStart + i < totalSamples; i++) {
         const t = i / sampleRate;
@@ -162,8 +167,9 @@ export function generateDemoTrackBuffer(
         const sub = Math.sin(2 * Math.PI * (freq / 2) * t) * 0.5;
         const main = (2 * ((freq * t) % 1) - 1) * 0.3;
         const sample = (sub + main) * env * 0.7;
-        left[beatStart + i] += sample;
-        right[beatStart + i] += sample;
+        // Fix(waveB-ts): noUncheckedIndexedAccess → lectura indexada es number|undefined.
+        left[beatStart + i] = (left[beatStart + i] ?? 0) + sample;
+        right[beatStart + i] = (right[beatStart + i] ?? 0) + sample;
       }
     } else if (type === 'chords') {
       // Warm Analog Pad / Synth chords
@@ -173,7 +179,8 @@ export function generateDemoTrackBuffer(
         [261.6, 329.6, 392], // C
         [196, 246.9, 293.7]  // G
       ];
-      const chord = chords[Math.floor(beat / 2) % chords.length];
+      // Fix(waveB-ts): índice siempre en rango; ?? [] solo para el tipo.
+      const chord = chords[Math.floor(beat / 2) % chords.length] ?? [];
       const soundLength = Math.floor(beatDuration * 1.8 * sampleRate);
       for (let i = 0; i < soundLength && beatStart + i < totalSamples; i++) {
         const t = i / sampleRate;
@@ -185,21 +192,23 @@ export function generateDemoTrackBuffer(
           sLeft += Math.sin(2 * Math.PI * (f * 1.002) * t) * 0.25;
           sRight += Math.sin(2 * Math.PI * (f * 0.998) * t) * 0.25;
         });
-        left[beatStart + i] += sLeft * env;
-        right[beatStart + i] += sRight * env;
+        left[beatStart + i] = (left[beatStart + i] ?? 0) + sLeft * env;
+        right[beatStart + i] = (right[beatStart + i] ?? 0) + sRight * env;
       }
     } else if (type === 'lead') {
       // Vocal Melodic Lead Synth
       const melody = [440, 523.25, 659.25, 587.33, 440, 659.25, 783.99, 659.25];
-      const freq = melody[beat % melody.length];
+      // Fix(waveB-ts): índice siempre en rango; ?? 440 solo para el tipo.
+      const freq = melody[beat % melody.length] ?? 440;
       const soundLength = Math.floor(beatDuration * 0.85 * sampleRate);
       for (let i = 0; i < soundLength && beatStart + i < totalSamples; i++) {
         const t = i / sampleRate;
         const env = Math.min(1, t * 100) * Math.exp(-t * 2);
         const vibrato = Math.sin(2 * Math.PI * 5 * t) * 4;
         const sample = Math.sin(2 * Math.PI * (freq + vibrato) * t) * env * 0.5;
-        left[beatStart + i] += sample * 0.8;
-        right[beatStart + i] += sample * 1.0;
+        // Fix(waveB-ts): noUncheckedIndexedAccess → lectura indexada es number|undefined.
+        left[beatStart + i] = (left[beatStart + i] ?? 0) + sample * 0.8;
+        right[beatStart + i] = (right[beatStart + i] ?? 0) + sample * 1.0;
       }
     }
   }
@@ -207,16 +216,18 @@ export function generateDemoTrackBuffer(
   // Fix(waveA): normalizar el pico final a ~0.89 (la acumulación de capas clipeaba).
   let peak = 0;
   for (let i = 0; i < totalSamples; i++) {
-    const a = Math.abs(left[i]);
+    // Fix(waveB-ts): noUncheckedIndexedAccess → índice tipado como number|undefined.
+    const a = Math.abs(left[i] ?? 0);
     if (a > peak) peak = a;
-    const b = Math.abs(right[i]);
+    const b = Math.abs(right[i] ?? 0);
     if (b > peak) peak = b;
   }
   if (peak > DEMO_TARGET_PEAK && peak > 0) {
     const gain = DEMO_TARGET_PEAK / peak;
     for (let i = 0; i < totalSamples; i++) {
-      left[i] *= gain;
-      right[i] *= gain;
+      // Fix(waveB-ts): noUncheckedIndexedAccess → lectura indexada es number|undefined.
+      left[i] = (left[i] ?? 0) * gain;
+      right[i] = (right[i] ?? 0) * gain;
     }
   }
 

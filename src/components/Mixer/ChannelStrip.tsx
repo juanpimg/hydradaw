@@ -1,5 +1,5 @@
 import React, { memo } from 'react';
-import { AudioTrack } from '../../types/daw';
+import type { AudioTrack } from '../../types/daw';
 import { useDawStore } from '../../store/useDawStore';
 import { Knob } from '../Plugins/Knob';
 import { VUMeter } from './VUMeter';

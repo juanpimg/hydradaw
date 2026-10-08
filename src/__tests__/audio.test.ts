@@ -1,3 +1,5 @@
+// Fix(waveB-ts): noUncheckedIndexedAccess — aserciones non-null (!) en indexaciones
+// garantizadas por el setup de cada test; sin cambios de semántica ni comportamiento.
 import { describe, it, expect } from 'vitest';
 import { encodeWav } from '../audio/WavExporter';
 import { generateWaveformPeaks } from '../audio/waveformUtils';
@@ -28,7 +30,7 @@ class MockAudioBuffer {
   }
 
   getChannelData(channel: number): Float32Array {
-    return this.channelData[channel];
+    return this.channelData[channel]!;
   }
 }
 
@@ -88,7 +90,7 @@ describe('HydraDAW Audio Architecture Tests', () => {
   it('defines the 6 built-in studio plugins with valid parameters', () => {
     const pluginIds = ['eq3', 'compressor', 'delay', 'reverb', 'limiter', 'saturator'];
     for (const id of pluginIds) {
-      const plugin = BUILTIN_PLUGINS[id];
+      const plugin = BUILTIN_PLUGINS[id]!;
       expect(plugin).toBeDefined();
       expect(plugin.name).toBeTruthy();
       expect(plugin.parameters.length).toBeGreaterThan(0);

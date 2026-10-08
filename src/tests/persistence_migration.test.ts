@@ -1,3 +1,5 @@
+// Fix(waveB-ts): noUncheckedIndexedAccess — aserciones non-null (!) en indexaciones
+// garantizadas por el setup de cada test; sin cambios de semántica ni comportamiento.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // Fix(waveA): este fichero simula un entorno SIN `keys()` en idb-keyval
@@ -229,13 +231,13 @@ describe('persistence_migration: claves y metadatos', () => {
       sourceMime: 'audio/wav',
     } as unknown as AudioClip;
     const out = serializeProject({ ...baseState(), clips: [clip] });
-    expect(out.clips[0].sampleRate).toBe(48000);
-    expect(out.clips[0].sourceFileName).toBe('toma3.wav');
-    expect(out.clips[0].sourceMime).toBe('audio/wav');
+    expect(out.clips[0]!.sampleRate).toBe(48000);
+    expect(out.clips[0]!.sourceFileName).toBe('toma3.wav');
+    expect(out.clips[0]!.sourceMime).toBe('audio/wav');
     const back = deserializeProject(JSON.parse(JSON.stringify(out)));
     expect(back!.clips[0]).toMatchObject({ sampleRate: 48000, sourceFileName: 'toma3.wav' });
     const restored = restoreClips(back!.clips, ctx);
-    expect(restored[0].name).toContain('toma3.wav');
+    expect(restored[0]!.name).toContain('toma3.wav');
   });
 });
 
@@ -389,13 +391,13 @@ describe('persistence_migration: autosave sin currentTime/isPlaying', () => {
       });
       let rev = 1;
       const stop = startAutosave(subscribeFn, () => rev);
-      listeners[0]();
-      listeners[0]();
+      listeners[0]!();
+      listeners[0]!();
       await vi.advanceTimersByTimeAsync(2500);
       expect(set).not.toHaveBeenCalled();
 
       rev = 2;
-      listeners[0]();
+      listeners[0]!();
       await vi.advanceTimersByTimeAsync(1999);
       expect(set).not.toHaveBeenCalled();
       await vi.advanceTimersByTimeAsync(1);

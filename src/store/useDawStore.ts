@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { AudioTrack, AudioClip, PluginInstance } from '../types/daw';
+import type { AudioTrack, AudioClip, PluginInstance } from '../types/daw';
 import { audioEngine } from '../audio/AudioEngine';
 import { splitClipOperation, trimLeftOperation, trimRightOperation } from '../audio/timelineOps';
 import { generateDemoTrackBuffer, generateWaveformPeaks } from '../audio/waveformUtils';
@@ -9,6 +9,14 @@ import { BUILTIN_PLUGINS } from '../audio/builtinPlugins';
 // crecía en addClip; borrar o encoger clips dejaba compases vacíos o clips invisibles.
 const recalcDuration = (clips: AudioClip[]): number =>
   Math.max(16, ...clips.map((c) => c.startTime + c.duration));
+
+// Fix(waveB-shell): id monótono para toasts (fuera del estado: no persiste).
+let nextToastId = 1;
+
+export interface Toast {
+  id: number;
+  message: string;
+}
 
 interface DawState {
   // Project Info
@@ -41,6 +49,11 @@ interface DawState {
   // Audio Data
   tracks: AudioTrack[];
   clips: AudioClip[];
+
+  // Fix(waveB-shell): toasts no bloqueantes (sustituyen alert()/confirm()).
+  toasts: Toast[];
+  pushToast: (message: string) => void;
+  dismissToast: (id: number) => void;
 
   // Actions
   setProjectName: (name: string) => void;
@@ -116,6 +129,11 @@ export const useDawStore = create<DawState>((set, get) => ({
 
   tracks: [],
   clips: [],
+
+  // Fix(waveB-shell): push añade con id monótono; dismiss filtra por id.
+  toasts: [],
+  pushToast: (message) => set((state) => ({ toasts: [...state.toasts, { id: nextToastId++, message }] })),
+  dismissToast: (id) => set((state) => ({ toasts: state.toasts.filter((t) => t.id !== id) })),
 
   setProjectName: (projectName) => set({ projectName }),
   // Fix(wave2): propaga el tempo al engine para que play/render usen el bpm vigente.
@@ -193,14 +211,16 @@ export const useDawStore = create<DawState>((set, get) => ({
     } else {
       const armedTrack = tracks.find((t) => t.armed) || tracks[0];
       if (!armedTrack) {
-        alert('Por favor añade y arma una pista para grabar.');
+        // Fix(waveB-shell): toast no bloqueante en vez de alert().
+        get().pushToast('Por favor añade y arma una pista para grabar.');
         return;
       }
       try {
         await audioEngine.startRecording(armedTrack.id, tracks, clips);
         set({ isRecording: true, isPlaying: true });
       } catch (err) {
-        alert('No se pudo acceder al micrófono para la grabación: ' + err);
+        // Fix(waveB-shell): toast no bloqueante en vez de alert().
+        get().pushToast('No se pudo acceder al micrófono para la grabación: ' + err);
       }
     }
   },
@@ -236,7 +256,8 @@ export const useDawStore = create<DawState>((set, get) => ({
       id: newId,
       name: name || `Pista ${trackCount + 1}`,
       type,
-      color: colors[trackCount % colors.length],
+      // Fix(waveB-ts): índice siempre en rango; ?? solo para el tipo.
+      color: colors[trackCount % colors.length] ?? '#06b6d4',
       volume: 1.0,
       pan: 0,
       mute: false,
@@ -264,9 +285,9 @@ export const useDawStore = create<DawState>((set, get) => ({
 
   removeTrack: (id) => {
     // Release underlying AudioBuffer memory to avoid memory leaks
+    // Fix(waveB): solo `audioBuffer` (alias `buffer` eliminado).
     get().clips.filter((c) => c.trackId === id).forEach((c) => {
       c.audioBuffer = null;
-      if (c.buffer) c.buffer = null;
     });
     set((state) => {
       const updatedTracks = state.tracks.filter((t) => t.id !== id);
@@ -319,9 +340,9 @@ export const useDawStore = create<DawState>((set, get) => ({
 
   removeClip: (id) => {
     const clip = get().clips.find((c) => c.id === id);
+    // Fix(waveB): solo `audioBuffer` (alias `buffer` eliminado).
     if (clip) {
       clip.audioBuffer = null;
-      if (clip.buffer) clip.buffer = null;
     }
     set((state) => {
       const remainingClips = state.clips.filter((c) => c.id !== id);
@@ -459,9 +480,9 @@ export const useDawStore = create<DawState>((set, get) => ({
 
   loadDemoProject: async () => {
     // Release previous clip buffers to ensure zero memory leaks
+    // Fix(waveB): solo `audioBuffer` (alias `buffer` eliminado).
     get().clips.forEach((c) => {
       c.audioBuffer = null;
-      if (c.buffer) c.buffer = null;
     });
     audioEngine.stop();
 

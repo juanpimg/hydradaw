@@ -1,4 +1,4 @@
-import { AudioTrack, AudioClip } from '../types/daw';
+import type { AudioTrack, AudioClip } from '../types/daw';
 import { TrackNode } from './TrackNode';
 import { MasterBus } from './MasterBus';
 import { generateWaveformPeaks } from './waveformUtils';
@@ -76,9 +76,11 @@ export class AudioEngine {
   private recordingTrackId: string | null = null;
   private recordingStartTime: number = 0;
   // Fix: deduplica stopRecording concurrentes (stop() + toggleRecord) devolviendo la misma promesa.
-  private stopRecordingPromise: Promise<(AudioClip & { buffer: AudioBuffer }) | null> | null = null;
+  // Fix(waveB): tipo unificado en `audioBuffer` (alias `buffer` eliminado).
+  private stopRecordingPromise: Promise<(AudioClip & { audioBuffer: AudioBuffer }) | null> | null = null;
   // Fix(waveA): última toma preservada por stop() en vez de descartarla.
-  private lastTake: (AudioClip & { buffer: AudioBuffer }) | null = null;
+  // Fix(waveB): tipo unificado en `audioBuffer` (alias `buffer` eliminado).
+  private lastTake: (AudioClip & { audioBuffer: AudioBuffer }) | null = null;
   // Fix(waveA): firma de efectos por track para reconstruir solo cuando cambian plugins.
   private trackEffectsSig: Map<string, string> = new Map();
   // Fix(waveA): vencimiento wall-clock esperado del wrap (para compensar jitter).
@@ -352,7 +354,8 @@ export class AudioEngine {
   }
 
   // Fix(waveA): expone la última toma preservada por stop().
-  getLastTake(): (AudioClip & { buffer: AudioBuffer }) | null {
+  // Fix(waveB): retorna solo `audioBuffer` (alias `buffer` eliminado).
+  getLastTake(): (AudioClip & { audioBuffer: AudioBuffer }) | null {
     return this.lastTake;
   }
 
@@ -553,8 +556,9 @@ export class AudioEngine {
 
   /**
    * Stops recording and decodes recorded clip
+   * Fix(waveB): retorna solo `audioBuffer` (alias `buffer` eliminado).
    */
-  async stopRecording(): Promise<(AudioClip & { buffer: AudioBuffer }) | null> {
+  async stopRecording(): Promise<(AudioClip & { audioBuffer: AudioBuffer }) | null> {
     // Fix: deduplica llamadas concurrentes (stop() en pausa + toggleRecord del store)
     // devolviendo la misma promesa en vuelo en lugar de decodificar dos veces.
     if (this.stopRecordingPromise) return this.stopRecordingPromise;
@@ -566,7 +570,7 @@ export class AudioEngine {
     const ctx = this.context;
 
     this.stopRecordingPromise = new Promise((resolve) => {
-      const done = (clip: (AudioClip & { buffer: AudioBuffer }) | null) => {
+      const done = (clip: (AudioClip & { audioBuffer: AudioBuffer }) | null) => {
         // Fix(waveA): preserva la toma para getLastTake() aunque venga de stop().
         if (clip) this.lastTake = clip;
         this.stopRecordingPromise = null;
@@ -580,7 +584,8 @@ export class AudioEngine {
           const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
           const peaks = generateWaveformPeaks(audioBuffer, 800);
 
-          const clip: AudioClip & { buffer: AudioBuffer } = {
+          // Fix(waveB): el clip grabado expone solo `audioBuffer` (alias `buffer` eliminado).
+          const clip: AudioClip & { audioBuffer: AudioBuffer } = {
             id: 'clip_' + Date.now(),
             trackId: this.recordingTrackId || '',
             name: 'Grabación ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
@@ -588,7 +593,6 @@ export class AudioEngine {
             duration: audioBuffer.duration,
             offset: 0,
             audioBuffer,
-            buffer: audioBuffer,
             peaks,
             color: '#ef4444',
           };
@@ -940,7 +944,8 @@ export class AudioEngine {
             analyser.getFloatTimeDomainData(view);
             let sum = 0;
             for (let i = 0; i < view.length; i++) {
-              const abs = Math.abs(view[i]);
+              // Fix(waveB-ts): noUncheckedIndexedAccess → view[i] es number|undefined.
+              const abs = Math.abs(view[i] ?? 0);
               if (abs > peak) peak = abs;
               sum += abs * abs;
             }
@@ -967,7 +972,8 @@ export class AudioEngine {
           Object.keys(this.telemetryPayload.tracks)
             .sort()
             .map((id) => {
-              const t = this.telemetryPayload.tracks[id];
+              // Fix(waveB-ts): id viene de Object.keys → existe; ?? 0 solo para el tipo.
+              const t = this.telemetryPayload.tracks[id] ?? { rms: 0, peak: 0 };
               return `${id}:${t.rms.toFixed(4)},${t.peak.toFixed(4)}`;
             })
             .join(';');

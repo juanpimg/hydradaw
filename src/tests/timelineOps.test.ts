@@ -1,3 +1,5 @@
+// Fix(waveB-ts): noUncheckedIndexedAccess — aserciones non-null (!) en indexaciones
+// garantizadas por el setup de cada test; sin cambios de semántica ni comportamiento.
 import { describe, it, expect } from 'vitest';
 import type { AudioClip } from '../types/daw';
 import {
@@ -222,7 +224,7 @@ describe('HydraDAW Timeline Operations & Manipulation Math', () => {
 
       expect(pieces.length).toBe(4);
       for (let i = 0; i < pieces.length - 1; i++) {
-        expect(pieces[i].startTime + pieces[i].duration).toBeCloseTo(pieces[i + 1].startTime, 5);
+        expect(pieces[i]!.startTime + pieces[i]!.duration).toBeCloseTo(pieces[i + 1]!.startTime, 5);
       }
     });
   });

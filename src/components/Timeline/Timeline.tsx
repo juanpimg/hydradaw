@@ -28,6 +28,7 @@ export const Timeline: React.FC = () => {
     play,
     pause,
     isPlaying,
+    pushToast,
   } = useDawStore();
 
   // Fix(waveA): clip seleccionado + si el cursor está dentro (para habilitar/deshabilitar Cortar).
@@ -106,6 +107,8 @@ export const Timeline: React.FC = () => {
     // Fix(waveA): repartir los clips en cascada para no apilarlos todos en currentTime.
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
+      // Fix(waveB-ts): files[i] es File|undefined en tipo; en la práctica i < length.
+      if (!file) continue;
       try {
         const audioBuffer = await decodeAudioFile(file, ctx);
         const peaks = generateWaveformPeaks(audioBuffer, 800);
@@ -128,7 +131,8 @@ export const Timeline: React.FC = () => {
           color: '#06b6d4',
         });
       } catch (err) {
-        alert('Error al importar archivo de audio: ' + err);
+        // Fix(waveB-shell): toast no bloqueante en vez de alert().
+        pushToast('Error al importar archivo de audio: ' + err);
       }
     }
   };

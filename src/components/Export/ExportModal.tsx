@@ -3,6 +3,16 @@ import { useDawStore } from '../../store/useDawStore';
 import type { AudioClip } from '../../types/daw';
 import { audioEngine } from '../../audio/AudioEngine';
 import { encodeWav, downloadAudioBlob } from '../../audio/WavExporter';
+// Fix(waveC): sonoridad BS.1770 + export AAC (WebCodecs + ADTS manual).
+import {
+  measureLoudness,
+  computeNormalizeGain,
+  applyGainInPlace,
+  NORMALIZE_TARGET_LUFS,
+  type LoudnessResult,
+} from '../../audio/loudness';
+import { encodeAacAdts, isAacSupported } from '../../audio/aacExporter';
+import { linearToDb } from '../../audio/audioMath';
 import {
   X,
   Download,
@@ -23,6 +33,17 @@ export const computeExportDuration = (
   return maxTime + 1.5;
 };
 
+// Fix(waveC): formato de export (WAV existente intacto; AAC vía WebCodecs+ADTS).
+export type ExportFormat = 'wav' | 'aac';
+export type AacBitrate = 128_000 | 192_000 | 256_000;
+
+// Fix(waveC): formateo de sonoridad para la UI (puro, sin efectos).
+export const formatLufs = (v: number): string =>
+  Number.isFinite(v) ? `${v.toFixed(1)} LUFS` : '-∞ LUFS';
+export const formatPeakDbfs = (peakLinear: number): string => {
+  const db = linearToDb(Math.max(0, peakLinear));
+  return Number.isFinite(db) ? `${db.toFixed(1)} dBFS` : '-∞ dBFS';
+};
 // Fix(waveA): antes solo se reemplazaban espacios; ahora todo lo no seguro [^a-z0-9_-].
 export const sanitizeExportFilename = (name: string): string => {
   const base = (name || '').trim() || 'cancion_master';
@@ -35,7 +56,8 @@ export const ExportModal: React.FC = () => {
     setExportModalOpen,
     tracks,
     clips,
-    projectName
+    projectName,
+    pushToast
   } = useDawStore();
 
   const [bitDepth, setBitDepth] = useState<16 | 24>(16);
@@ -44,6 +66,15 @@ export const ExportModal: React.FC = () => {
   const [isExporting, setIsExporting] = useState<boolean>(false);
   const [exportComplete, setExportComplete] = useState<boolean>(false);
   const [fileSizeMb, setFileSizeMb] = useState<number>(0);
+  // Fix(waveC): formato WAV/AAC + bitrate AAC + sonoridad + normalización.
+  const [exportFormat, setExportFormat] = useState<ExportFormat>('wav');
+  const [aacBitrate, setAacBitrate] = useState<AacBitrate>(128_000);
+  const [loudness, setLoudness] = useState<LoudnessResult | null>(null);
+  const [normalizeToMinus14, setNormalizeToMinus14] = useState<boolean>(false);
+  const [normalizeGainDb, setNormalizeGainDb] = useState<number | null>(null);
+  const [normalizeLimited, setNormalizeLimited] = useState<boolean>(false);
+  const [normalizeWouldClip, setNormalizeWouldClip] = useState<boolean>(false);
+  const [aacSupported, setAacSupported] = useState<boolean | null>(null);
 
   // Fix(waveA): foco inicial al abrir + devolver foco al cerrar + cierre con ESC.
   const panelRef = useRef<HTMLDivElement>(null);
@@ -56,6 +87,11 @@ export const ExportModal: React.FC = () => {
     // Fix(waveA): resetea el estado de éxito anterior al abrir el modal.
     setExportComplete(false);
     setFileSizeMb(0);
+    // Fix(waveC): resetea la lectura de sonoridad al abrir (conserva formato/opciones).
+    setLoudness(null);
+    setNormalizeGainDb(null);
+    setNormalizeLimited(false);
+    setNormalizeWouldClip(false);
     prevFocusRef.current = document.activeElement as HTMLElement | null;
     panelRef.current?.focus();
     const onKeyDown = (e: KeyboardEvent) => {
@@ -71,6 +107,23 @@ export const ExportModal: React.FC = () => {
     // Fix(waveA): solo al abrir/cerrar; isExporting se lee vía ref estable.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [exportModalOpen]);
+
+  // Fix(waveC): sondea soporte AAC (WebCodecs) al abrir o cambiar la tasa.
+  useEffect(() => {
+    if (!exportModalOpen) return;
+    let cancelled = false;
+    setAacSupported(null);
+    void isAacSupported({ sampleRate, numberOfChannels: 2, bitrate: aacBitrate })
+      .then((ok) => {
+        if (!cancelled) setAacSupported(ok);
+      })
+      .catch(() => {
+        if (!cancelled) setAacSupported(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [exportModalOpen, sampleRate, aacBitrate]);
 
   if (!exportModalOpen) return null;
 
@@ -98,18 +151,61 @@ export const ExportModal: React.FC = () => {
         { metronome: includeMetronome }
       );
 
-      // 2. Encode to WAV
-      const wavBytes = encodeWav(renderedBuffer, bitDepth);
-      const blob = new Blob([wavBytes as unknown as BlobPart], { type: 'audio/wav' });
+      // Fix(waveC): mide sonoridad integrada + pico sobre el render (solo lectura).
+      const measured = measureLoudness(renderedBuffer);
+      let finalLoudness: LoudnessResult = measured;
+      let appliedGainDb: number | null = null;
+      let limited = false;
+      let wouldClip = false;
 
-      setFileSizeMb(Math.round((blob.size / (1024 * 1024)) * 100) / 100);
-      setExportComplete(true);
+      // Fix(waveC): normalización a -14 LUFS (ganancia pre-codificación, WAV y AAC).
+      if (normalizeToMinus14) {
+        const plan = computeNormalizeGain(
+          measured.integratedLUFS,
+          Math.max(measured.peak, measured.truePeakEstimate),
+          NORMALIZE_TARGET_LUFS,
+        );
+        appliedGainDb = plan.gainDb;
+        limited = plan.limitedByCap;
+        wouldClip = plan.wouldClip;
+        if (plan.gainLinear !== 1) {
+          applyGainInPlace(renderedBuffer, plan.gainLinear);
+          finalLoudness = {
+            integratedLUFS: Number.isFinite(measured.integratedLUFS)
+              ? measured.integratedLUFS + plan.gainDb
+              : measured.integratedLUFS,
+            peak: measured.peak * plan.gainLinear,
+            truePeakEstimate: measured.truePeakEstimate * plan.gainLinear,
+          };
+        }
+      }
+      setLoudness(finalLoudness);
+      setNormalizeGainDb(appliedGainDb);
+      setNormalizeLimited(limited);
+      setNormalizeWouldClip(wouldClip);
 
-      // 3. Trigger download
       const cleanName = sanitizeExportFilename(projectName);
-      downloadAudioBlob(blob, `${cleanName}_${bitDepth}bit.wav`);
+      if (exportFormat === 'aac') {
+        // Fix(waveC): AAC-LC vía WebCodecs + ADTS; error descriptivo → toast (misma vía waveB-shell).
+        const aacBytes = await encodeAacAdts(renderedBuffer, { bitrate: aacBitrate });
+        const blob = new Blob([aacBytes as unknown as BlobPart], { type: 'audio/aac' });
+        setFileSizeMb(Math.round((blob.size / (1024 * 1024)) * 100) / 100);
+        setExportComplete(true);
+        downloadAudioBlob(blob, `${cleanName}_aac${Math.round(aacBitrate / 1000)}k.aac`);
+      } else {
+        // 2. Encode to WAV (flujo existente intacto cuando AAC no se elige).
+        const wavBytes = encodeWav(renderedBuffer, bitDepth);
+        const blob = new Blob([wavBytes as unknown as BlobPart], { type: 'audio/wav' });
+
+        setFileSizeMb(Math.round((blob.size / (1024 * 1024)) * 100) / 100);
+        setExportComplete(true);
+
+        // 3. Trigger download
+        downloadAudioBlob(blob, `${cleanName}_${bitDepth}bit.wav`);
+      }
     } catch (err) {
-      alert('Error durante la exportación de audio: ' + err);
+      // Fix(waveB-shell): toast no bloqueante en vez de alert().
+      pushToast('Error durante la exportación de audio: ' + err);
     } finally {
       setIsExporting(false);
     }
@@ -155,30 +251,90 @@ export const ExportModal: React.FC = () => {
 
         {/* Form Options */}
         <div className="p-5 space-y-4">
+          {/* Fix(waveC): selector de formato WAV/AAC (AAC vía WebCodecs + ADTS manual). */}
           <div className="p-3.5 bg-dark-bg border border-dark-border rounded-xl flex items-center justify-between">
             <div>
               <span className="text-xs font-bold text-slate-200">Formato de Audio</span>
-              <p className="text-[11px] text-slate-400">WAV PCM Lineal sin compresión destructiva</p>
+              <p className="text-[11px] text-slate-400">
+                {exportFormat === 'wav'
+                  ? 'WAV PCM Lineal sin compresión destructiva'
+                  : 'AAC-LC comprimido (WebCodecs, contenedor ADTS)'}
+              </p>
             </div>
             <div className="flex bg-dark-surfaceLight p-1 rounded-lg border border-dark-border space-x-1">
               <button
-                onClick={() => setBitDepth(16)}
+                onClick={() => setExportFormat('wav')}
                 className={`px-3 py-1 rounded text-xs font-bold transition-all ${
-                  bitDepth === 16 ? 'bg-cyan-500 text-slate-950' : 'text-slate-400 hover:text-white'
+                  exportFormat === 'wav' ? 'bg-cyan-500 text-slate-950' : 'text-slate-400 hover:text-white'
                 }`}
               >
-                16-bit (CD)
+                WAV
               </button>
               <button
-                onClick={() => setBitDepth(24)}
+                onClick={() => setExportFormat('aac')}
                 className={`px-3 py-1 rounded text-xs font-bold transition-all ${
-                  bitDepth === 24 ? 'bg-cyan-500 text-slate-950' : 'text-slate-400 hover:text-white'
+                  exportFormat === 'aac' ? 'bg-cyan-500 text-slate-950' : 'text-slate-400 hover:text-white'
                 }`}
               >
-                24-bit (Studio)
+                AAC
               </button>
             </div>
           </div>
+
+          {exportFormat === 'wav' ? (
+            <div className="p-3.5 bg-dark-bg border border-dark-border rounded-xl flex items-center justify-between">
+              <div>
+                <span className="text-xs font-bold text-slate-200">Profundidad de Bits</span>
+                <p className="text-[11px] text-slate-400">Resolución PCM del WAV</p>
+              </div>
+              <div className="flex bg-dark-surfaceLight p-1 rounded-lg border border-dark-border space-x-1">
+                <button
+                  onClick={() => setBitDepth(16)}
+                  className={`px-3 py-1 rounded text-xs font-bold transition-all ${
+                    bitDepth === 16 ? 'bg-cyan-500 text-slate-950' : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  16-bit (CD)
+                </button>
+                <button
+                  onClick={() => setBitDepth(24)}
+                  className={`px-3 py-1 rounded text-xs font-bold transition-all ${
+                    bitDepth === 24 ? 'bg-cyan-500 text-slate-950' : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  24-bit (Studio)
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="p-3.5 bg-dark-bg border border-dark-border rounded-xl space-y-2">
+              <div className="flex items-center justify-between">
+                <div>
+                  <span className="text-xs font-bold text-slate-200">Bitrate AAC</span>
+                  <p className="text-[11px] text-slate-400">Calidad del AAC-LC (mp4a.40.2)</p>
+                </div>
+                <div className="flex bg-dark-surfaceLight p-1 rounded-lg border border-dark-border space-x-1">
+                  {([128_000, 192_000, 256_000] as const).map((b) => (
+                    <button
+                      key={b}
+                      onClick={() => setAacBitrate(b)}
+                      className={`px-3 py-1 rounded text-xs font-bold transition-all ${
+                        aacBitrate === b ? 'bg-cyan-500 text-slate-950' : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      {Math.round(b / 1000)}k
+                    </button>
+                  ))}
+                </div>
+              </div>
+              {aacSupported === false && (
+                <p className="text-[11px] text-amber-400">
+                  Este navegador no soporta AAC (sin AudioEncoder WebCodecs, p. ej. Safari): la
+                  exportación AAC fallará. Usa WAV.
+                </p>
+              )}
+            </div>
+          )}
 
           <div className="p-3.5 bg-dark-bg border border-dark-border rounded-xl flex items-center justify-between">
             <div>
@@ -208,6 +364,46 @@ export const ExportModal: React.FC = () => {
               <span className="text-[11px] text-slate-400">Añade la guía de tempo al archivo exportado</span>
             </span>
           </label>
+
+          {/* Fix(waveC): normalización a -14 LUFS pre-codificación (WAV y AAC). */}
+          <label className="p-3.5 bg-dark-bg border border-dark-border rounded-xl flex items-center space-x-3 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={normalizeToMinus14}
+              onChange={(e) => setNormalizeToMinus14(e.target.checked)}
+              className="w-4 h-4 accent-emerald-500"
+            />
+            <span>
+              <span className="text-xs font-bold text-slate-200 block">
+                Normalizar a {NORMALIZE_TARGET_LUFS} LUFS
+              </span>
+              <span className="text-[11px] text-slate-400">
+                Aplica ganancia antes de codificar (tope +12dB)
+              </span>
+            </span>
+          </label>
+
+          {/* Fix(waveC): lectura de sonoridad tras el render (integrada + pico + true peak estimado). */}
+          {loudness && (
+            <div className="p-3 bg-slate-950/40 border border-slate-500/30 rounded-xl text-[11px] text-slate-300 space-y-1">
+              <p>
+                Integrada: {formatLufs(loudness.integratedLUFS)} · Pico: {formatPeakDbfs(loudness.peak)} ·
+                Pico verdadero (estimado): {formatPeakDbfs(loudness.truePeakEstimate)}
+              </p>
+              {normalizeGainDb !== null && (
+                <p className="text-slate-400">
+                  Ganancia aplicada: {normalizeGainDb >= 0 ? '+' : ''}
+                  {normalizeGainDb.toFixed(1)}dB
+                  {normalizeLimited ? ' (limitada a +12dB)' : ''}
+                </p>
+              )}
+              {normalizeWouldClip && (
+                <p className="text-amber-400">
+                  Aviso: la normalización deja el pico por encima de 0dBFS y podría clipear.
+                </p>
+              )}
+            </div>
+          )}
 
           {/* Master Bus Protection Info */}
           <div className="p-3 bg-emerald-950/30 border border-emerald-500/30 rounded-xl flex items-center space-x-3">
@@ -261,3 +457,6 @@ export const ExportModal: React.FC = () => {
     </div>
   );
 };
+
+// Fix(waveB-shell): default para React.lazy (se conservan los named exports usados en tests).
+export default ExportModal;

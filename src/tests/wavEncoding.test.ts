@@ -1,3 +1,5 @@
+// Fix(waveB-ts): noUncheckedIndexedAccess — aserciones non-null (!) en indexaciones
+// garantizadas por el setup de cada test; sin cambios de semántica ni comportamiento.
 import { describe, it, expect } from 'vitest';
 import { encodeWav } from '../audio/WavExporter';
 
@@ -31,17 +33,17 @@ class TestAudioBuffer implements AudioBuffer {
   }
 
   getChannelData(channel: number): Float32Array<ArrayBuffer> {
-    return this.channelData[channel];
+    return this.channelData[channel]!;
   }
 
   copyFromChannel(destination: Float32Array, channelNumber: number, bufferOffset?: number): void {
-    const src = this.channelData[channelNumber];
+    const src = this.channelData[channelNumber]!;
     const offset = bufferOffset || 0;
     destination.set(src.subarray(offset, offset + destination.length));
   }
 
   copyToChannel(source: Float32Array, channelNumber: number, bufferOffset?: number): void {
-    const dst = this.channelData[channelNumber];
+    const dst = this.channelData[channelNumber]!;
     const offset = bufferOffset || 0;
     dst.set(source, offset);
   }

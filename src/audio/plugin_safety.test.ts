@@ -1,3 +1,5 @@
+// Fix(waveB-ts): noUncheckedIndexedAccess — aserciones non-null (!) en indexaciones
+// garantizadas por el setup de cada test; sin cambios de semántica ni comportamiento.
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import {
   BUILTIN_PLUGINS,
@@ -84,7 +86,7 @@ class MockBuffer {
     }
   }
   getChannelData(c: number): Float32Array {
-    return this.data[c];
+    return this.data[c]!;
   }
 }
 
@@ -142,7 +144,7 @@ function peakOf(buf: { getChannelData(c: number): Float32Array; length: number; 
   for (let c = 0; c < buf.numberOfChannels; c++) {
     const d = buf.getChannelData(c);
     for (let i = 0; i < buf.length; i++) {
-      const a = Math.abs(d[i]);
+      const a = Math.abs(d[i]!);
       if (a > peak) peak = a;
     }
   }
@@ -156,8 +158,8 @@ describe('waveA: seguridad de plugins y operaciones', () => {
     expect(DELAY_FEEDBACK_MAX_GAIN).toBeLessThanOrEqual(0.95);
     const { ctx, gains } = makeMockCtx();
     // Creación con valor fuera de rango (>= 100 -> ganancia de loop >= 1 sin clamp)
-    const dsp = BUILTIN_PLUGINS.delay.createDSPNode(ctx, { time: 250, feedback: 150, damp: 6000, mix: 25 });
-    const feedbackNode = gains[4];
+    const dsp = BUILTIN_PLUGINS.delay!.createDSPNode(ctx, { time: 250, feedback: 150, damp: 6000, mix: 25 });
+    const feedbackNode = gains[4]!;
     expect(feedbackNode.gain.value).toBeLessThanOrEqual(0.95);
     // Update con valor abusivo también queda capado
     dsp.updateParameter('feedback', 200);
@@ -174,9 +176,9 @@ describe('waveA: seguridad de plugins y operaciones', () => {
       parameters: { time: 250, feedback: 200, damp: 6000, mix: 25 },
     });
     expect(node).not.toBeNull();
-    expect(gains[4].gain.value).toBeLessThanOrEqual(0.95);
+    expect(gains[4]!.gain.value).toBeLessThanOrEqual(0.95);
     node!.updateParameter('feedback', 500);
-    expect(gains[4].gain.value).toBeLessThanOrEqual(0.95);
+    expect(gains[4]!.gain.value).toBeLessThanOrEqual(0.95);
   });
 
   it('clampToDef por plugin (frecuencias <= 0, ratio < 1, etc.)', () => {
@@ -209,8 +211,8 @@ describe('waveA: seguridad de plugins y operaciones', () => {
   it('reverb no regenera IR por tick (debounce trailing)', () => {
     vi.useFakeTimers();
     const { ctx, convolvers } = makeMockCtx();
-    const dsp = BUILTIN_PLUGINS.reverb.createDSPNode(ctx, { decay: 2.0, mix: 30, damping: 8000 });
-    const conv = convolvers[0];
+    const dsp = BUILTIN_PLUGINS.reverb!.createDSPNode(ctx, { decay: 2.0, mix: 30, damping: 8000 });
+    const conv = convolvers[0]!;
     const initial = conv.buffer;
     dsp.updateParameter('decay', 3.0);
     dsp.updateParameter('decay', 3.5);
@@ -227,8 +229,8 @@ describe('waveA: seguridad de plugins y operaciones', () => {
     // Creación con drive abusivo equivale a drive 100
     expect(makeDistortionCurve(200 / 2)).toEqual(makeDistortionCurve(100 / 2));
     const { ctx, shapers } = makeMockCtx();
-    const dsp = BUILTIN_PLUGINS.saturator.createDSPNode(ctx, { drive: 25, tone: 6500, mix: 50 });
-    const shaper = shapers[0];
+    const dsp = BUILTIN_PLUGINS.saturator!.createDSPNode(ctx, { drive: 25, tone: 6500, mix: 50 });
+    const shaper = shapers[0]!;
     const initialCurve = shaper.curve;
     dsp.updateParameter('drive', 90);
     dsp.updateParameter('drive', 95);
@@ -243,15 +245,15 @@ describe('waveA: seguridad de plugins y operaciones', () => {
   it('saturator: rampa de wet durante el swap de curva', () => {
     vi.useFakeTimers();
     const { ctx, gains, shapers } = makeMockCtx();
-    const dsp = BUILTIN_PLUGINS.saturator.createDSPNode(ctx, { drive: 25, tone: 6500, mix: 50 });
-    const wetGain = gains[3];
+    const dsp = BUILTIN_PLUGINS.saturator!.createDSPNode(ctx, { drive: 25, tone: 6500, mix: 50 });
+    const wetGain = gains[3]!;
     wetGain.gain.calls = [];
     dsp.updateParameter('drive', 80);
     vi.advanceTimersByTime(SATURATOR_DRIVE_DEBOUNCE_MS + 50);
     // La rampa lleva wet a 0 durante el swap y lo restaura al mix (0.5)
     expect(wetGain.gain.calls).toContain(0);
-    expect(shapers[0].curve).toEqual(makeDistortionCurve(80 / 2));
-    expect(wetGain.gain.calls[wetGain.gain.calls.length - 1]).toBeCloseTo(0.5, 5);
+    expect(shapers[0]!.curve).toEqual(makeDistortionCurve(80 / 2));
+    expect(wetGain.gain.calls[wetGain.gain.calls.length - 1]!).toBeCloseTo(0.5, 5);
     dsp.cleanup?.();
   });
 
@@ -273,7 +275,7 @@ describe('waveA: seguridad de plugins y operaciones', () => {
     const peaks = generateWaveformPeaks(shortBuf as unknown as AudioBuffer, 800);
     expect(peaks.length).toBe(1600);
     let maxAbs = 0;
-    for (let i = 0; i < peaks.length; i++) maxAbs = Math.max(maxAbs, Math.abs(peaks[i]));
+    for (let i = 0; i < peaks.length; i++) maxAbs = Math.max(maxAbs, Math.abs(peaks[i]!));
     expect(maxAbs).toBeGreaterThan(0.1);
     // Resto parcial: length 100, 30 puntos -> blockSize 3, último bin cubre [87, 100)
     const tail = new MockBuffer(1, 100, 44100, () => 0.05);
