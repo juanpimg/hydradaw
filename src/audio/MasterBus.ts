@@ -42,9 +42,16 @@ export class MasterBus {
     this.ceilingGain.connect(this.muteNode);
     this.muteNode.connect(this.analyserNode);
 
-    // Connect to physical audio output if real AudioContext (not offline or headless node mock)
-    if (typeof AudioContext !== 'undefined' && context instanceof AudioContext) {
-      this.analyserNode.connect(context.destination);
+    // Connect to audio output: realtime AudioContext uses the physical
+    // output; OfflineAudioContext uses its own destination, which is what
+    // startRendering() captures. WITHOUT the offline branch every export
+    // renders silence (the graph was never connected to the render target).
+    // Fix: connect in both cases.
+    const isRealtime = typeof AudioContext !== 'undefined' && context instanceof AudioContext;
+    const isOffline =
+      typeof OfflineAudioContext !== 'undefined' && context instanceof OfflineAudioContext;
+    if (isRealtime || isOffline) {
+      this.analyserNode.connect((context as AudioContext).destination);
     }
   }
 
