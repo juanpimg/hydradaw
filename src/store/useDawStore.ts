@@ -5,6 +5,11 @@ import { splitClipOperation, trimLeftOperation, trimRightOperation } from '../au
 import { generateDemoTrackBuffer, generateWaveformPeaks } from '../audio/waveformUtils';
 import { BUILTIN_PLUGINS } from '../audio/builtinPlugins';
 
+// Fix(waveA): la duración del proyecto deriva de los clips (mínimo 16s). Antes solo
+// crecía en addClip; borrar o encoger clips dejaba compases vacíos o clips invisibles.
+const recalcDuration = (clips: AudioClip[]): number =>
+  Math.max(16, ...clips.map((c) => c.startTime + c.duration));
+
 interface DawState {
   // Project Info
   projectName: string;
@@ -59,6 +64,9 @@ interface DawState {
   toggleRecord: () => Promise<void>;
   toggleLoop: () => void;
   toggleMetronome: () => void;
+  // Fix(waveA): adiciones para dejar el store listo para la UI con inputs.
+  setTimeSignature: (sig: [number, number]) => void;
+  setLoopRange: (start: number, end: number) => void;
 
   // Tracks & Clips
   addTrack: (name?: string, type?: AudioTrack['type']) => string;
@@ -111,9 +119,12 @@ export const useDawStore = create<DawState>((set, get) => ({
 
   setProjectName: (projectName) => set({ projectName }),
   // Fix(wave2): propaga el tempo al engine para que play/render usen el bpm vigente.
+  // Fix(waveA): clamp 40-260 + guard NaN para que la UI nunca muestre valores absurdos
+  // (el engine ya clampa 20-300 por su cuenta; con NaN se conserva el bpm vigente).
   setBpm: (bpm) => {
-    set({ bpm });
-    audioEngine.setTempo(bpm);
+    const safe = Number.isFinite(bpm) ? Math.max(40, Math.min(260, bpm)) : get().bpm;
+    set({ bpm: safe });
+    audioEngine.setTempo(safe);
   },
   setCurrentTime: (currentTime) => {
     set({ currentTime });
@@ -149,12 +160,22 @@ export const useDawStore = create<DawState>((set, get) => ({
     set({ isPlaying: true });
   },
 
+  // Fix(waveA): si se está grabando, delegan en toggleRecord() para no perder la toma
+  // (su rama stop vuelca el clip grabado al timeline antes de parar).
   pause: () => {
+    if (get().isRecording) {
+      void get().toggleRecord();
+      return;
+    }
     const time = audioEngine.stop();
     set({ isPlaying: false, isRecording: false, currentTime: time });
   },
 
   stop: () => {
+    if (get().isRecording) {
+      void get().toggleRecord();
+      return;
+    }
     audioEngine.stop();
     set({ isPlaying: false, isRecording: false, currentTime: 0 });
   },
@@ -163,6 +184,8 @@ export const useDawStore = create<DawState>((set, get) => ({
     const { isRecording, tracks, clips } = get();
     if (isRecording) {
       const newClip = await audioEngine.stopRecording();
+      // Fix(waveA): parar también la reproducción; antes la UI decía parado pero seguía sonando.
+      audioEngine.stop();
       set({ isRecording: false, isPlaying: false });
       if (newClip) {
         get().addClip(newClip);
@@ -192,6 +215,16 @@ export const useDawStore = create<DawState>((set, get) => ({
     const next = !get().metronome;
     set({ metronome: next });
     audioEngine.setMetronome(next);
+  },
+  // Fix(waveA): deja el store listo para la UI con selector de compás.
+  setTimeSignature: (sig) => {
+    set({ timeSignature: sig });
+    audioEngine.setTimeSignature(sig[0], sig[1]);
+  },
+  // Fix(waveA): deja el store listo para la UI con inputs de rango de loop.
+  setLoopRange: (start, end) => {
+    set({ loopStart: start, loopEnd: end });
+    audioEngine.setLoop(get().isLooping, start, end);
   },
 
   addTrack: (name, type = 'audio') => {
@@ -242,9 +275,11 @@ export const useDawStore = create<DawState>((set, get) => ({
       if (state.isPlaying) {
         audioEngine.play(updatedTracks, updatedClips, audioEngine.getCurrentTime());
       }
+      // Fix(waveA): recalcular duración al borrar pista (antes solo crecía).
       return {
         tracks: updatedTracks,
         clips: updatedClips,
+        duration: recalcDuration(updatedClips),
         selectedTrackId: state.selectedTrackId === id ? null : state.selectedTrackId,
       };
     });
@@ -270,9 +305,16 @@ export const useDawStore = create<DawState>((set, get) => ({
   },
 
   updateClip: (id, updates) => {
-    set((state) => ({
-      clips: state.clips.map((c) => (c.id === id ? { ...c, ...updates } : c)),
-    }));
+    // Fix(waveA): resincroniza audio en play (mismo patrón que removeClip/removeTrack;
+    // antes mover un clip durante la reproducción no sonaba hasta reiniciar) y recalcula
+    // duración para que arrastrar fuera no deje clips invisibles.
+    set((state) => {
+      const updatedClips = state.clips.map((c) => (c.id === id ? { ...c, ...updates } : c));
+      if (state.isPlaying) {
+        audioEngine.play(state.tracks, updatedClips, audioEngine.getCurrentTime());
+      }
+      return { clips: updatedClips, duration: recalcDuration(updatedClips) };
+    });
   },
 
   removeClip: (id) => {
@@ -286,8 +328,10 @@ export const useDawStore = create<DawState>((set, get) => ({
       if (state.isPlaying) {
         audioEngine.play(state.tracks, remainingClips, audioEngine.getCurrentTime());
       }
+      // Fix(waveA): recalcular duración al borrar clip (borrar todo vuelve a 16s).
       return {
         clips: remainingClips,
+        duration: recalcDuration(remainingClips),
         selectedClipId: state.selectedClipId === id ? null : state.selectedClipId,
       };
     });
@@ -322,9 +366,11 @@ export const useDawStore = create<DawState>((set, get) => ({
     const next: AudioClip = trimmed.audioBuffer
       ? { ...trimmed, peaks: generateWaveformPeaks(trimmed.audioBuffer, 500) }
       : trimmed;
-    set((state) => ({
-      clips: state.clips.map((c) => (c.id === clipId ? next : c)),
-    }));
+    // Fix(waveA): recalcular duración tras el trim (encoger puede liberar compases).
+    set((state) => {
+      const updatedClips = state.clips.map((c) => (c.id === clipId ? next : c));
+      return { clips: updatedClips, duration: recalcDuration(updatedClips) };
+    });
   },
 
   addPluginToTrack: (trackId, pluginId) => {

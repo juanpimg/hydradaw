@@ -13,6 +13,11 @@ export class TrackNode {
 
   private activeDSPNodes: ActiveDSPNode[] = [];
   private activeSourceNodes: AudioBufferSourceNode[] = [];
+  // Fix(waveA): guard flag — prevents double connect() (+6 dB summing when
+  // the analyser is wired twice to the same destination).
+  private connectedDestinations = new Set<AudioNode>();
+  // Fix(waveA): reusable meter buffer — avoids per-frame Float32Array alloc in getMeterLevels.
+  private meterBuffer: Float32Array<ArrayBuffer> | null = null;
 
   constructor(context: BaseAudioContext, track: AudioTrack) {
     this.trackId = track.id;
@@ -31,11 +36,41 @@ export class TrackNode {
     this.rebuildEffectsChain(track);
   }
 
+  // Fix(waveA): offline detection without fragile instanceof — true for real
+  // OfflineAudioContext (instanceof fast path) or any context exposing
+  // startRendering (polyfills / fakes that mimic the offline API).
+  private isOfflineContext(): boolean {
+    try {
+      if (
+        typeof OfflineAudioContext !== 'undefined' &&
+        this.context instanceof OfflineAudioContext
+      ) {
+        return true;
+      }
+    } catch (_) {
+      // Fall through to duck-typing.
+    }
+    return (
+      typeof (this.context as unknown as { startRendering?: unknown })
+        .startRendering === 'function'
+    );
+  }
+
   /**
    * Rebuilds the track's DSP insert effects chain
    */
   rebuildEffectsChain(track: AudioTrack) {
     // 1. Cleanup old DSP nodes and sever connections
+    // Fix(waveA): dsp.cleanup?.() hook runs first so stateful plugins can
+    // release non-graph resources (timers, workers, WASM handles). The
+    // builtins below currently expose no cleanup: disconnect() severs the
+    // external graph refs and the internal nodes are left to GC — including
+    // the delay's wet feedback island (delayNode <-> filterNode <->
+    // feedbackNode cycle). A pure JS reference cycle with no path from a GC
+    // root is still collectable, so the island is reclaimed once input/output
+    // are disconnected; no timers exist in the builtins to clear. Custom
+    // plugins that DO hold timers must provide cleanup, otherwise the timer
+    // (a GC root) would pin their nodes alive.
     for (const dsp of this.activeDSPNodes) {
       try {
         dsp.cleanup?.();
@@ -77,19 +112,34 @@ export class TrackNode {
    */
   updateTrackState(track: AudioTrack, anyTrackSoloed: boolean = false) {
     const time = this.context.currentTime;
+    // Fix(waveA): clamp before scheduling (pan [-1,1], volume [0,1.5]).
+    const pan = Math.min(1, Math.max(-1, track.pan));
+    const vol = Math.min(1.5, Math.max(0, track.volume));
+    // Fix(waveA): direct assignment offline — currentTime is frozen during
+    // OfflineAudioContext setup, so setTargetAtTime ramps would mis-schedule
+    // the export start; direct .value applies deterministically.
+    const offline = this.isOfflineContext();
 
     // Pan
-    try {
-      this.pannerNode.pan.setTargetAtTime(track.pan, time, 0.02);
-    } catch (_) {
-      this.pannerNode.pan.value = track.pan;
+    if (offline) {
+      this.pannerNode.pan.value = pan;
+    } else {
+      try {
+        this.pannerNode.pan.setTargetAtTime(pan, time, 0.02);
+      } catch (_) {
+        this.pannerNode.pan.value = pan;
+      }
     }
 
     // Volume
-    try {
-      this.volumeNode.gain.setTargetAtTime(track.volume, time, 0.02);
-    } catch (_) {
-      this.volumeNode.gain.value = track.volume;
+    if (offline) {
+      this.volumeNode.gain.value = vol;
+    } else {
+      try {
+        this.volumeNode.gain.setTargetAtTime(vol, time, 0.02);
+      } catch (_) {
+        this.volumeNode.gain.value = vol;
+      }
     }
 
     // Mute & Solo logic:
@@ -102,10 +152,14 @@ export class TrackNode {
       isAudible = false;
     }
 
-    try {
-      this.muteNode.gain.setTargetAtTime(isAudible ? 1.0 : 0.0, time, 0.02);
-    } catch (_) {
+    if (offline) {
       this.muteNode.gain.value = isAudible ? 1.0 : 0.0;
+    } else {
+      try {
+        this.muteNode.gain.setTargetAtTime(isAudible ? 1.0 : 0.0, time, 0.02);
+      } catch (_) {
+        this.muteNode.gain.value = isAudible ? 1.0 : 0.0;
+      }
     }
   }
 
@@ -123,8 +177,12 @@ export class TrackNode {
    * Connects this track's output to a destination node (e.g. Master Bus)
    */
   connect(destination: AudioNode) {
+    // Fix(waveA): idempotent connect — skip destinations already wired to
+    // avoid double-connection gain buildup (~+6 dB per duplicate wire).
+    if (this.connectedDestinations.has(destination)) return;
     try {
       this.analyserNode.connect(destination);
+      this.connectedDestinations.add(destination);
     } catch (_) {}
   }
 
@@ -162,7 +220,12 @@ export class TrackNode {
    * Gets current RMS and peak levels (0..1)
    */
   getMeterLevels(): { rms: number; peak: number } {
-    const data = new Float32Array(this.analyserNode.fftSize);
+    // Fix(waveA): reuse instance buffer instead of allocating per call/frame.
+    const size = this.analyserNode.fftSize;
+    if (!this.meterBuffer || this.meterBuffer.length !== size) {
+      this.meterBuffer = new Float32Array(size);
+    }
+    const data = this.meterBuffer;
     this.analyserNode.getFloatTimeDomainData(data);
 
     let sum = 0;
@@ -181,6 +244,10 @@ export class TrackNode {
    */
   dispose() {
     this.stopAllSources();
+    // Fix(waveA): dsp.cleanup?.() hook runs first (see rebuildEffectsChain
+    // for GC semantics of builtin internals incl. the delay feedback cycle:
+    // disconnect severs external refs, internal island incl. the cycle is left
+    // to GC; builtins hold no timers, custom timed plugins must use cleanup).
     for (const dsp of this.activeDSPNodes) {
       try {
         dsp.cleanup?.();
@@ -189,6 +256,7 @@ export class TrackNode {
       } catch (_) {}
     }
     this.activeDSPNodes = [];
+    this.connectedDestinations.clear();
     try { this.inputNode.disconnect(); } catch (_) {}
     try { this.pannerNode.disconnect(); } catch (_) {}
     try { this.volumeNode.disconnect(); } catch (_) {}

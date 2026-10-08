@@ -29,30 +29,66 @@ export const Knob: React.FC<KnobProps> = ({
   // Angle: -135deg to +135deg (total 270 degrees)
   const angle = -135 + normalized * 270;
 
-  const handleMouseDown = (e: React.MouseEvent) => {
+  // Fix(waveA): normaliza un valor al rango y al paso para teclado/rueda/arrastre.
+  const clampToStep = (raw: number): number => {
+    let next = Math.max(min, Math.min(max, raw));
+    if (step > 0) {
+      next = Math.round(next / step) * step;
+    }
+    // Fix(waveA): evita deriva de punto flotante (p. ej. 0.30000000000000004).
+    next = Math.min(max, Math.max(min, Number(next.toFixed(6))));
+    return next;
+  };
+
+  // Fix(waveA): eventos pointer (táctil/lápiz/ratón) en vez de solo mouse.
+  const handlePointerDown = (e: React.PointerEvent) => {
     e.preventDefault();
     const startY = e.clientY;
     const startVal = value;
 
-    const onMouseMove = (moveEvent: MouseEvent) => {
+    const onPointerMove = (moveEvent: PointerEvent) => {
       const deltaY = startY - moveEvent.clientY;
       const range = max - min;
       const stepChange = (deltaY / 150) * range;
-      let newVal = Math.max(min, Math.min(max, startVal + stepChange));
-
-      if (step > 0) {
-        newVal = Math.round(newVal / step) * step;
-      }
-      onChange(newVal);
+      onChange(clampToStep(startVal + stepChange));
     };
 
-    const onMouseUp = () => {
-      window.removeEventListener('mousemove', onMouseMove);
-      window.removeEventListener('mouseup', onMouseUp);
+    const onPointerUp = () => {
+      window.removeEventListener('pointermove', onPointerMove);
+      window.removeEventListener('pointerup', onPointerUp);
+      window.removeEventListener('pointercancel', onPointerUp);
     };
 
-    window.addEventListener('mousemove', onMouseMove);
-    window.addEventListener('mouseup', onMouseUp);
+    window.addEventListener('pointermove', onPointerMove);
+    window.addEventListener('pointerup', onPointerUp);
+    window.addEventListener('pointercancel', onPointerUp);
+  };
+
+  // Fix(waveA): teclado accesible — flechas ±step (Shift fino ×0.1), Home/End.
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    const fine = e.shiftKey ? 0.1 : 1;
+    let next: number | null = null;
+    if (e.key === 'ArrowUp' || e.key === 'ArrowRight') {
+      next = value + step * fine;
+    } else if (e.key === 'ArrowDown' || e.key === 'ArrowLeft') {
+      next = value - step * fine;
+    } else if (e.key === 'Home') {
+      next = min;
+    } else if (e.key === 'End') {
+      next = max;
+    }
+    if (next !== null) {
+      e.preventDefault();
+      onChange(clampToStep(next));
+    }
+  };
+
+  // Fix(waveA): rueda del ratón para ajuste fino sin arrastrar.
+  const handleWheel = (e: React.WheelEvent) => {
+    e.preventDefault();
+    const fine = e.shiftKey ? 0.1 : 1;
+    const delta = e.deltaY < 0 ? step * fine : -step * fine;
+    onChange(clampToStep(value + delta));
   };
 
   const handleDoubleClick = () => {
@@ -67,9 +103,18 @@ export const Knob: React.FC<KnobProps> = ({
 
       {/* Rotary Dial */}
       <div
-        onMouseDown={handleMouseDown}
+        onPointerDown={handlePointerDown}
         onDoubleClick={handleDoubleClick}
-        className="relative rounded-full bg-gradient-to-b from-dark-surfaceLight to-dark-surface border-2 border-dark-border hover:border-cyan-500/60 shadow-md cursor-ns-resize transition-colors flex items-center justify-center"
+        onKeyDown={handleKeyDown}
+        onWheel={handleWheel}
+        tabIndex={0}
+        role="slider"
+        aria-label={label}
+        aria-valuemin={min}
+        aria-valuemax={max}
+        aria-valuenow={Math.round(value * 100) / 100}
+        aria-valuetext={`${Math.round(value * 10) / 10}${unit}`}
+        className="relative rounded-full bg-gradient-to-b from-dark-surfaceLight to-dark-surface border-2 border-dark-border hover:border-cyan-500/60 focus-visible:border-cyan-400 focus-visible:outline-none shadow-md cursor-ns-resize transition-colors flex items-center justify-center"
         style={{ width: `${size}px`, height: `${size}px` }}
       >
         {/* Indicator Needle */}

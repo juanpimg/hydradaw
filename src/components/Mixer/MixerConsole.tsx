@@ -1,9 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useDawStore } from '../../store/useDawStore';
 import { audioEngine } from '../../audio/AudioEngine';
 import { ChannelStrip } from './ChannelStrip';
 import { VUMeter } from './VUMeter';
-import { ShieldAlert, VolumeX, Volume2 } from 'lucide-react';
+import { Plus, ShieldAlert, VolumeX, Volume2 } from 'lucide-react';
 
 export const MixerConsole: React.FC = () => {
   const {
@@ -12,6 +12,7 @@ export const MixerConsole: React.FC = () => {
     setMasterVolume,
     masterMute,
     setMasterMute,
+    addTrack,
   } = useDawStore();
 
   const [meterLevels, setMeterLevels] = useState<{
@@ -22,17 +23,32 @@ export const MixerConsole: React.FC = () => {
     tracks: {},
   });
 
-  // 60 FPS Metering telemetry
+  // Fix(waveA): throttle de meters a ~15fps — el engine emite onMeterUpdate a
+  // 60fps; aquí se guarda el último frame en un ref y se publica al estado con
+  // setInterval(66ms). Combinado con memo(ChannelStrip), los strips solo se
+  // re-renderizan 15 veces/segundo (y solo si sus niveles cambian), en vez de
+  // 60 re-renders/segundo de todo el mixer.
+  const levelsRef = useRef(meterLevels);
   useEffect(() => {
     const unsub = audioEngine.onMeterUpdate((levels) => {
-      setMeterLevels(levels);
+      levelsRef.current = levels;
     });
-    return unsub;
+    const interval = setInterval(() => {
+      setMeterLevels((prev) => {
+        const next = levelsRef.current;
+        return prev === next ? prev : next;
+      });
+    }, 66);
+    return () => {
+      unsub();
+      clearInterval(interval);
+    };
   }, []);
 
   const masterDb = masterVolume === 0 ? -Infinity : 20 * Math.log10(masterVolume);
 
   return (
+    // Fix(waveA): responsive — overflow-x-auto para scroll horizontal en pantallas estrechas.
     <div className="flex-1 bg-dark-bg p-6 overflow-x-auto flex space-x-4 select-none">
       {/* Individual Track Strips */}
       <div className="flex space-x-3 overflow-x-auto pb-4">
@@ -43,6 +59,16 @@ export const MixerConsole: React.FC = () => {
             levels={meterLevels.tracks[track.id] || { rms: 0, peak: 0 }}
           />
         ))}
+
+        {/* Fix(waveA): botón + Pista al final de los strips (usa addTrack del store). */}
+        <button
+          onClick={() => addTrack()}
+          title="Añadir pista"
+          className="w-28 flex-shrink-0 self-stretch min-h-64 rounded-xl border-2 border-dashed border-dark-border text-slate-500 hover:text-cyan-300 hover:border-cyan-500/50 flex flex-col items-center justify-center space-y-1 transition-colors"
+        >
+          <Plus className="w-5 h-5" />
+          <span className="text-xs font-bold">+ Pista</span>
+        </button>
 
         {tracks.length === 0 && (
           <div className="flex items-center justify-center p-12 text-slate-500 text-sm italic">
@@ -85,7 +111,8 @@ export const MixerConsole: React.FC = () => {
 
         {/* Master Fader & Stereo VU Meter */}
         <div className="flex items-center justify-center space-x-2 my-2 h-44">
-          <div className="flex flex-col justify-between h-40 text-[8px] font-mono text-slate-500 text-right pr-0.5">
+          {/* Fix(waveA): escala oculta en pantallas pequeñas para ahorrar ancho. */}
+          <div className="hidden sm:flex flex-col justify-between h-40 text-[8px] font-mono text-slate-500 text-right pr-0.5">
             <span>+6</span>
             <span>0</span>
             <span>-6</span>

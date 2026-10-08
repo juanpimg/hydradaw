@@ -12,6 +12,8 @@ export default function App() {
   const { activeView, loadDemoProject } = useDawStore();
 
   // Restaura el proyecto guardado (o demo si no hay nada) + autosave.
+  // Fix(waveA): startAutosave filtra por snapshot persistible (excluye
+  // currentTime/isPlaying): el reloj de reproducción ya no rearma el debounce.
   // Guard contra React StrictMode (efecto doble en dev).
   const initRef = useRef(false);
   useEffect(() => {

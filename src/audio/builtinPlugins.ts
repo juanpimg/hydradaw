@@ -1,21 +1,61 @@
 import { PluginDefinition } from '../types/daw';
 
+// Fix(waveA): PRNG determinista (mulberry32) para IR reproducible (RT == export).
+export function mulberry32(seed: number): () => number {
+  let a = seed >>> 0;
+  return () => {
+    a |= 0;
+    a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+// Fix(waveA): semilla fija derivada de `decay` para que la misma decay genere la misma IR.
+export function reverbSeedFromDecay(decay: number): number {
+  const q = Number.isFinite(decay) ? Math.round(decay * 1000) : 2000;
+  return (Math.imul(q, 2654435761) ^ 0x9e3779b9) >>> 0;
+}
+
+// Fix(waveA): debounce trailing para regeneración de IR multi-MB por tick de knob (150-250ms).
+export const REVERB_DECAY_DEBOUNCE_MS = 200;
+
+// Fix(waveA): debounce trailing para recálculo de curva del saturador por tick de knob.
+export const SATURATOR_DRIVE_DEBOUNCE_MS = 150;
+
+// Fix(waveA): ganancia dura máxima del loop de feedback del delay (riesgo auditivo si >= 1).
+export const DELAY_FEEDBACK_MAX_GAIN = 0.95;
+
+// Fix(waveA): clamp local a la definición del parámetro (min/max). El canonical
+// `clampToDef` vive en PluginHost; este helper evita un import circular
+// (PluginHost -> BUILTIN_PLUGINS) y aplica la misma tabla min/max.
+function clampBuiltinParam(pluginId: string, paramId: string, value: number): number {
+  const def = BUILTIN_PLUGINS[pluginId];
+  const param = def?.parameters.find((p) => p.id === paramId);
+  if (!param) return value;
+  if (!Number.isFinite(value)) return param.defaultValue;
+  return Math.min(param.max, Math.max(param.min, value));
+}
+
 /**
  * Generates a synthetic impulse response for convolution reverb
  */
-function createReverbImpulse(context: BaseAudioContext, duration: number, decay: number): AudioBuffer {
+export function createReverbImpulse(context: BaseAudioContext, duration: number, decay: number): AudioBuffer {
   const sampleRate = context.sampleRate;
   const length = Math.floor(sampleRate * Math.max(0.1, duration));
   const impulse = context.createBuffer(2, length, sampleRate);
   const left = impulse.getChannelData(0);
   const right = impulse.getChannelData(1);
 
+  // Fix(waveA): ruido determinista con semilla derivada de `decay` (misma decay -> mismo buffer).
+  const rng = mulberry32(reverbSeedFromDecay(decay));
   for (let i = 0; i < length; i++) {
     const n = length - i;
     const factor = Math.pow(n / length, decay);
     // Stereo white noise decay
-    left[i] = (Math.random() * 2 - 1) * factor;
-    right[i] = (Math.random() * 2 - 1) * factor;
+    left[i] = (rng() * 2 - 1) * factor;
+    right[i] = (rng() * 2 - 1) * factor;
   }
   return impulse;
 }
@@ -23,8 +63,10 @@ function createReverbImpulse(context: BaseAudioContext, duration: number, decay:
 /**
  * Distortion curve for tube saturation
  */
-function makeDistortionCurve(amount: number): Float32Array {
-  const k = Math.max(0, amount);
+export function makeDistortionCurve(amount: number): Float32Array<ArrayBuffer> {
+  // Fix(waveA): clamp drive a 0..100 (la tabla usa amount = drive/2, es decir 0..50).
+  const clamped = Number.isFinite(amount) ? Math.min(50, Math.max(0, amount)) : 12.5;
+  const k = Math.max(0, clamped);
   const n_samples = 44100;
   const curve = new Float32Array(n_samples);
   const deg = Math.PI / 180;
@@ -57,19 +99,20 @@ export const BUILTIN_PLUGINS: Record<string, PluginDefinition> = {
     createDSPNode: (context, params) => {
       const lowFilter = context.createBiquadFilter();
       lowFilter.type = 'lowshelf';
-      lowFilter.frequency.value = params.lowFreq ?? 100;
-      lowFilter.gain.value = params.lowGain ?? 0;
+      // Fix(waveA): clamp en creación (frecuencias <= 0 quedan fuera de rango).
+      lowFilter.frequency.value = clampBuiltinParam('eq3', 'lowFreq', params.lowFreq ?? 100);
+      lowFilter.gain.value = clampBuiltinParam('eq3', 'lowGain', params.lowGain ?? 0);
 
       const midFilter = context.createBiquadFilter();
       midFilter.type = 'peaking';
-      midFilter.frequency.value = params.midFreq ?? 1000;
-      midFilter.gain.value = params.midGain ?? 0;
-      midFilter.Q.value = params.midQ ?? 1.0;
+      midFilter.frequency.value = clampBuiltinParam('eq3', 'midFreq', params.midFreq ?? 1000);
+      midFilter.gain.value = clampBuiltinParam('eq3', 'midGain', params.midGain ?? 0);
+      midFilter.Q.value = clampBuiltinParam('eq3', 'midQ', params.midQ ?? 1.0);
 
       const highFilter = context.createBiquadFilter();
       highFilter.type = 'highshelf';
-      highFilter.frequency.value = params.highFreq ?? 8000;
-      highFilter.gain.value = params.highGain ?? 0;
+      highFilter.frequency.value = clampBuiltinParam('eq3', 'highFreq', params.highFreq ?? 8000);
+      highFilter.gain.value = clampBuiltinParam('eq3', 'highGain', params.highGain ?? 0);
 
       lowFilter.connect(midFilter);
       midFilter.connect(highFilter);
@@ -78,13 +121,14 @@ export const BUILTIN_PLUGINS: Record<string, PluginDefinition> = {
         inputNode: lowFilter,
         outputNode: highFilter,
         updateParameter: (paramId, value) => {
-          if (paramId === 'lowGain') lowFilter.gain.setTargetAtTime(value, context.currentTime, 0.02);
-          if (paramId === 'lowFreq') lowFilter.frequency.setTargetAtTime(value, context.currentTime, 0.02);
-          if (paramId === 'midGain') midFilter.gain.setTargetAtTime(value, context.currentTime, 0.02);
-          if (paramId === 'midFreq') midFilter.frequency.setTargetAtTime(value, context.currentTime, 0.02);
-          if (paramId === 'midQ') midFilter.Q.setTargetAtTime(value, context.currentTime, 0.02);
-          if (paramId === 'highGain') highFilter.gain.setTargetAtTime(value, context.currentTime, 0.02);
-          if (paramId === 'highFreq') highFilter.frequency.setTargetAtTime(value, context.currentTime, 0.02);
+          // Fix(waveA): clamp en TODOS los updateParameter contra la definición.
+          if (paramId === 'lowGain') lowFilter.gain.setTargetAtTime(clampBuiltinParam('eq3', 'lowGain', value), context.currentTime, 0.02);
+          if (paramId === 'lowFreq') lowFilter.frequency.setTargetAtTime(clampBuiltinParam('eq3', 'lowFreq', value), context.currentTime, 0.02);
+          if (paramId === 'midGain') midFilter.gain.setTargetAtTime(clampBuiltinParam('eq3', 'midGain', value), context.currentTime, 0.02);
+          if (paramId === 'midFreq') midFilter.frequency.setTargetAtTime(clampBuiltinParam('eq3', 'midFreq', value), context.currentTime, 0.02);
+          if (paramId === 'midQ') midFilter.Q.setTargetAtTime(clampBuiltinParam('eq3', 'midQ', value), context.currentTime, 0.02);
+          if (paramId === 'highGain') highFilter.gain.setTargetAtTime(clampBuiltinParam('eq3', 'highGain', value), context.currentTime, 0.02);
+          if (paramId === 'highFreq') highFilter.frequency.setTargetAtTime(clampBuiltinParam('eq3', 'highFreq', value), context.currentTime, 0.02);
         },
       };
     },
@@ -104,13 +148,14 @@ export const BUILTIN_PLUGINS: Record<string, PluginDefinition> = {
     ],
     createDSPNode: (context, params) => {
       const comp = context.createDynamicsCompressor();
-      comp.threshold.value = params.threshold ?? -18;
-      comp.ratio.value = params.ratio ?? 4;
-      comp.attack.value = (params.attack ?? 20) / 1000;
-      comp.release.value = (params.release ?? 150) / 1000;
+      // Fix(waveA): clamp en creación (ratio < 1, umbrales fuera de rango, etc.).
+      comp.threshold.value = clampBuiltinParam('compressor', 'threshold', params.threshold ?? -18);
+      comp.ratio.value = clampBuiltinParam('compressor', 'ratio', params.ratio ?? 4);
+      comp.attack.value = clampBuiltinParam('compressor', 'attack', params.attack ?? 20) / 1000;
+      comp.release.value = clampBuiltinParam('compressor', 'release', params.release ?? 150) / 1000;
 
       const makeup = context.createGain();
-      const makeupDb = params.makeupGain ?? 3;
+      const makeupDb = clampBuiltinParam('compressor', 'makeupGain', params.makeupGain ?? 3);
       makeup.gain.value = Math.pow(10, makeupDb / 20);
 
       comp.connect(makeup);
@@ -119,12 +164,13 @@ export const BUILTIN_PLUGINS: Record<string, PluginDefinition> = {
         inputNode: comp,
         outputNode: makeup,
         updateParameter: (paramId, value) => {
-          if (paramId === 'threshold') comp.threshold.setTargetAtTime(value, context.currentTime, 0.02);
-          if (paramId === 'ratio') comp.ratio.setTargetAtTime(value, context.currentTime, 0.02);
-          if (paramId === 'attack') comp.attack.setTargetAtTime(value / 1000, context.currentTime, 0.02);
-          if (paramId === 'release') comp.release.setTargetAtTime(value / 1000, context.currentTime, 0.02);
+          // Fix(waveA): clamp en TODOS los updateParameter contra la definición.
+          if (paramId === 'threshold') comp.threshold.setTargetAtTime(clampBuiltinParam('compressor', 'threshold', value), context.currentTime, 0.02);
+          if (paramId === 'ratio') comp.ratio.setTargetAtTime(clampBuiltinParam('compressor', 'ratio', value), context.currentTime, 0.02);
+          if (paramId === 'attack') comp.attack.setTargetAtTime(clampBuiltinParam('compressor', 'attack', value) / 1000, context.currentTime, 0.02);
+          if (paramId === 'release') comp.release.setTargetAtTime(clampBuiltinParam('compressor', 'release', value) / 1000, context.currentTime, 0.02);
           if (paramId === 'makeupGain') {
-            const gainLinear = Math.pow(10, value / 20);
+            const gainLinear = Math.pow(10, clampBuiltinParam('compressor', 'makeupGain', value) / 20);
             makeup.gain.setTargetAtTime(gainLinear, context.currentTime, 0.02);
           }
         },
@@ -150,16 +196,18 @@ export const BUILTIN_PLUGINS: Record<string, PluginDefinition> = {
       const wetGain = context.createGain();
 
       const delayNode = context.createDelay(2.0);
-      delayNode.delayTime.value = (params.time ?? 250) / 1000;
+      delayNode.delayTime.value = clampBuiltinParam('delay', 'time', params.time ?? 250) / 1000;
 
       const feedbackNode = context.createGain();
-      feedbackNode.gain.value = (params.feedback ?? 35) / 100;
+      // Fix(waveA): clamp duro de feedback <= 0.95 en creación (valor >= 100 daría ganancia de loop >= 1).
+      const feedbackPct = clampBuiltinParam('delay', 'feedback', params.feedback ?? 35);
+      feedbackNode.gain.value = Math.min(feedbackPct / 100, DELAY_FEEDBACK_MAX_GAIN);
 
       const filterNode = context.createBiquadFilter();
       filterNode.type = 'lowpass';
-      filterNode.frequency.value = params.damp ?? 6000;
+      filterNode.frequency.value = clampBuiltinParam('delay', 'damp', params.damp ?? 6000);
 
-      const mixVal = (params.mix ?? 25) / 100;
+      const mixVal = clampBuiltinParam('delay', 'mix', params.mix ?? 25) / 100;
       dryGain.gain.value = 1.0;
       wetGain.gain.value = mixVal;
 
@@ -181,10 +229,11 @@ export const BUILTIN_PLUGINS: Record<string, PluginDefinition> = {
         inputNode: input,
         outputNode: output,
         updateParameter: (paramId, value) => {
-          if (paramId === 'time') delayNode.delayTime.setTargetAtTime(value / 1000, context.currentTime, 0.02);
-          if (paramId === 'feedback') feedbackNode.gain.setTargetAtTime(value / 100, context.currentTime, 0.02);
-          if (paramId === 'damp') filterNode.frequency.setTargetAtTime(value, context.currentTime, 0.02);
-          if (paramId === 'mix') wetGain.gain.setTargetAtTime(value / 100, context.currentTime, 0.02);
+          // Fix(waveA): clamp en TODOS los updateParameter; feedback con tope duro 0.95.
+          if (paramId === 'time') delayNode.delayTime.setTargetAtTime(clampBuiltinParam('delay', 'time', value) / 1000, context.currentTime, 0.02);
+          if (paramId === 'feedback') feedbackNode.gain.setTargetAtTime(Math.min(clampBuiltinParam('delay', 'feedback', value) / 100, DELAY_FEEDBACK_MAX_GAIN), context.currentTime, 0.02);
+          if (paramId === 'damp') filterNode.frequency.setTargetAtTime(clampBuiltinParam('delay', 'damp', value), context.currentTime, 0.02);
+          if (paramId === 'mix') wetGain.gain.setTargetAtTime(clampBuiltinParam('delay', 'mix', value) / 100, context.currentTime, 0.02);
         },
       };
     },
@@ -207,14 +256,15 @@ export const BUILTIN_PLUGINS: Record<string, PluginDefinition> = {
       const wetGain = context.createGain();
 
       const convolver = context.createConvolver();
-      const decayTime = params.decay ?? 2.0;
+      // Fix(waveA): clamp en creación.
+      const decayTime = clampBuiltinParam('reverb', 'decay', params.decay ?? 2.0);
       convolver.buffer = createReverbImpulse(context, decayTime, 2.5);
 
       const filter = context.createBiquadFilter();
       filter.type = 'lowpass';
-      filter.frequency.value = params.damping ?? 8000;
+      filter.frequency.value = clampBuiltinParam('reverb', 'damping', params.damping ?? 8000);
 
-      const mix = (params.mix ?? 30) / 100;
+      const mix = clampBuiltinParam('reverb', 'mix', params.mix ?? 30) / 100;
       dryGain.gain.value = 1.0;
       wetGain.gain.value = mix;
 
@@ -226,18 +276,38 @@ export const BUILTIN_PLUGINS: Record<string, PluginDefinition> = {
       convolver.connect(wetGain);
       wetGain.connect(output);
 
+      // Fix(waveA): debounce trailing de la regeneración de IR (multi-MB por tick de knob).
+      let decayTimer: ReturnType<typeof setTimeout> | null = null;
+      let pendingDecay: number | null = null;
+
       return {
         inputNode: input,
         outputNode: output,
         updateParameter: (paramId, value) => {
-          if (paramId === 'mix') wetGain.gain.setTargetAtTime(value / 100, context.currentTime, 0.02);
-          if (paramId === 'damping') filter.frequency.setTargetAtTime(value, context.currentTime, 0.02);
+          // Fix(waveA): clamp en TODOS los updateParameter contra la definición.
+          if (paramId === 'mix') wetGain.gain.setTargetAtTime(clampBuiltinParam('reverb', 'mix', value) / 100, context.currentTime, 0.02);
+          if (paramId === 'damping') filter.frequency.setTargetAtTime(clampBuiltinParam('reverb', 'damping', value), context.currentTime, 0.02);
           if (paramId === 'decay') {
-            try {
-              convolver.buffer = createReverbImpulse(context, value, 2.5);
-            } catch (e) {
-              // Context might be busy
-            }
+            pendingDecay = clampBuiltinParam('reverb', 'decay', value);
+            if (decayTimer !== null) clearTimeout(decayTimer);
+            decayTimer = setTimeout(() => {
+              decayTimer = null;
+              if (pendingDecay === null) return;
+              const v = pendingDecay;
+              pendingDecay = null;
+              try {
+                // Fix(waveA): IR determinista (semilla de `decay`); RT == export.
+                convolver.buffer = createReverbImpulse(context, v, 2.5);
+              } catch (e) {
+                // Context might be busy
+              }
+            }, REVERB_DECAY_DEBOUNCE_MS);
+          }
+        },
+        cleanup: () => {
+          if (decayTimer !== null) {
+            clearTimeout(decayTimer);
+            decayTimer = null;
           }
         },
       };
@@ -256,14 +326,15 @@ export const BUILTIN_PLUGINS: Record<string, PluginDefinition> = {
     ],
     createDSPNode: (context, params) => {
       const comp = context.createDynamicsCompressor();
-      comp.threshold.value = params.threshold ?? -2;
+      // Fix(waveA): clamp en creación.
+      comp.threshold.value = clampBuiltinParam('limiter', 'threshold', params.threshold ?? -2);
       comp.ratio.value = 20; // Hard limiting ratio
       comp.knee.value = 0;   // Hard knee
       comp.attack.value = 0.001; // 1 ms fastest attack
-      comp.release.value = (params.release ?? 50) / 1000;
+      comp.release.value = clampBuiltinParam('limiter', 'release', params.release ?? 50) / 1000;
 
       const ceilingGain = context.createGain();
-      const ceilingDb = params.ceiling ?? -0.1;
+      const ceilingDb = clampBuiltinParam('limiter', 'ceiling', params.ceiling ?? -0.1);
       ceilingGain.gain.value = Math.pow(10, ceilingDb / 20);
 
       comp.connect(ceilingGain);
@@ -272,10 +343,11 @@ export const BUILTIN_PLUGINS: Record<string, PluginDefinition> = {
         inputNode: comp,
         outputNode: ceilingGain,
         updateParameter: (paramId, value) => {
-          if (paramId === 'threshold') comp.threshold.setTargetAtTime(value, context.currentTime, 0.01);
-          if (paramId === 'release') comp.release.setTargetAtTime(value / 1000, context.currentTime, 0.01);
+          // Fix(waveA): clamp en TODOS los updateParameter contra la definición.
+          if (paramId === 'threshold') comp.threshold.setTargetAtTime(clampBuiltinParam('limiter', 'threshold', value), context.currentTime, 0.01);
+          if (paramId === 'release') comp.release.setTargetAtTime(clampBuiltinParam('limiter', 'release', value) / 1000, context.currentTime, 0.01);
           if (paramId === 'ceiling') {
-            const linear = Math.pow(10, value / 20);
+            const linear = Math.pow(10, clampBuiltinParam('limiter', 'ceiling', value) / 20);
             ceilingGain.gain.setTargetAtTime(linear, context.currentTime, 0.01);
           }
         },
@@ -300,16 +372,18 @@ export const BUILTIN_PLUGINS: Record<string, PluginDefinition> = {
       const wetGain = context.createGain();
 
       const shaper = context.createWaveShaper();
-      shaper.curve = makeDistortionCurve((params.drive ?? 25) / 2) as any;
+      // Fix(waveA): clamp drive 0..100 en creación.
+      shaper.curve = makeDistortionCurve(clampBuiltinParam('saturator', 'drive', params.drive ?? 25) / 2);
       shaper.oversample = '4x';
 
       const filter = context.createBiquadFilter();
       filter.type = 'lowpass';
-      filter.frequency.value = params.tone ?? 6500;
+      filter.frequency.value = clampBuiltinParam('saturator', 'tone', params.tone ?? 6500);
 
-      const mix = (params.mix ?? 50) / 100;
-      dryGain.gain.value = 1.0 - mix * 0.5;
-      wetGain.gain.value = mix;
+      // Fix(waveA): clamp en creación; se conserva el mix actual para la rampa del swap.
+      let currentMix = clampBuiltinParam('saturator', 'mix', params.mix ?? 50) / 100;
+      dryGain.gain.value = 1.0 - currentMix * 0.5;
+      wetGain.gain.value = currentMix;
 
       input.connect(dryGain);
       dryGain.connect(output);
@@ -319,16 +393,47 @@ export const BUILTIN_PLUGINS: Record<string, PluginDefinition> = {
       filter.connect(wetGain);
       wetGain.connect(output);
 
+      // Fix(waveA): debounce del recálculo de curva (44100 floats por tick) + rampa de wet en el swap.
+      let driveTimer: ReturnType<typeof setTimeout> | null = null;
+      let pendingDrive: number | null = null;
+
       return {
         inputNode: input,
         outputNode: output,
         updateParameter: (paramId, value) => {
-          if (paramId === 'drive') shaper.curve = makeDistortionCurve(value / 2) as any;
-          if (paramId === 'tone') filter.frequency.setTargetAtTime(value, context.currentTime, 0.02);
+          // Fix(waveA): clamp en TODOS los updateParameter contra la definición.
+          if (paramId === 'drive') {
+            pendingDrive = clampBuiltinParam('saturator', 'drive', value);
+            if (driveTimer !== null) clearTimeout(driveTimer);
+            driveTimer = setTimeout(() => {
+              driveTimer = null;
+              if (pendingDrive === null) return;
+              const d = pendingDrive;
+              pendingDrive = null;
+              try {
+                const now = context.currentTime;
+                // Fix(waveA): rampa de wet durante el swap para evitar clicks.
+                try {
+                  (wetGain.gain as unknown as { cancelScheduledValues?: (t: number) => void }).cancelScheduledValues?.(now);
+                } catch (_) { /* mock sin cancelScheduledValues */ }
+                wetGain.gain.setTargetAtTime(0.0, now, 0.01);
+                shaper.curve = makeDistortionCurve(d / 2);
+                wetGain.gain.setTargetAtTime(currentMix, now + 0.04, 0.02);
+              } catch (_) { /* contexto ocupado */ }
+            }, SATURATOR_DRIVE_DEBOUNCE_MS);
+          }
+          if (paramId === 'tone') filter.frequency.setTargetAtTime(clampBuiltinParam('saturator', 'tone', value), context.currentTime, 0.02);
           if (paramId === 'mix') {
-            const m = value / 100;
+            const m = clampBuiltinParam('saturator', 'mix', value) / 100;
+            currentMix = m;
             wetGain.gain.setTargetAtTime(m, context.currentTime, 0.02);
             dryGain.gain.setTargetAtTime(1.0 - m * 0.5, context.currentTime, 0.02);
+          }
+        },
+        cleanup: () => {
+          if (driveTimer !== null) {
+            clearTimeout(driveTimer);
+            driveTimer = null;
           }
         },
       };

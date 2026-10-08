@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { memo } from 'react';
 import { AudioTrack } from '../../types/daw';
 import { useDawStore } from '../../store/useDawStore';
 import { Knob } from '../Plugins/Knob';
@@ -10,7 +10,13 @@ interface ChannelStripProps {
   levels: { rms: number; peak: number };
 }
 
-export const ChannelStrip: React.FC<ChannelStripProps> = ({ track, levels }) => {
+// Fix(waveA): memo(ChannelStrip) con comparador a medida — solo re-renderiza si
+// cambia la referencia del track o los valores numéricos de levels. Técnica
+// combinada con el throttle a ~15fps del MixerConsole padre: sin memo, cada
+// tick de meters re-renderizaría los N strips aunque su track no haya cambiado
+// (faders, knobs, inserts); con memo + throttle cada strip se actualiza como
+// mucho 15 veces/segundo y solo cuando sus propios niveles cambian.
+const ChannelStripInner: React.FC<ChannelStripProps> = ({ track, levels }) => {
   const { updateTrack, setPluginModal } = useDawStore();
 
   const handleFaderChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -170,3 +176,12 @@ export const ChannelStrip: React.FC<ChannelStripProps> = ({ track, levels }) => 
     </div>
   );
 };
+
+export const ChannelStrip: React.FC<ChannelStripProps> = memo(
+  ChannelStripInner,
+  (prev, next) =>
+    prev.track === next.track &&
+    prev.levels.peak === next.levels.peak &&
+    prev.levels.rms === next.levels.rms,
+);
+ChannelStrip.displayName = 'ChannelStrip';

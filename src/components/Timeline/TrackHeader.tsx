@@ -63,9 +63,11 @@ export const TrackHeader: React.FC<TrackHeaderProps> = ({ track, isSelected }) =
                 : 'bg-dark-border/40 border-dark-border text-slate-400 hover:text-slate-200'
             }`}
             title="Abrir Rack de Efectos e Inserciones VST"
+            aria-label={`Abrir rack de efectos de ${track.name}: ${activePluginsCount} de ${track.plugins.length} activos`}
           >
             <Sliders className="w-2.5 h-2.5" />
-            <span>FX ({activePluginsCount})</span>
+            {/* Fix(waveA): contador activos/total en vez de solo activos. */}
+            <span>FX ({activePluginsCount}/{track.plugins.length})</span>
           </button>
 
           {/* Delete Track */}
@@ -91,7 +93,9 @@ export const TrackHeader: React.FC<TrackHeaderProps> = ({ track, isSelected }) =
             e.stopPropagation();
             updateTrack(track.id, { mute: !track.mute });
           }}
-          className={`w-6 h-6 rounded text-xs font-bold transition-all ${
+          aria-pressed={track.mute}
+          aria-label={`Silenciar pista ${track.name}`}
+          className={`w-9 h-9 rounded text-xs font-bold transition-all ${
             track.mute
               ? 'bg-amber-500 text-slate-950 shadow-sm shadow-amber-500/30'
               : 'bg-dark-surfaceLight text-slate-400 hover:text-slate-200 border border-dark-border'
@@ -106,7 +110,9 @@ export const TrackHeader: React.FC<TrackHeaderProps> = ({ track, isSelected }) =
             e.stopPropagation();
             updateTrack(track.id, { solo: !track.solo });
           }}
-          className={`w-6 h-6 rounded text-xs font-bold transition-all ${
+          aria-pressed={track.solo}
+          aria-label={`Pista ${track.name} en solo`}
+          className={`w-9 h-9 rounded text-xs font-bold transition-all ${
             track.solo
               ? 'bg-yellow-400 text-slate-950 shadow-sm shadow-yellow-400/30'
               : 'bg-dark-surfaceLight text-slate-400 hover:text-slate-200 border border-dark-border'
@@ -121,7 +127,9 @@ export const TrackHeader: React.FC<TrackHeaderProps> = ({ track, isSelected }) =
             e.stopPropagation();
             updateTrack(track.id, { armed: !track.armed });
           }}
-          className={`w-6 h-6 rounded text-xs font-bold transition-all ${
+          aria-pressed={track.armed}
+          aria-label={`Armar pista ${track.name} para grabación`}
+          className={`w-9 h-9 rounded text-xs font-bold transition-all ${
             track.armed
               ? 'bg-red-500 text-white shadow-sm shadow-red-500/40 ring-1 ring-red-400 animate-pulse'
               : 'bg-dark-surfaceLight text-slate-400 hover:text-red-400 border border-dark-border'
@@ -141,6 +149,7 @@ export const TrackHeader: React.FC<TrackHeaderProps> = ({ track, isSelected }) =
             step={0.05}
             value={track.pan}
             onChange={(e) => updateTrack(track.id, { pan: parseFloat(e.target.value) })}
+            aria-label={`Panorama de ${track.name}`}
             className="w-full h-1 accent-cyan-400 bg-dark-border rounded cursor-pointer"
             title={`Pan: ${track.pan < 0 ? `L${Math.round(Math.abs(track.pan) * 100)}` : track.pan > 0 ? `R${Math.round(track.pan * 100)}` : 'C'}`}
           />
@@ -157,6 +166,7 @@ export const TrackHeader: React.FC<TrackHeaderProps> = ({ track, isSelected }) =
           step={0.01}
           value={track.volume}
           onChange={(e) => updateTrack(track.id, { volume: parseFloat(e.target.value) })}
+          aria-label={`Volumen de ${track.name}`}
           className="flex-1 h-1.5 accent-cyan-400 bg-dark-border rounded cursor-pointer"
           title={`Volumen: ${Math.round(track.volume * 100)}%`}
         />

@@ -44,8 +44,22 @@ export function splitClipOperation(
   }
 
   const firstDuration = atTime - clip.startTime;
-  const secondDuration = clip.duration - firstDuration;
+  let secondDuration = clip.duration - firstDuration;
   const secondOffset = clip.offset + firstDuration;
+
+  // Fix(waveA): capar secondDuration al audio fuente disponible
+  // (`buffer.duration - secondOffset`); null si el resto < minDuration.
+  const sourceDuration = clip.audioBuffer?.duration ?? clip.buffer?.duration;
+  if (typeof sourceDuration === 'number' && Number.isFinite(sourceDuration)) {
+    const maxSecond = sourceDuration - secondOffset;
+    if (maxSecond < minDuration) {
+      return null;
+    }
+    secondDuration = Math.min(secondDuration, maxSecond);
+    if (secondDuration < minDuration) {
+      return null;
+    }
+  }
 
   const clip1: AudioClip = {
     ...clip,
@@ -75,8 +89,10 @@ export function trimLeftOperation(
   deltaSeconds: number,
   minDuration: number = MIN_CLIP_DURATION
 ): AudioClip {
+  // Fix(waveA): clampedDelta = clamp(delta, max(-startTime, -offset), duration - minDuration).
   const maxDelta = clip.duration - minDuration;
-  const clampedDelta = Math.max(-clip.startTime, Math.min(maxDelta, deltaSeconds));
+  const lowerBound = Math.max(-clip.startTime, -clip.offset);
+  const clampedDelta = Math.max(lowerBound, Math.min(maxDelta, deltaSeconds));
   const newStart = Math.max(0, clip.startTime + clampedDelta);
   const newDuration = Math.max(minDuration, clip.duration - clampedDelta);
   const newOffset = Math.max(0, clip.offset + clampedDelta);
@@ -119,24 +135,33 @@ export interface SnapTarget {
 /**
  * Magnetic snap: snaps `targetTime` to the nearest sixteenth-note grid line
  * or clip boundary within `thresholdSeconds`. Clip boundaries win ties.
+ *
+ * Fix(waveA): la rejilla usa el denominador del compás
+ * (sixteenth = (60/bpm) * (4/den) / 4) en vez de asumir 4/4, y la ventana de
+ * grid cubre todas las líneas con |t - target| <= threshold (no ±2 fijos).
  */
 export function calculateMagneticSnap(
   targetTime: number,
   bpm: number,
-  _timeSignature: [number, number],
+  timeSignature: [number, number],
   existingClips: AudioClip[],
   thresholdSeconds: number = 0.1
 ): { snappedTime: number; isSnapped: boolean; target?: SnapTarget } {
+  const den = timeSignature?.[1] > 0 ? timeSignature[1] : 4;
   const beatSec = 60 / bpm;
-  const sixteenthSec = beatSec / 4;
+  // Fix(waveA): denominador del compás (en 6/8 la corchea lleva el pulso).
+  const sixteenthSec = (beatSec * (4 / den)) / 4;
 
   const snapTargets: SnapTarget[] = [];
 
-  // 1. Grid targets (beats and sixteenths around targetTime)
-  const nearestSixteenthIndex = Math.round(targetTime / sixteenthSec);
-  for (let offset = -2; offset <= 2; offset++) {
-    const gridTime = (nearestSixteenthIndex + offset) * sixteenthSec;
-    if (gridTime >= 0) {
+  // 1. Grid targets: todas las líneas con |t - target| <= threshold.
+  const lo = Math.max(0, targetTime - thresholdSeconds);
+  const hi = targetTime + thresholdSeconds;
+  const firstIndex = Math.max(0, Math.floor(lo / sixteenthSec));
+  const lastIndex = Math.ceil(hi / sixteenthSec);
+  for (let idx = firstIndex; idx <= lastIndex; idx++) {
+    const gridTime = idx * sixteenthSec;
+    if (gridTime >= 0 && Math.abs(gridTime - targetTime) <= thresholdSeconds) {
       snapTargets.push({ time: gridTime, type: 'grid' });
     }
   }

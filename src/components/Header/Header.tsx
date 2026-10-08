@@ -23,7 +23,8 @@ export const Header: React.FC = () => {
   } = useDawStore();
 
   return (
-    <header className="h-14 bg-dark-surface border-b border-dark-border px-4 flex items-center justify-between z-30 select-none">
+    // Fix(waveA): scroll horizontal en viewports estrechos para no recortar acciones.
+    <header className="h-14 bg-dark-surface border-b border-dark-border px-4 flex items-center justify-between gap-3 z-30 select-none overflow-x-auto">
       {/* Brand & Project Name */}
       <div className="flex items-center space-x-4">
         <div className="flex items-center space-x-2 text-cyan-400 font-bold tracking-wider text-base">
@@ -44,15 +45,19 @@ export const Header: React.FC = () => {
           type="text"
           value={projectName}
           onChange={(e) => setProjectName(e.target.value)}
-          className="bg-dark-surfaceLight/60 hover:bg-dark-surfaceLight text-slate-200 text-sm font-medium px-2.5 py-1 rounded border border-dark-border focus:border-cyan-500 focus:outline-none transition-colors w-48 truncate"
+          aria-label="Nombre del proyecto"
+          className="bg-dark-surfaceLight/60 hover:bg-dark-surfaceLight text-slate-200 text-sm font-medium px-2.5 py-1 rounded border border-dark-border focus:border-cyan-500 focus:outline-none transition-colors w-28 md:w-48 truncate"
           title="Nombre del Proyecto"
         />
       </div>
 
       {/* View Switcher: Timeline vs Mixer */}
-      <div className="flex items-center bg-dark-surfaceLight/80 p-0.5 rounded-lg border border-dark-border">
+      {/* Fix(waveA): grupo etiquetado + aria-pressed en la vista activa. */}
+      <div role="group" aria-label="Selector de vista" className="flex items-center bg-dark-surfaceLight/80 p-0.5 rounded-lg border border-dark-border">
         <button
           onClick={() => setActiveView('timeline')}
+          aria-pressed={activeView === 'timeline'}
+          aria-label="Ver timeline"
           className={`flex items-center space-x-1.5 px-3 py-1 rounded-md text-xs font-semibold transition-all ${
             activeView === 'timeline'
               ? 'bg-cyan-500 text-slate-950 shadow-sm shadow-cyan-500/20'
@@ -64,6 +69,8 @@ export const Header: React.FC = () => {
         </button>
         <button
           onClick={() => setActiveView('mixer')}
+          aria-pressed={activeView === 'mixer'}
+          aria-label="Ver mixer"
           className={`flex items-center space-x-1.5 px-3 py-1 rounded-md text-xs font-semibold transition-all ${
             activeView === 'mixer'
               ? 'bg-cyan-500 text-slate-950 shadow-sm shadow-cyan-500/20'
@@ -80,7 +87,8 @@ export const Header: React.FC = () => {
         {tracks.length === 0 && (
           <button
             onClick={() => loadDemoProject()}
-            className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-amber-500/20 border border-amber-500/40 text-amber-300 hover:bg-amber-500/30 transition-colors animate-pulse"
+            aria-label="Cargar proyecto de demostración"
+            className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-amber-500/20 border border-amber-500/40 text-amber-300 hover:bg-amber-500/30 transition-colors motion-safe:animate-pulse"
             title="Cargar stems instrumentales de demostración"
           >
             <Sparkles className="w-3.5 h-3.5" />
@@ -90,6 +98,7 @@ export const Header: React.FC = () => {
 
         <button
           onClick={() => addTrack()}
+          aria-label="Añadir nueva pista"
           className="flex items-center space-x-1 px-3 py-1.5 rounded-lg text-xs font-medium bg-dark-surfaceLight hover:bg-dark-border text-slate-200 border border-dark-border transition-colors"
         >
           <Plus className="w-3.5 h-3.5 text-cyan-400" />
@@ -98,6 +107,7 @@ export const Header: React.FC = () => {
 
         <button
           onClick={() => setExportModalOpen(true)}
+          aria-label="Abrir diálogo de masterización y exportación"
           className="flex items-center space-x-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 shadow-md shadow-emerald-500/20 transition-all"
         >
           <Download className="w-3.5 h-3.5" />
@@ -106,6 +116,7 @@ export const Header: React.FC = () => {
 
         <a
           href="../"
+          aria-label="Volver a la suite Hydra"
           className="p-1.5 text-slate-400 hover:text-slate-200 hover:bg-dark-surfaceLight rounded-md transition-colors"
           title="Volver a la suite Hydra"
         >

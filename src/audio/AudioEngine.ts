@@ -77,6 +77,19 @@ export class AudioEngine {
   private recordingStartTime: number = 0;
   // Fix: deduplica stopRecording concurrentes (stop() + toggleRecord) devolviendo la misma promesa.
   private stopRecordingPromise: Promise<(AudioClip & { buffer: AudioBuffer }) | null> | null = null;
+  // Fix(waveA): última toma preservada por stop() en vez de descartarla.
+  private lastTake: (AudioClip & { buffer: AudioBuffer }) | null = null;
+  // Fix(waveA): firma de efectos por track para reconstruir solo cuando cambian plugins.
+  private trackEffectsSig: Map<string, string> = new Map();
+  // Fix(waveA): vencimiento wall-clock esperado del wrap (para compensar jitter).
+  private loopDueWallMs: number = 0;
+  // Fix(waveA): telemetría con buffers pre-alojados (sin alloc por frame).
+  private telemetryScratch: Float32Array = new Float32Array(2048);
+  private telemetryPayload: { master: { rms: number; peak: number }; tracks: Record<string, { rms: number; peak: number }> } = {
+    master: { rms: 0, peak: 0 },
+    tracks: {},
+  };
+  private lastMeterSig: string | null = null;
 
   // Telemetry & Animation
   private meterCallbacks: Set<MeterCallback> = new Set();
@@ -259,9 +272,12 @@ export class AudioEngine {
 
   seek(time: number): void {
     const target = Math.max(0, time);
+    const wasPlaying = this.isPlaying;
+    // Fix(waveA): stop() síncrono ANTES de cualquier await para evitar doble sonido/race.
+    if (wasPlaying) this.stop(true);
     this.playheadOffset = target;
-    if (this.isPlaying) {
-      this.play(this.cachedTracks, this.cachedClips, target);
+    if (wasPlaying) {
+      void this.play(this.cachedTracks, this.cachedClips, target);
     }
   }
 
@@ -278,6 +294,8 @@ export class AudioEngine {
       node.dispose();
     }
     this.trackNodes.clear();
+    // Fix(waveA): limpia firmas de efectos al resetear el engine.
+    this.trackEffectsSig.clear();
     this.cachedTracks = [];
     this.cachedClips = [];
   }
@@ -299,6 +317,8 @@ export class AudioEngine {
       if (!currentIds.has(id)) {
         this.trackNodes.get(id)?.dispose();
         this.trackNodes.delete(id);
+        // Fix(waveA): limpia firma de efectos del track eliminado.
+        this.trackEffectsSig.delete(id);
       }
     }
 
@@ -308,11 +328,32 @@ export class AudioEngine {
       if (!trackNode) {
         trackNode = new TrackNode(ctx, track);
         trackNode.connect(this.masterBus.inputNode);
-        this.trackNodes.set(track.id, trackNode);
-      } else {
+        // Fix(waveA): propaga anySoloed al track nuevo (antes se ignoraba).
         trackNode.updateTrackState(track, anySoloed);
+        this.trackNodes.set(track.id, trackNode);
+        // Fix(waveA): registra firma inicial (el ctor ya construyó la cadena).
+        this.trackEffectsSig.set(track.id, this.computeEffectsSignature(track));
+      } else {
+        // Fix(waveA): reconstruye efectos solo si cambia la firma de plugins.
+        const prevSig = this.trackEffectsSig.get(track.id);
+        const nextSig = this.computeEffectsSignature(track);
+        trackNode.updateTrackState(track, anySoloed);
+        if (prevSig !== nextSig) {
+          this.rebuildTrackEffects(track);
+          this.trackEffectsSig.set(track.id, nextSig);
+        }
       }
     }
+  }
+
+  // Fix(waveA): firma de plugins (ids+enabled+params) para detectar cambios.
+  private computeEffectsSignature(track: AudioTrack): string {
+    return track.plugins.map((p) => `${p.instanceId}:${p.pluginId}:${p.enabled ? 1 : 0}:${JSON.stringify(p.parameters)}`).join('|');
+  }
+
+  // Fix(waveA): expone la última toma preservada por stop().
+  getLastTake(): (AudioClip & { buffer: AudioBuffer }) | null {
+    return this.lastTake;
   }
 
   /**
@@ -323,6 +364,11 @@ export class AudioEngine {
     if (node) {
       node.rebuildEffectsChain(track);
     }
+  }
+
+  // Fix(waveA): alias exigido por waveA (misma cadena de inserción).
+  rebuildTrackEffectsChain(track: AudioTrack) {
+    this.rebuildTrackEffects(track);
   }
 
   /**
@@ -342,7 +388,8 @@ export class AudioEngine {
    */
   async play(tracks?: AudioTrack[], clips?: AudioClip[], fromPosition: number = 0, opts?: PlayOptions) {
     const ctx = await this.ensureContext();
-    if (this.isPlaying) this.stop();
+    // Fix(waveA): el stop interno preserva la toma en curso (punch-in/seek no la matan).
+    if (this.isPlaying) this.stop(true);
 
     if (tracks) this.cachedTracks = tracks;
     if (clips) this.cachedClips = clips;
@@ -390,9 +437,11 @@ export class AudioEngine {
   }
 
   /**
-   * Stops playback and recording
+   * Stops playback and recording.
+   * Fix(waveA): preserva la toma en lastTake (getter getLastTake()) en vez de
+   * perderla; toggleRecord sigue funcionando igual vía la promesa deduplicada.
    */
-  stop(): number {
+  stop(preserveRecording: boolean = false): number {
     const currentPos = this.getCurrentTime();
     this.isPlaying = false;
     // Fix(wave3): cancela timers de loop/metrónomo y suelta osciladores del click.
@@ -404,10 +453,13 @@ export class AudioEngine {
       node.stopAllSources();
     }
 
-    if (this.isRecording) {
-      // Fix: evita promesa flotante sin manejar; el clip resultante se descarta aquí
-      // (quien necesite el clip debe llamar a stopRecording() y compartir la misma promesa deduplicada).
-      void this.stopRecording().catch(() => null);
+    if (this.isRecording && !preserveRecording) {
+      // Fix(waveA): guarda el clip en lastTake en vez de descartarlo.
+      void this.stopRecording()
+        .then((clip) => {
+          if (clip) this.lastTake = clip;
+        })
+        .catch(() => null);
     }
 
     this.activeLoop = null;
@@ -440,6 +492,8 @@ export class AudioEngine {
    * Starts live audio recording on the armed track
    */
   async startRecording(armedTrackId: string, tracks?: AudioTrack[], clips?: AudioClip[]): Promise<void> {
+    // Fix(waveA): captura si ya sonaba ANTES de cualquier await (punch-in hot).
+    const wasPlaying = this.isPlaying;
     await this.ensureContext();
     this.recordingTrackId = armedTrackId;
     this.recordingStartTime = this.getCurrentTime();
@@ -485,10 +539,16 @@ export class AudioEngine {
     };
 
     this.mediaRecorder.start(100);
-    this.isRecording = true;
+    // Fix(waveA): punch-in no reinicia clips si ya sonaba (solo arranca recorder).
+    if (wasPlaying) {
+      this.isRecording = true;
+      return;
+    }
 
     // Start synchronized playback
+    // Fix(waveA): isRecording DESPUÉS del play inicial para que el stop interno no mate la toma.
     await this.play(tracks ?? this.cachedTracks, clips ?? this.cachedClips, this.recordingStartTime);
+    this.isRecording = true;
   }
 
   /**
@@ -507,6 +567,8 @@ export class AudioEngine {
 
     this.stopRecordingPromise = new Promise((resolve) => {
       const done = (clip: (AudioClip & { buffer: AudioBuffer }) | null) => {
+        // Fix(waveA): preserva la toma para getLastTake() aunque venga de stop().
+        if (clip) this.lastTake = clip;
         this.stopRecordingPromise = null;
         resolve(clip);
       };
@@ -704,8 +766,9 @@ export class AudioEngine {
         source.connect(trackNode.inputNode);
         source.start(audioBaseTime + entry.whenOffset, entry.offsetIntoClip, entry.playDuration);
         trackNode.addActiveSource(source);
-      } catch (_) {
-        // Nodo mock sin start connect — se ignora para no romper headless tests.
+      } catch (err) {
+        // Fix(waveA): warn con contexto (en headless no se dispara: los mocks sí tienen start).
+        console.warn('[AudioEngine] scheduleClipsRange: no se pudo programar clip', entry.clipId, err);
       }
     }
   }
@@ -737,8 +800,9 @@ export class AudioEngine {
           this.metronomeNodes = this.metronomeNodes.filter((n) => n !== osc);
         };
       }
-    } catch (_) {
-      // Headless mock incompleto — el grid puro sigue testeable vía getMetronomeClickTimes.
+    } catch (err) {
+      // Fix(waveA): warn con contexto de click (silencio solo si el mock headless está incompleto).
+      console.warn('[AudioEngine] spawnClick: no se pudo generar click', err);
     }
   }
 
@@ -780,18 +844,23 @@ export class AudioEngine {
         const audioNow = ctx.currentTime;
         // Programa [now, now+2) alineado a audioNow.
         this.scheduleMetronomeOnContext(ctx, dest, now, now + 2, audioNow, this.tempoBpm, this.activeTimeSig);
-      } catch (_) {}
+      } catch (err) {
+        // Fix(waveA): warn con contexto en el extensor del metrónomo.
+        console.warn('[AudioEngine] armMetroExtender: no se pudo extender el metrónomo', err);
+      }
     }, 1000);
   }
 
   // Fix(wave3): replanificación del loop (stop + replan). Se ejecuta vía setTimeout
   // alineado a loopEnd; reusa caché tracks/clips y respeta el tempo vigente.
+  // Fix(waveA): compensa el jitter midiendo lateness contra el vencimiento esperado.
   private handleLoopWrap(): void {
     if (!this.isPlaying || !this.activeLoop || !this.context) return;
     const ctx = this.context;
     const { start, end } = this.activeLoop;
     const len = end - start;
     if (!(len > 0)) return;
+    const latenessSec = Math.max(0, (Date.now() - this.loopDueWallMs) / 1000);
     for (const node of this.trackNodes.values()) {
       node.stopAllSources();
     }
@@ -802,12 +871,15 @@ export class AudioEngine {
     if (this.activeMetronome) {
       this.scheduleMetronomeRange(ctx, start, end, this.startTime);
     }
-    this.armLoopTimer(len);
+    this.armLoopTimer(Math.max(0, len - latenessSec));
   }
 
   private armLoopTimer(delaySec: number): void {
     if (this.loopTimer) clearTimeout(this.loopTimer);
-    this.loopTimer = setTimeout(() => this.handleLoopWrap(), Math.max(0, delaySec * 1000));
+    // Fix(waveA): suma el lookahead 0.02s para no disparar 20ms pronto.
+    const delayMs = Math.max(0, (delaySec + 0.02) * 1000);
+    this.loopDueWallMs = Date.now() + delayMs;
+    this.loopTimer = setTimeout(() => this.handleLoopWrap(), delayMs);
   }
 
   private clearLoopTimers(): void {
@@ -827,7 +899,10 @@ export class AudioEngine {
         osc.onended = null;
         osc.stop(0);
         osc.disconnect();
-      } catch (_) {}
+      } catch (err) {
+        // Fix(waveA): warn con contexto al soltar osciladores del click.
+        console.warn('[AudioEngine] stopMetronomeNodes: no se pudo soltar un oscilador', err);
+      }
     }
     this.metronomeNodes = [];
   }
@@ -836,6 +911,7 @@ export class AudioEngine {
     // Fix (doble loop rAF): este loop central del engine emite meters + time callbacks para suscriptores
     // React; el playhead de Timeline usa su propio loop con mutación directa del DOM para evitar
     // re-renders a 60fps. Se mantienen separados a propósito (ver comentario en Timeline.tsx).
+    // Fix(waveA): reutiliza buffers pre-alojados y emite solo si playing o cambió el nivel.
     const loop = () => {
       if (this.isPlaying) {
         const time = this.getCurrentTime();
@@ -844,12 +920,61 @@ export class AudioEngine {
 
       if (this.masterBus) {
         const masterLevels = this.masterBus.getMeterLevels();
-        const trackLevels: Record<string, { rms: number; peak: number }> = {};
+        this.telemetryPayload.master.rms = masterLevels.rms;
+        this.telemetryPayload.master.peak = masterLevels.peak;
+        // Limpia ids obsoletos reutilizando el mismo objeto.
+        for (const id of Object.keys(this.telemetryPayload.tracks)) {
+          if (!this.trackNodes.has(id)) delete this.telemetryPayload.tracks[id];
+        }
         for (const [id, node] of this.trackNodes.entries()) {
-          trackLevels[id] = node.getMeterLevels();
+          let rms = 0;
+          let peak = 0;
+          try {
+            const analyser = node.analyserNode as unknown as {
+              fftSize: number;
+              getFloatTimeDomainData: (a: Float32Array) => void;
+            };
+            const size = analyser.fftSize || 256;
+            if (this.telemetryScratch.length < size) this.telemetryScratch = new Float32Array(size);
+            const view = this.telemetryScratch.subarray(0, size);
+            analyser.getFloatTimeDomainData(view);
+            let sum = 0;
+            for (let i = 0; i < view.length; i++) {
+              const abs = Math.abs(view[i]);
+              if (abs > peak) peak = abs;
+              sum += abs * abs;
+            }
+            rms = Math.min(1, Math.sqrt(sum / view.length) * 1.4);
+            peak = Math.min(1, peak);
+          } catch (err) {
+            // Fix(waveA): warn con contexto si falla la lectura del analyser.
+            console.warn('[AudioEngine] telemetry: no se pudo leer el analyser de', id, err);
+            const fallback = node.getMeterLevels();
+            rms = fallback.rms;
+            peak = fallback.peak;
+          }
+          const slot = this.telemetryPayload.tracks[id];
+          if (slot) {
+            slot.rms = rms;
+            slot.peak = peak;
+          } else {
+            this.telemetryPayload.tracks[id] = { rms, peak };
+          }
         }
 
-        this.meterCallbacks.forEach((cb) => cb({ master: masterLevels, tracks: trackLevels }));
+        const sig =
+          `${this.telemetryPayload.master.rms.toFixed(4)},${this.telemetryPayload.master.peak.toFixed(4)}|` +
+          Object.keys(this.telemetryPayload.tracks)
+            .sort()
+            .map((id) => {
+              const t = this.telemetryPayload.tracks[id];
+              return `${id}:${t.rms.toFixed(4)},${t.peak.toFixed(4)}`;
+            })
+            .join(';');
+        if (this.isPlaying || sig !== this.lastMeterSig) {
+          this.lastMeterSig = sig;
+          this.meterCallbacks.forEach((cb) => cb(this.telemetryPayload));
+        }
       }
 
       this.rafId = requestAnimationFrame(loop);

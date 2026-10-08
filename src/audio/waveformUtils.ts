@@ -2,10 +2,33 @@
  * High-performance audio waveform utilities
  */
 
+// Fix(waveA): PRNG determinista para el ruido de la demo (demo reproducible).
+function mulberry32(seed: number): () => number {
+  let a = seed >>> 0;
+  return () => {
+    a |= 0;
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+// Fix(waveA): pico objetivo tras normalizar la demo (evita clipeo por acumulación).
+export const DEMO_TARGET_PEAK = 0.89;
+
+// Fix(waveA): semilla fija del ruido de la demo (misma entrada -> mismo buffer).
+export const DEMO_NOISE_SEED = 0x2f6e2b1;
+
 /**
  * Computes min/max peak pairs for rendering at 60 FPS
  * @param buffer AudioBuffer to extract peaks from
  * @param targetPoints Number of peak pairs to generate (e.g. 1000 for standard timeline clip)
+ *
+ * Fix(waveA): aproximación stride-4 — dentro de cada bloque solo se muestrea 1 de
+ * cada 4 muestras para ir ~4x más rápido. Es una aproximación visual: puede pasar
+ * por alto transitorios estrechos (< 4 muestras), aceptable para render 60 FPS
+ * pero no para medición de pico real.
  */
 export function generateWaveformPeaks(buffer: AudioBuffer, targetPoints: number = 800): Float32Array {
   const peaks = new Float32Array(targetPoints * 2);
@@ -17,15 +40,26 @@ export function generateWaveformPeaks(buffer: AudioBuffer, targetPoints: number 
   }
 
   const length = buffer.length;
-  const blockSize = Math.floor(length / targetPoints);
-
-  if (blockSize <= 0) {
+  if (length <= 0 || targetPoints <= 0) {
     return peaks;
   }
 
+  // Fix(waveA): blockSize = max(1, ...) para que los clips cortos (length < targetPoints)
+  // no devuelvan ceros por el early-return anterior.
+  const blockSize = Math.max(1, Math.floor(length / targetPoints));
+
   for (let i = 0; i < targetPoints; i++) {
-    const start = i * blockSize;
-    const end = Math.min(start + blockSize, length);
+    let start = i * blockSize;
+    // Fix(waveA): saturar los bins que caen más allá del buffer al último sample
+    // para no dejar ceros en la cola de clips cortos.
+    if (start >= length) {
+      start = length - 1;
+    }
+    // Fix(waveA): el último bin absorbe el resto parcial final (length no múltiplo de blockSize).
+    let end = Math.min(start + blockSize, length);
+    if (i === targetPoints - 1) {
+      end = length;
+    }
 
     let min = 1.0;
     let max = -1.0;
@@ -60,6 +94,9 @@ export async function decodeAudioFile(file: Blob, audioContext: BaseAudioContext
 /**
  * Generates synthetic high-quality demo audio stems (Drums, Bass, Chords, Vocal Lead)
  * allows instant testing without needing external sample downloads
+ *
+ * Fix(waveA): ruido determinista (semilla fija) + normalización del pico final a
+ * ~0.89 para que la acumulación de capas no clipee (>= 1.0).
  */
 export function generateDemoTrackBuffer(
   context: BaseAudioContext,
@@ -72,6 +109,9 @@ export function generateDemoTrackBuffer(
   const buffer = context.createBuffer(2, totalSamples, sampleRate);
   const left = buffer.getChannelData(0);
   const right = buffer.getChannelData(1);
+
+  // Fix(waveA): RNG con semilla fija — la demo es reproducible entre sesiones.
+  const rng = mulberry32(DEMO_NOISE_SEED);
 
   const beatDuration = 60 / bpm;
   const totalBeats = Math.floor(durationSec / beatDuration);
@@ -92,7 +132,7 @@ export function generateDemoTrackBuffer(
           sample = Math.sin(2 * Math.PI * freq * t) * env * 0.9;
         } else {
           // Snare: noise + body tone
-          const noise = (Math.random() * 2 - 1) * 0.7;
+          const noise = (rng() * 2 - 1) * 0.7;
           const tone = Math.sin(2 * Math.PI * 180 * t) * 0.5;
           sample = (noise + tone) * env * 0.7;
         }
@@ -106,7 +146,7 @@ export function generateDemoTrackBuffer(
       for (let i = 0; i < hatLength && eighthStart + i < totalSamples; i++) {
         const t = i / sampleRate;
         const env = Math.exp(-t * 80);
-        const hat = (Math.random() * 2 - 1) * env * 0.3;
+        const hat = (rng() * 2 - 1) * env * 0.3;
         left[eighthStart + i] += hat;
         right[eighthStart + i] += hat;
       }
@@ -161,6 +201,22 @@ export function generateDemoTrackBuffer(
         left[beatStart + i] += sample * 0.8;
         right[beatStart + i] += sample * 1.0;
       }
+    }
+  }
+
+  // Fix(waveA): normalizar el pico final a ~0.89 (la acumulación de capas clipeaba).
+  let peak = 0;
+  for (let i = 0; i < totalSamples; i++) {
+    const a = Math.abs(left[i]);
+    if (a > peak) peak = a;
+    const b = Math.abs(right[i]);
+    if (b > peak) peak = b;
+  }
+  if (peak > DEMO_TARGET_PEAK && peak > 0) {
+    const gain = DEMO_TARGET_PEAK / peak;
+    for (let i = 0; i < totalSamples; i++) {
+      left[i] *= gain;
+      right[i] *= gain;
     }
   }
 

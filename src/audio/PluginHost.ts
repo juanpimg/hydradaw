@@ -29,6 +29,15 @@ export class PluginHost {
     return [...builtins, ...customs];
   }
 
+  // Fix(waveA): clamp centralizado contra la definición (min/max/defaultValue).
+  clampToDef(pluginId: string, paramId: string, value: number): number {
+    const def = this.getPluginDefinition(pluginId);
+    const param = def?.parameters.find((p) => p.id === paramId);
+    if (!param) return value;
+    if (!Number.isFinite(value)) return param.defaultValue;
+    return Math.min(param.max, Math.max(param.min, value));
+  }
+
   /**
    * Instantiates the DSP nodes for a plugin instance
    */
@@ -48,13 +57,24 @@ export class PluginHost {
     }
 
     try {
-      const dsp = def.createDSPNode(context, instance.parameters);
+      // Fix(waveA): sanitizar parámetros en creación (frecuencias <= 0, ratio < 1, etc.).
+      const rawParams = instance.parameters ?? {};
+      const sanitized: Record<string, number> = {};
+      for (const [key, val] of Object.entries(rawParams)) {
+        sanitized[key] = this.clampToDef(instance.pluginId, key, val);
+      }
+      const dsp = def.createDSPNode(context, sanitized);
+      const rawUpdate = dsp.updateParameter;
+      // Fix(waveA): aplicar clampToDef en TODOS los updateParameter.
+      const host = this;
       return {
         instanceId: instance.instanceId,
         pluginId: instance.pluginId,
         inputNode: dsp.inputNode,
         outputNode: dsp.outputNode,
-        updateParameter: dsp.updateParameter,
+        updateParameter: (paramId: string, value: number) => {
+          rawUpdate(paramId, host.clampToDef(instance.pluginId, paramId, value));
+        },
         cleanup: dsp.cleanup,
       };
     } catch (err) {
@@ -91,3 +111,9 @@ export class PluginHost {
 }
 
 export const pluginHost = new PluginHost();
+
+// Fix(waveA): helper centralizado `clampToDef(pluginId, paramId, value)` sobre
+// `BUILTIN_PLUGINS[...].parameters[].min/max` (delega en el host para cubrir customs).
+export function clampToDef(pluginId: string, paramId: string, value: number): number {
+  return pluginHost.clampToDef(pluginId, paramId, value);
+}

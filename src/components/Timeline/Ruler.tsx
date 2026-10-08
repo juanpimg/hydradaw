@@ -41,14 +41,18 @@ export const Ruler: React.FC = () => {
         style={{ left: `${leftPx}px` }}
       >
         <span className="text-[10px] font-mono text-slate-400 font-medium">{bar}</span>
-        <div className="flex space-x-2">
-          {Array.from({ length: timeSignature[0] - 1 }).map((_, beatIdx) => (
-            <div
-              key={beatIdx}
-              className="h-1.5 w-px bg-dark-border/40"
-              style={{ marginLeft: `${beatLen * zoom}px` }}
-            />
-          ))}
+        {/* Fix(waveA): ticks posicionados en absoluto por beat, sin doble espaciado. */}
+        <div className="relative h-1.5">
+          {Array.from({ length: timeSignature[0] - 1 }).map((_, i) => {
+            const beatIdx = i + 1;
+            return (
+              <div
+                key={beatIdx}
+                className="absolute bottom-0 h-1.5 w-px bg-dark-border/40"
+                style={{ left: `${beatIdx * beatLen * zoom}px` }}
+              />
+            );
+          })}
         </div>
       </div>
     );

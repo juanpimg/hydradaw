@@ -86,10 +86,21 @@ describe('HydraDAW Timeline Operations & Manipulation Math', () => {
     });
 
     it('trims the left handle backward, extending earlier when timeline start allows', () => {
+      // Fix(waveA): la extensión a la izquierda queda capada por max(-startTime, -offset);
+      // con offset 0 no hay audio fuente anterior que revelar -> no-op.
       const trimmed = trimLeftOperation(baseClip, -1.0);
+      expect(trimmed.startTime).toBe(2.0);
+      expect(trimmed.duration).toBe(8.0);
+      expect(trimmed.offset).toBe(0.0);
+    });
+
+    it('trims the left handle backward revealing earlier source audio when offset allows', () => {
+      // Fix(waveA): con offset > 0 sí se puede extender a la izquierda.
+      const withOffset: AudioClip = { ...baseClip, offset: 2.0 };
+      const trimmed = trimLeftOperation(withOffset, -1.0);
       expect(trimmed.startTime).toBe(1.0);
       expect(trimmed.duration).toBe(9.0);
-      expect(trimmed.offset).toBe(0.0); // Offset cannot be negative
+      expect(trimmed.offset).toBe(1.0);
     });
 
     it('trims the right handle forward, extending duration', () => {
@@ -164,8 +175,18 @@ describe('HydraDAW Timeline Operations & Manipulation Math', () => {
     });
 
     it('prevents left trim from moving clip start into negative time (< 0.0)', () => {
-      const trimmed = trimLeftOperation(baseClip, -50.0);
+      // Fix(waveA): con offset suficiente el trim llega hasta 0.0 pero no más allá.
+      const withOffset: AudioClip = { ...baseClip, offset: 3.0 };
+      const trimmed = trimLeftOperation(withOffset, -50.0);
       expect(trimmed.startTime).toBe(0.0);
+      expect(trimmed.offset).toBe(1.0);
+    });
+
+    it('prevents left trim beyond available source offset (offset 0 -> no-op)', () => {
+      // Fix(waveA): clampedDelta = clamp(delta, max(-startTime, -offset), ...); offset 0 bloquea.
+      const trimmed = trimLeftOperation(baseClip, -50.0);
+      expect(trimmed.startTime).toBe(2.0);
+      expect(trimmed.offset).toBe(0.0);
     });
 
     it('prevents left trim from shrinking duration below 0.2s', () => {

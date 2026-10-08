@@ -5,6 +5,7 @@ import { Ruler } from './Ruler';
 import { TrackHeader } from './TrackHeader';
 import { WaveformCanvas } from './WaveformCanvas';
 import { decodeAudioFile, generateWaveformPeaks } from '../../audio/waveformUtils';
+import { calculateMagneticSnap } from '../../audio/timelineOps';
 import { ZoomIn, ZoomOut, Scissors, Plus } from 'lucide-react';
 
 export const Timeline: React.FC = () => {
@@ -15,6 +16,8 @@ export const Timeline: React.FC = () => {
     setZoom,
     duration,
     currentTime,
+    bpm,
+    timeSignature,
     selectedTrackId,
     selectedClipId,
     setSelectedClip,
@@ -26,6 +29,12 @@ export const Timeline: React.FC = () => {
     pause,
     isPlaying,
   } = useDawStore();
+
+  // Fix(waveA): clip seleccionado + si el cursor está dentro (para habilitar/deshabilitar Cortar).
+  const selectedClip = clips.find((c) => c.id === selectedClipId) ?? null;
+  const canSplit =
+    !!selectedClip && currentTime > selectedClip.startTime &&
+    currentTime < selectedClip.startTime + selectedClip.duration;
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const playheadRef = useRef<HTMLDivElement>(null);
@@ -61,10 +70,13 @@ export const Timeline: React.FC = () => {
   // Global Keyboard Shortcuts (Space, S for Split, Delete)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Don't intercept when typing in input
-      if ((e.target as HTMLElement).tagName === 'INPUT') return;
+      // Fix(waveA): no corromper la edición en campos de texto/botones/selects.
+      const t = e.target as HTMLElement;
+      if (t.closest('input,textarea,select,[contenteditable="true"]')) return;
 
       if (e.code === 'Space') {
+        // Fix(waveA): Space en BUTTON/SELECT activa el control, no el transporte.
+        if (t.closest('button,select') || t.tagName === 'BUTTON' || t.tagName === 'SELECT') return;
         e.preventDefault();
         if (isPlaying) pause();
         else play();
@@ -91,18 +103,25 @@ export const Timeline: React.FC = () => {
 
     const ctx = await audioEngine.ensureContext();
 
-    for (const file of files) {
+    // Fix(waveA): repartir los clips en cascada para no apilarlos todos en currentTime.
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
       try {
         const audioBuffer = await decodeAudioFile(file, ctx);
         const peaks = generateWaveformPeaks(audioBuffer, 800);
         const targetTrackId = trackId || addTrack(file.name.replace(/\.[^/.]+$/, ''));
+        const dur = audioBuffer.duration;
+        const rawStart = currentTime + i * (dur + 0.5);
+        // Fix(waveA): snap magnético al colocar el clip importado.
+        const liveClips = useDawStore.getState().clips;
+        const { snappedTime } = calculateMagneticSnap(rawStart, bpm, timeSignature, liveClips);
 
         addClip({
           id: 'clip_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
           trackId: targetTrackId,
           name: file.name,
-          startTime: currentTime,
-          duration: audioBuffer.duration,
+          startTime: snappedTime,
+          duration: dur,
           offset: 0,
           audioBuffer,
           peaks,
@@ -114,6 +133,8 @@ export const Timeline: React.FC = () => {
     }
   };
 
+  // Fix(waveA): ancho de lanes = viewport menos columna de headers (w-60 = 240px),
+  // misma fórmula que Ruler para alinear rejilla y clips.
   const totalWidth = Math.max(viewportWidth - 240, duration * zoom);
 
   return (
@@ -139,10 +160,16 @@ export const Timeline: React.FC = () => {
         <div className="h-4 w-px bg-dark-border mx-1" />
 
         <button
-          onClick={() => selectedClipId && splitClip(selectedClipId, currentTime)}
-          disabled={!selectedClipId}
+          onClick={() => { if (canSplit && selectedClip) splitClip(selectedClip.id, currentTime); }}
+          disabled={!canSplit}
           className="flex items-center space-x-1 px-2 py-1 rounded text-xs font-semibold bg-dark-surfaceLight hover:bg-dark-border disabled:opacity-40 text-cyan-400"
-          title="Cortar clip seleccionado en el cursor ('S')"
+          title={
+            !selectedClip
+              ? 'Selecciona un clip para cortar'
+              : !canSplit
+                ? 'El cursor debe estar dentro del clip seleccionado para cortar'
+                : "Cortar clip seleccionado en el cursor ('S')"
+          }
         >
           <Scissors className="w-3.5 h-3.5" />
           <span>Cortar ('S')</span>

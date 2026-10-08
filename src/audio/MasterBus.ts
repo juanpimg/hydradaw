@@ -6,6 +6,8 @@ export class MasterBus {
   readonly volumeNode: GainNode;
   readonly muteNode: GainNode;
   readonly analyserNode: AnalyserNode;
+  // Fix(waveA): reusable meter buffer — avoids per-frame Float32Array alloc in getMeterLevels.
+  private meterBuffer: Float32Array<ArrayBuffer> | null = null;
 
   constructor(context: BaseAudioContext) {
     this.context = context;
@@ -47,16 +49,46 @@ export class MasterBus {
     // startRendering() captures. WITHOUT the offline branch every export
     // renders silence (the graph was never connected to the render target).
     // Fix: connect in both cases.
-    const isRealtime = typeof AudioContext !== 'undefined' && context instanceof AudioContext;
-    const isOffline =
-      typeof OfflineAudioContext !== 'undefined' && context instanceof OfflineAudioContext;
-    if (isRealtime || isOffline) {
-      this.analyserNode.connect((context as AudioContext).destination);
+    // Fix(waveA): duck-typing instead of fragile `instanceof` (breaks under
+    // Safari webkit prefixes / polyfills where the global constructor differs
+    // from the context's realm). Any context exposing `.destination` gets the
+    // analyser wired to it; headless mocks without destination stay unwired.
+    const dest = (context as unknown as { destination?: AudioNode }).destination;
+    if (dest) {
+      this.analyserNode.connect(dest);
     }
   }
 
+  // Fix(waveA): offline detection without fragile instanceof — true for real
+  // OfflineAudioContext (instanceof fast path) or any context exposing
+  // startRendering (polyfills / fakes that mimic the offline API).
+  private isOfflineContext(): boolean {
+    try {
+      if (
+        typeof OfflineAudioContext !== 'undefined' &&
+        this.context instanceof OfflineAudioContext
+      ) {
+        return true;
+      }
+    } catch (_) {
+      // Fall through to duck-typing.
+    }
+    return (
+      typeof (this.context as unknown as { startRendering?: unknown })
+        .startRendering === 'function'
+    );
+  }
+
   setVolume(volume: number) {
-    const val = Math.max(0, volume);
+    // Fix(waveA): clamp 0..1.5 (matches AudioTrack.volume range).
+    const val = Math.min(1.5, Math.max(0, volume));
+    // Fix(waveA): direct assignment offline — currentTime is frozen during
+    // OfflineAudioContext setup, so setTargetAtTime ramps would mis-schedule
+    // the export start; direct .value applies deterministically.
+    if (this.isOfflineContext()) {
+      this.volumeNode.gain.value = val;
+      return;
+    }
     try {
       this.volumeNode.gain.setTargetAtTime(val, this.context.currentTime, 0.02);
     } catch (_) {
@@ -66,6 +98,11 @@ export class MasterBus {
 
   setMute(mute: boolean) {
     const val = mute ? 0 : 1.0;
+    // Fix(waveA): direct assignment offline (same frozen-currentTime reason).
+    if (this.isOfflineContext()) {
+      this.muteNode.gain.value = val;
+      return;
+    }
     try {
       this.muteNode.gain.setTargetAtTime(val, this.context.currentTime, 0.02);
     } catch (_) {
@@ -74,7 +111,12 @@ export class MasterBus {
   }
 
   getMeterLevels(): { rms: number; peak: number } {
-    const data = new Float32Array(this.analyserNode.fftSize);
+    // Fix(waveA): reuse instance buffer instead of allocating per call/frame.
+    const size = this.analyserNode.fftSize;
+    if (!this.meterBuffer || this.meterBuffer.length !== size) {
+      this.meterBuffer = new Float32Array(size);
+    }
+    const data = this.meterBuffer;
     this.analyserNode.getFloatTimeDomainData(data);
 
     let sum = 0;

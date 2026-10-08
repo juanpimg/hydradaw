@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useDawStore } from '../../store/useDawStore';
 import { pluginHost } from '../../audio/PluginHost';
 import { Knob } from './Knob';
@@ -51,6 +51,25 @@ const customPlugin = {
   }
 };`);
 
+  // Fix(waveA): foco inicial al abrir + devolver foco al cerrar + cierre con ESC.
+  const panelRef = useRef<HTMLDivElement>(null);
+  const prevFocusRef = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    if (!pluginModalTrackId) return;
+    prevFocusRef.current = document.activeElement as HTMLElement | null;
+    panelRef.current?.focus();
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setPluginModal(null, null);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      prevFocusRef.current?.focus?.();
+    };
+  }, [pluginModalTrackId, setPluginModal]);
+
   if (!pluginModalTrackId) return null;
 
   const track = tracks.find((t) => t.id === pluginModalTrackId);
@@ -82,8 +101,21 @@ const customPlugin = {
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 select-none">
-      <div className="bg-dark-surface border border-dark-border w-full max-w-4xl max-h-[85vh] rounded-2xl shadow-2xl flex flex-col overflow-hidden">
+    // Fix(waveA): cierre por click en overlay (target === currentTarget: no dentro del panel).
+    <div
+      className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 select-none"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) setPluginModal(null, null);
+      }}
+    >
+      <div
+        ref={panelRef}
+        tabIndex={-1}
+        role="dialog"
+        aria-modal="true"
+        aria-label={`Rack de efectos de ${track.name}`}
+        className="bg-dark-surface border border-dark-border w-full max-w-4xl max-h-[85vh] rounded-2xl shadow-2xl flex flex-col overflow-hidden focus:outline-none"
+      >
         {/* Modal Header */}
         <div className="h-14 px-5 border-b border-dark-border flex items-center justify-between bg-dark-surfaceLight/50">
           <div className="flex items-center space-x-3">
@@ -105,6 +137,7 @@ const customPlugin = {
 
           <button
             onClick={() => setPluginModal(null, null)}
+            aria-label="Cerrar rack de efectos"
             className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-dark-border transition-colors"
           >
             <X className="w-5 h-5" />

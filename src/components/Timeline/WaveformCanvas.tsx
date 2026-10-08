@@ -1,6 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { AudioClip } from '../../types/daw';
 import { useDawStore } from '../../store/useDawStore';
+import { calculateMagneticSnap } from '../../audio/timelineOps';
 
 interface WaveformCanvasProps {
   clip: AudioClip;
@@ -16,7 +17,14 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
   isSelected,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const { zoom, updateClip, setSelectedClip } = useDawStore();
+  const { zoom, updateClip, setSelectedClip, setSelectedTrack, removeClip, splitClip, currentTime } =
+    useDawStore();
+
+  // Fix(waveA): al seleccionar el clip, sincronizar también la pista seleccionada.
+  const selectClip = () => {
+    setSelectedClip(clip.id);
+    setSelectedTrack(clip.trackId);
+  };
 
   // Draw 60 FPS waveform on canvas
   useEffect(() => {
@@ -78,7 +86,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
   // Handle Drag Move & Trim
   const handleMouseDown = (e: React.MouseEvent) => {
     e.stopPropagation();
-    setSelectedClip(clip.id);
+    selectClip();
 
     const startX = e.clientX;
     const initialStartTime = clip.startTime;
@@ -90,8 +98,11 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     // Detect if clicking near left or right edge for trimming
     const rect = e.currentTarget.getBoundingClientRect();
     const clickOffset = e.clientX - rect.left;
-    const isTrimLeft = clickOffset < 12;
-    const isTrimRight = clickOffset > rect.width - 12;
+    // Fix(waveA): zona trim proporcional (máx 8px); en clips estrechos (<24px) prima mover.
+    const edge = Math.min(8, width * 0.2);
+    const canTrim = width >= 24;
+    const isTrimLeft = canTrim && clickOffset < edge;
+    const isTrimRight = canTrim && clickOffset > rect.width - edge;
 
     const onMouseMove = (moveEvent: MouseEvent) => {
       const deltaX = moveEvent.clientX - startX;
@@ -112,7 +123,13 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
         updateClip(clip.id, { duration: newDuration });
       } else {
         // Move clip
-        const newStart = Math.max(0, initialStartTime + deltaTime);
+        // Fix(waveA): snap magnético al mover + clamp a [0, duraciónProyecto - duraciónClip].
+        const st = useDawStore.getState();
+        const rawStart = Math.max(0, initialStartTime + deltaTime);
+        const others = st.clips.filter((c) => c.id !== clip.id);
+        const { snappedTime } = calculateMagneticSnap(rawStart, st.bpm, st.timeSignature, others);
+        const maxStart = Math.max(0, st.duration - initialDuration);
+        const newStart = Math.min(Math.max(0, snappedTime), maxStart);
         updateClip(clip.id, { startTime: newStart });
       }
     };
@@ -126,12 +143,29 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     window.addEventListener('mouseup', onMouseUp);
   };
 
+  // Fix(waveA): clip focuseable con borrado/corte por teclado.
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Delete' || e.key === 'Backspace') {
+      e.stopPropagation();
+      removeClip(clip.id);
+    } else if (e.key === 's' || e.key === 'S') {
+      e.stopPropagation();
+      splitClip(clip.id, currentTime);
+    }
+  };
+
   return (
     <div
       onMouseDown={handleMouseDown}
       // Fix: el lane deselecciona en onClick; sin esto el click posterior al
       // mousedown borraba la selección y ningún clip quedaba seleccionable con ratón.
       onClick={(e) => e.stopPropagation()}
+      onFocus={selectClip}
+      onKeyDown={handleKeyDown}
+      tabIndex={0}
+      role="option"
+      aria-selected={isSelected}
+      aria-label={`Clip ${clip.name}`}
       className={`absolute top-1 bottom-1 rounded-lg overflow-hidden cursor-move border transition-shadow select-none ${
         isSelected
           ? 'border-white ring-2 ring-cyan-400 shadow-lg shadow-cyan-500/30 z-10'
