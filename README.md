@@ -21,3 +21,6 @@ Conecta este repositorio en Cloudflare Pages con:
 | Node version | 20 (`.nvmrc`) |
 
 `public/_headers` aplica COOP/COEP (`credentialless`) y caché inmutable para `/assets/*`.
+
+## Estado y siguientes pasos
+Consulta [`HANDOFF.md`](./HANDOFF.md) para el estado actual, arquitectura, limitaciones conocidas y tareas pendientes.
