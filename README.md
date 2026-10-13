@@ -1,6 +1,15 @@
 # HydraDAW
 
+[![Client-Side](https://img.shields.io/badge/Architecture-100%25%20Client--Side-emerald)](#)
+[![Privacy](https://img.shields.io/badge/Privacy-Zero%20Data%20Collected-blue)](#)
+[![License](https://img.shields.io/badge/License-MIT-green)](./LICENSE)
+
 DAW multitrack 100% local en el navegador (Web Audio API): grabación, mezcla, mastering con limitador brickwall, plugins locales (JS/WAM) y exportación WAV 16/24-bit. Sin servidor: todo ocurre en tu dispositivo.
+
+## Seguridad
+
+Sin backend ni credenciales: ningún secreto en el repo. `.env*` y artefactos locales
+(`dist/`, `test-artifacts/`) están ignorados en `.gitignore`.
 
 ## Desarrollo
 ```bash

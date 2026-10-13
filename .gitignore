@@ -3,3 +3,19 @@ dist
 *.local
 .DS_Store
 .vscode/*
+
+# secrets / env — nunca subir claves ni certificados locales
+.env*
+!.env.example
+.certs/
+*.pem
+*.key
+
+# logs
+*.log
+npm-debug.log*
+
+# test artefacts + herramientas locales (rutas absolutas)
+test-artifacts/
+.agents/
+.code-review-graph/

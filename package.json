@@ -2,6 +2,7 @@
   "name": "hydradaw",
   "private": true,
   "version": "1.0.0",
+  "description": "HydraDAW — DAW multitrack 100% local en el navegador (Web Audio, sin servidor)",
   "type": "module",
   "scripts": {
     "dev": "vite",
