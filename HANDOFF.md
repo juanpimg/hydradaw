@@ -3,14 +3,14 @@
 Última actualización: 2026-10-08 (noche, tras waveA + waveB + waveC + E2E)
 
 ## Estado actual
-- **Repo independiente:** https://github.com/juanpimg/hydradaw.git (`main`), local en `/home/jp/Escritorio/Proyectos/hydradaw`. ESTE repo es la fuente de verdad; `apps/hydra-daw` del monorepo editor es copia divergente sin sincronizar.
+- **Repo independiente:** https://github.com/juanpimg/hydradaw.git (`main`), local en `~/Escritorio/Proyectos/hydradaw`. ESTE repo es la fuente de verdad; `apps/hydra-daw` del monorepo editor es copia divergente sin sincronizar.
 - `npm test`: **228/228 pasan** (17 ficheros). `npx tsc --noEmit` limpio con `strict + noUncheckedIndexedAccess + verbatimModuleSyntax`. Build OK: vendor 141kB + app 116kB + modales lazy (~79kB gzip inicial, <350kB).
 - E2E en Chrome real (scripts en `/tmp/opencode/daw-*/verify*.mjs`): **0 errores de consola**. Verificado: demo 4/4, play/pause/stop, split con ratón real + S (4→5), plugins add/remove, export modal, loop/metrónomo, persistencia tras recarga, mixer con limiter, WAV 16-bit con sonido (peak ~1.0, RMS ~0.36), lectura LUFS visible ("Integrada: -7.1 LUFS"), AAC con degradación elegante donde no hay encoder (aviso + toast, sin crash).
 - **Cloudflare Pages: NO desplegado todavía.** Conectar repo en el dashboard (build `npm run build`, output `dist`, Node 20).
 - Subagentes detenidos. Dev server de verificación corriendo en :5175 (pararlo si molesta).
 
 ## Estado actual
-- **Repo independiente:** https://github.com/juanpimg/hydradaw.git (`main`), local en `/home/jp/Escritorio/Proyectos/hydradaw`. ESTE repo es la fuente de verdad; `apps/hydra-daw` del monorepo editor es copia divergente sin sincronizar.
+- **Repo independiente:** https://github.com/juanpimg/hydradaw.git (`main`), local en `~/Escritorio/Proyectos/hydradaw`. ESTE repo es la fuente de verdad; `apps/hydra-daw` del monorepo editor es copia divergente sin sincronizar.
 - `npm test`: **122/122 pasan** (8 ficheros). `npm run build` OK (JS ~251 kB / ~75 kB gzip).
 - E2E en Chrome real (puppeteer-core, scripts en `/tmp/opencode/daw-e2e/` y `/tmp/opencode/daw-clickfix/verify.mjs`): **0 errores de consola, 0 pageerrors**. Verificado: demo 4 pistas/4 clips, play/pause/stop, split con ratón real + tecla S (4→5 clips), add/remove plugin, modal export, loop/metrónomo sin errores, persistencia tras recarga, mixer con limiter -0.1 dBFS. Carga ~1.2 s (networkidle0, SwiftShader).
 - **Cloudflare Pages: NO desplegado todavía.** Solo preparado (ver README).
