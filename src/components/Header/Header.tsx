@@ -7,7 +7,8 @@ import {
   Download, 
   Plus, 
   Sparkles,
-  ExternalLink
+  ExternalLink,
+  Github
 } from 'lucide-react';
 
 export const Header: React.FC = () => {
@@ -113,6 +114,17 @@ export const Header: React.FC = () => {
           <Download className="w-3.5 h-3.5" />
           <span>Masterizar & Exportar</span>
         </button>
+
+        <a
+          href="https://github.com/juanpimg/hydradaw"
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label="Ver HydraDAW en GitHub (pestaña nueva)"
+          className="p-1.5 text-slate-400 hover:text-slate-200 hover:bg-dark-surfaceLight rounded-md transition-colors"
+          title="Ver código en GitHub — ¡contribuye!"
+        >
+          <Github className="w-4 h-4" />
+        </a>
 
         <a
           href="../"
