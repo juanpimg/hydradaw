@@ -55,3 +55,9 @@ location /assets/ {
 
 ## Estado y siguientes pasos
 Consulta [`HANDOFF.md`](./HANDOFF.md) para el estado actual, arquitectura, limitaciones conocidas y tareas pendientes.
+
+---
+
+## ⚖️ Aviso legal
+
+Graba y mezcla únicamente material del que poseas los derechos o que la ley te permita usar, respetando la normativa de propiedad intelectual de tu jurisdicción. Software "tal cual" (licencia MIT), sin garantías: el autor no responde de daños directos o indirectos ni del uso que hagas de él.
