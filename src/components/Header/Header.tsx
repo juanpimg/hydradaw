@@ -30,8 +30,8 @@ export const Header: React.FC = () => {
           <div className="p-1.5 bg-cyan-950/60 border border-cyan-500/40 rounded-lg text-cyan-400">
             <Music className="w-5 h-5" />
           </div>
-          <span className="bg-gradient-to-r from-cyan-400 via-blue-400 to-indigo-400 bg-clip-text text-transparent">
-            HydraDAW
+          <span className="text-white font-extrabold tracking-tight">
+            Hydra<span className="text-cyan-400">DAW</span>
           </span>
           <span className="text-[10px] px-1.5 py-0.5 rounded bg-cyan-900/40 text-cyan-300 border border-cyan-700/50 uppercase font-mono">
             Local 100%

@@ -31,11 +31,18 @@ export const TrackHeader: React.FC<TrackHeaderProps> = ({ track, isSelected }) =
       onClick={() => setSelectedTrack(track.id)}
       className={`h-24 w-60 border-r border-b border-dark-border px-3 py-2 flex flex-col justify-between transition-colors cursor-pointer select-none relative ${
         isSelected
-          ? 'bg-dark-surfaceLight/90 border-l-4'
+          ? 'bg-dark-surfaceLight/90 ring-1 ring-inset ring-cyan-500/30'
           : 'bg-dark-surface hover:bg-dark-surfaceLight/50'
       }`}
-      style={{ borderLeftColor: track.color }}
     >
+      {/* Track Color Indicator Bar */}
+      <div
+        className={`absolute left-0 top-0 bottom-0 ${
+          isSelected ? 'w-1 opacity-100' : 'w-0.5 opacity-70'
+        }`}
+        style={{ backgroundColor: track.color }}
+        aria-hidden="true"
+      />
       {/* Top Row: Icon, Name & Actions */}
       <div className="flex items-center justify-between">
         <div className="flex items-center space-x-2 truncate">
