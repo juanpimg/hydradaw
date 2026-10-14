@@ -18,7 +18,7 @@
  * en splitClipOperation/trimLeftOperation/trimRightOperation de este módulo.
  */
 
-import type { AudioClip } from '../types/daw';
+import type { AudioClip, SnapMode } from '../types/daw';
 
 /** Minimum clip/trim duration in seconds. */
 export const MIN_CLIP_DURATION = 0.2;
@@ -138,34 +138,64 @@ export interface SnapTarget {
 }
 
 /**
- * Magnetic snap: snaps `targetTime` to the nearest sixteenth-note grid line
+ * Magnetic snap: snaps `targetTime` to the nearest grid line (according to `snapMode`)
  * or clip boundary within `thresholdSeconds`. Clip boundaries win ties.
  *
- * Fix(waveA): la rejilla usa el denominador del compás
- * (sixteenth = (60/bpm) * (4/den) / 4) en vez de asumir 4/4, y la ventana de
- * grid cubre todas las líneas con |t - target| <= threshold (no ±2 fijos).
+ * If `snapMode` is 'off', snapping is disabled and returns `targetTime` unchanged.
  */
 export function calculateMagneticSnap(
   targetTime: number,
   bpm: number,
   timeSignature: [number, number],
   existingClips: AudioClip[],
-  thresholdSeconds: number = 0.1
+  thresholdSeconds: number = 0.1,
+  snapMode: SnapMode = '1/16'
 ): { snappedTime: number; isSnapped: boolean; target?: SnapTarget } {
+  if (snapMode === 'off') {
+    return { snappedTime: targetTime, isSnapped: false };
+  }
+
   const den = timeSignature?.[1] > 0 ? timeSignature[1] : 4;
+  const num = timeSignature?.[0] > 0 ? timeSignature[0] : 4;
   const beatSec = 60 / bpm;
-  // Fix(waveA): denominador del compás (en 6/8 la corchea lleva el pulso).
-  const sixteenthSec = (beatSec * (4 / den)) / 4;
+  const quarterSec = beatSec * (4 / den);
+
+  let gridStepSec: number;
+  switch (snapMode) {
+    case 'bar':
+      gridStepSec = num * beatSec;
+      break;
+    case '1/2':
+      gridStepSec = quarterSec * 2;
+      break;
+    case '1/4':
+      gridStepSec = quarterSec;
+      break;
+    case '1/8':
+      gridStepSec = quarterSec / 2;
+      break;
+    case '1/16':
+      gridStepSec = quarterSec / 4;
+      break;
+    case '1/32':
+      gridStepSec = quarterSec / 8;
+      break;
+    case 'triplet':
+      gridStepSec = quarterSec / 3;
+      break;
+    default:
+      gridStepSec = quarterSec / 4;
+  }
 
   const snapTargets: SnapTarget[] = [];
 
   // 1. Grid targets: todas las líneas con |t - target| <= threshold.
   const lo = Math.max(0, targetTime - thresholdSeconds);
   const hi = targetTime + thresholdSeconds;
-  const firstIndex = Math.max(0, Math.floor(lo / sixteenthSec));
-  const lastIndex = Math.ceil(hi / sixteenthSec);
+  const firstIndex = Math.max(0, Math.floor(lo / gridStepSec));
+  const lastIndex = Math.ceil(hi / gridStepSec);
   for (let idx = firstIndex; idx <= lastIndex; idx++) {
-    const gridTime = idx * sixteenthSec;
+    const gridTime = idx * gridStepSec;
     if (gridTime >= 0 && Math.abs(gridTime - targetTime) <= thresholdSeconds) {
       snapTargets.push({ time: gridTime, type: 'grid' });
     }

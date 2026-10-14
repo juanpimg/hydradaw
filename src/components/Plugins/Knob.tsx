@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 
 interface KnobProps {
   label: string;
@@ -23,7 +23,9 @@ export const Knob: React.FC<KnobProps> = ({
   onChange,
   size = 40,
 }) => {
-  // Fix: eliminado knobRef sin usar (nunca se leía .current); sin cambios visuales ni de comportamiento.
+  const [editing, setEditing] = useState(false);
+  const [editVal, setEditVal] = useState(String(value));
+
   // Normalize value to 0..1
   const normalized = Math.max(0, Math.min(1, (value - min) / (max - min)));
   // Angle: -135deg to +135deg (total 270 degrees)
@@ -42,6 +44,11 @@ export const Knob: React.FC<KnobProps> = ({
 
   // Fix(waveA): eventos pointer (táctil/lápiz/ratón) en vez de solo mouse.
   const handlePointerDown = (e: React.PointerEvent) => {
+    if (e.altKey) {
+      e.preventDefault();
+      onChange(defaultValue);
+      return;
+    }
     e.preventDefault();
     const startY = e.clientY;
     const startVal = value;
@@ -126,9 +133,43 @@ export const Knob: React.FC<KnobProps> = ({
         </div>
       </div>
 
-      <span className="text-[10px] font-mono text-slate-300 mt-1">
-        {Math.round(value * 10) / 10}{unit}
-      </span>
+      {editing ? (
+        <input
+          type="number"
+          min={min}
+          max={max}
+          step={step}
+          autoFocus
+          value={editVal}
+          onChange={(e) => setEditVal(e.target.value)}
+          onBlur={() => {
+            const parsed = parseFloat(editVal);
+            if (!isNaN(parsed)) onChange(clampToStep(parsed));
+            setEditing(false);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              const parsed = parseFloat(editVal);
+              if (!isNaN(parsed)) onChange(clampToStep(parsed));
+              setEditing(false);
+            } else if (e.key === 'Escape') {
+              setEditing(false);
+            }
+          }}
+          className="w-12 text-[10px] font-mono text-center bg-dark-bg text-cyan-300 border border-cyan-500 rounded px-0.5 mt-1 outline-none"
+        />
+      ) : (
+        <span
+          onClick={() => {
+            setEditVal(String(Math.round(value * 100) / 100));
+            setEditing(true);
+          }}
+          className="text-[10px] font-mono text-slate-300 mt-1 cursor-pointer hover:text-cyan-400 hover:underline"
+          title="Clic para editar valor numérico"
+        >
+          {Math.round(value * 10) / 10}{unit}
+        </span>
+      )}
     </div>
   );
 };

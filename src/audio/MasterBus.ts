@@ -6,6 +6,7 @@ export class MasterBus {
   readonly volumeNode: GainNode;
   readonly muteNode: GainNode;
   readonly analyserNode: AnalyserNode;
+  readonly lookaheadNode: DelayNode | null = null;
   // Fix(waveA): reusable meter buffer — avoids per-frame Float32Array alloc in getMeterLevels.
   private meterBuffer: Float32Array<ArrayBuffer> | null = null;
 
@@ -35,12 +36,28 @@ export class MasterBus {
     this.analyserNode.fftSize = 512;
     this.analyserNode.smoothingTimeConstant = 0.8;
 
-    // Chain: input -> volume -> limiter -> ceiling -> mute -> analyser
+    // Optional lookahead delay node (5ms) when supported by context
+    if (typeof (context as unknown as { createDelay?: (max: number) => DelayNode }).createDelay === 'function') {
+      try {
+        const delay = (context as unknown as { createDelay: (max: number) => DelayNode }).createDelay(0.02);
+        delay.delayTime.value = 0.005; // 5ms lookahead buffer
+        (this as { lookaheadNode: DelayNode | null }).lookaheadNode = delay;
+      } catch (_) {
+        (this as { lookaheadNode: DelayNode | null }).lookaheadNode = null;
+      }
+    }
+
+    // Chain: input -> volume -> limiter -> (lookahead) -> ceiling -> mute -> analyser
     // Master volume feeds into the brickwall limiter & ceiling, ensuring
     // output peaks can NEVER exceed 0 dBFS (strictly clamped to -0.1 dBFS ceiling)
     this.inputNode.connect(this.volumeNode);
     this.volumeNode.connect(this.limiterNode);
-    this.limiterNode.connect(this.ceilingGain);
+    if (this.lookaheadNode) {
+      this.limiterNode.connect(this.lookaheadNode);
+      this.lookaheadNode.connect(this.ceilingGain);
+    } else {
+      this.limiterNode.connect(this.ceilingGain);
+    }
     this.ceilingGain.connect(this.muteNode);
     this.muteNode.connect(this.analyserNode);
 
@@ -135,6 +152,7 @@ export class MasterBus {
     try { this.inputNode.disconnect(); } catch (_) {}
     try { this.volumeNode.disconnect(); } catch (_) {}
     try { this.limiterNode.disconnect(); } catch (_) {}
+    try { this.lookaheadNode?.disconnect(); } catch (_) {}
     try { this.ceilingGain.disconnect(); } catch (_) {}
     try { this.muteNode.disconnect(); } catch (_) {}
     try { this.analyserNode.disconnect(); } catch (_) {}

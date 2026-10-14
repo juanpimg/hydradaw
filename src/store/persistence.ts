@@ -873,6 +873,19 @@ export function applyTotalAudioBudget<T extends { id: string; bytes: Uint8Array 
   return kept;
 }
 
+/** Obtiene una estimación de cuota y uso de almacenamiento si la Storage API está disponible. */
+export async function getStorageQuotaEstimate(): Promise<{ quota: number; usage: number; available: number } | null> {
+  try {
+    if (typeof navigator !== 'undefined' && navigator.storage && typeof navigator.storage.estimate === 'function') {
+      const est = await navigator.storage.estimate();
+      const quota = est.quota ?? 0;
+      const usage = est.usage ?? 0;
+      return { quota, usage, available: Math.max(0, quota - usage) };
+    }
+  } catch (_) {}
+  return null;
+}
+
 /** Guarda el estado actual del store en IndexedDB. Nunca lanza (autosave-safe). */
 export async function saveProjectNow(): Promise<void> {
   try {
@@ -917,13 +930,25 @@ export async function saveProjectNow(): Promise<void> {
     // 2. Limpieza de huérfanos antes de escribir (también libera cuota).
     await cleanupOrphanAudio(liveIds);
 
+    // 2.5 Verificación preventiva de cuota restante de disco
+    const storageEst = await getStorageQuotaEstimate();
+    const safetyMargin = 5 * 1024 * 1024; // 5 MiB margen de seguridad
+    let remainingQuota = storageEst ? storageEst.available - safetyMargin : Infinity;
+
     // 3. Una entrada por clip; ante falta de cuota ese clip degrada a
     //    metadatos (ya presentes en `serialized`) sin romper el resto.
     const okIds: string[] = [];
     for (const e of budgeted) {
+      if (remainingQuota < e.bytes.byteLength) {
+        console.warn(`[persistence] Cuota preventiva insuficiente para clip ${e.id}: conservando solo metadatos.`);
+        continue;
+      }
       try {
         await set(audioKeyForClip(e.id), e.bytes);
         okIds.push(e.id);
+        if (Number.isFinite(remainingQuota)) {
+          remainingQuota -= e.bytes.byteLength;
+        }
       } catch (err) {
         if (isQuotaError(err)) {
           console.warn(`[persistence] Sin cuota para el audio del clip ${e.id}: se conservan solo metadatos.`);

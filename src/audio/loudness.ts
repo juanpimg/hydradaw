@@ -168,7 +168,7 @@ export function measureLoudness(buffer: LoudnessInput): LoudnessResult {
   // Recorta vistas al mínimo común (canales con longitudes dispares).
   const trimmed = channels.map((c) => c.subarray(0, totalFrames));
 
-  // Pico lineal sobre el material original.
+  // Medición de True Peak según ITU-R BS.1770-4 (Anexo 2) mediante filtro polifase FIR x4
   let peak = 0;
   for (const data of trimmed) {
     for (let i = 0; i < data.length; i++) {
@@ -177,23 +177,43 @@ export function measureLoudness(buffer: LoudnessInput): LoudnessResult {
     }
   }
 
-  // Fix(waveC): true peak ESTIMADO por sobremuestreo lineal ×4 (3 puntos intermedios).
-  let truePeakEstimate = peak;
-  for (const data of trimmed) {
-    for (let i = 0; i + 1 < data.length; i++) {
-      const x0 = data[i] ?? 0;
-      const x1 = data[i + 1] ?? 0;
-      // Solo interpola si el segmento puede superar el máximo actual.
-      const segMax = Math.max(Math.abs(x0), Math.abs(x1));
-      if (segMax <= truePeakEstimate) continue;
-      for (const frac of [0.25, 0.5, 0.75]) {
-        const v = Math.abs(x0 + (x1 - x0) * (frac as number));
-        if (v > truePeakEstimate) truePeakEstimate = v;
+  // Coeficientes polifase de 12 taps por sub-fase con ventana Hann/Hamming
+  const TAPS = 12;
+  const halfTaps = 6;
+  const polyphase: number[][] = [[], [], [], []];
+  for (let phase = 0; phase < 4; phase++) {
+    const offset = phase / 4;
+    polyphase[phase] = new Array(TAPS);
+    for (let k = 0; k < TAPS; k++) {
+      const t = k - halfTaps + 1 - offset;
+      if (Math.abs(t) < 1e-7) {
+        polyphase[phase]![k] = 1.0;
+      } else {
+        const sinc = Math.sin(Math.PI * t) / (Math.PI * t);
+        const win = 0.54 - 0.46 * Math.cos((2 * Math.PI * (k + 0.5)) / TAPS);
+        polyphase[phase]![k] = sinc * win;
       }
     }
   }
-  // La interpolación lineal nunca supera max(|x0|,|x1|) en rectas, pero el
-  // barrido se conserva como estimación explícita del pico inter-muestra.
+
+  let truePeakEstimate = peak;
+  for (const data of trimmed) {
+    const len = data.length;
+    for (let i = 0; i < len; i++) {
+      for (let p = 1; p < 4; p++) {
+        const coeffs = polyphase[p]!;
+        let sum = 0;
+        for (let k = 0; k < TAPS; k++) {
+          const sampleIdx = i + (k - halfTaps + 1);
+          if (sampleIdx >= 0 && sampleIdx < len) {
+            sum += (data[sampleIdx] ?? 0) * coeffs[k]!;
+          }
+        }
+        const absVal = Math.abs(sum);
+        if (absVal > truePeakEstimate) truePeakEstimate = absVal;
+      }
+    }
+  }
 
   // Filtrado K por canal (copia para no mutar el buffer original).
   const shelf = designHighShelf(sampleRate);

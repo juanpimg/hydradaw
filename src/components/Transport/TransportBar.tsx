@@ -175,46 +175,84 @@ const BpmInput: React.FC<{ bpm: number; setBpm: (bpm: number) => void }> = React
 });
 BpmInput.displayName = 'BpmInput';
 
+interface TimeDisplayProps {
+  bpm: number;
+  timeSignature: [number, number];
+}
+
+const TransportTimeDisplay: React.FC<TimeDisplayProps> = React.memo(({ bpm, timeSignature }) => {
+  const [time, setTime] = useState(() => audioEngine.getCurrentTime());
+
+  useEffect(() => {
+    const unsub = audioEngine.onTimeUpdate((curr) => {
+      setTime(curr);
+    });
+    return unsub;
+  }, []);
+
+  const beatDuration = 60 / bpm;
+  const currentBeatTotal = time / beatDuration;
+  const currentBar = Math.floor(currentBeatTotal / timeSignature[0]) + 1;
+  const currentBeatInBar = Math.floor(currentBeatTotal % timeSignature[0]) + 1;
+  const sixteenth = Math.floor((currentBeatTotal % 1) * 4) + 1;
+
+  const minutes = Math.floor(time / 60);
+  const seconds = Math.floor(time % 60);
+  const millis = Math.floor((time % 1) * 100);
+
+  const format2 = (n: number) => n.toString().padStart(2, '0');
+  const format3 = (n: number) => n.toString().padStart(3, '0');
+
+  return (
+    <div
+      className="flex items-center space-x-3 bg-dark-bg px-3.5 py-1.5 rounded-xl border border-dark-border font-mono text-sm shadow-inner flex-shrink-0"
+      title="Rejilla (no estira el audio)"
+    >
+      <div className="flex items-baseline space-x-1">
+        <span className="text-cyan-400 font-bold text-base">{format3(currentBar)}</span>
+        <span className="text-slate-600">:</span>
+        <span className="text-slate-200 font-semibold">{currentBeatInBar}</span>
+        <span className="text-slate-600">:</span>
+        <span className="text-slate-400 text-xs">{format2(sixteenth)}</span>
+      </div>
+      <div className="h-4 w-px bg-dark-border" />
+      <div className="text-slate-400 text-xs">
+        {format2(minutes)}:{format2(seconds)}.<span className="text-slate-500">{format2(millis)}</span>
+      </div>
+    </div>
+  );
+});
+TransportTimeDisplay.displayName = 'TransportTimeDisplay';
+
 export const TransportBar: React.FC = () => {
-  const {
-    currentTime,
-    duration,
-    bpm,
-    setBpm,
-    timeSignature,
-    setTimeSignature,
-    isPlaying,
-    isRecording,
-    isLooping,
-    loopStart,
-    loopEnd,
-    setLoopRange,
-    metronome,
-    play,
-    pause,
-    stop,
-    toggleRecord,
-    toggleLoop,
-    toggleMetronome,
-    masterVolume,
-    setMasterVolume,
-    masterMute,
-    setMasterMute,
-  } = useDawStore();
+  const duration = useDawStore((s) => s.duration);
+  const bpm = useDawStore((s) => s.bpm);
+  const setBpm = useDawStore((s) => s.setBpm);
+  const timeSignature = useDawStore((s) => s.timeSignature);
+  const setTimeSignature = useDawStore((s) => s.setTimeSignature);
+  const isPlaying = useDawStore((s) => s.isPlaying);
+  const isRecording = useDawStore((s) => s.isRecording);
+  const isLooping = useDawStore((s) => s.isLooping);
+  const loopStart = useDawStore((s) => s.loopStart);
+  const loopEnd = useDawStore((s) => s.loopEnd);
+  const setLoopRange = useDawStore((s) => s.setLoopRange);
+  const metronome = useDawStore((s) => s.metronome);
+  const play = useDawStore((s) => s.play);
+  const pause = useDawStore((s) => s.pause);
+  const stop = useDawStore((s) => s.stop);
+  const toggleRecord = useDawStore((s) => s.toggleRecord);
+  const toggleLoop = useDawStore((s) => s.toggleLoop);
+  const toggleMetronome = useDawStore((s) => s.toggleMetronome);
+  const masterVolume = useDawStore((s) => s.masterVolume);
+  const setMasterVolume = useDawStore((s) => s.setMasterVolume);
+  const masterMute = useDawStore((s) => s.masterMute);
+  const setMasterMute = useDawStore((s) => s.setMasterMute);
 
   const [masterPeak, setMasterPeak] = useState({ rms: 0, peak: 0 });
-  // Fix(waveA): throttle de meters a ~15fps — se guarda el último nivel en un
-  // ref a 60fps y se vacía al estado con intervalo de 66ms para no re-renderizar
-  // el transporte 60 veces/segundo por el medidor (el tiempo sí sigue a 60fps).
   const peakRef = useRef(masterPeak);
 
-  // Listen to 60 FPS audio engine telemetry
+  // Listen to audio meters (throttled ~15fps)
   useEffect(() => {
-    const unsubTime = audioEngine.onTimeUpdate((time) => {
-      // Direct fast UI update without store re-render loop
-      useDawStore.setState({ currentTime: time });
-    });
-
     const unsubMeter = audioEngine.onMeterUpdate((levels) => {
       peakRef.current = levels.master;
     });
@@ -227,26 +265,10 @@ export const TransportBar: React.FC = () => {
     }, 66);
 
     return () => {
-      unsubTime();
       unsubMeter();
       clearInterval(meterInterval);
     };
   }, []);
-
-  // Format Bar : Beat : 16th
-  const beatDuration = 60 / bpm;
-  const currentBeatTotal = currentTime / beatDuration;
-  const currentBar = Math.floor(currentBeatTotal / timeSignature[0]) + 1;
-  const currentBeatInBar = Math.floor(currentBeatTotal % timeSignature[0]) + 1;
-  const sixteenth = Math.floor((currentBeatTotal % 1) * 4) + 1;
-
-  // Format mm:ss.ms
-  const minutes = Math.floor(currentTime / 60);
-  const seconds = Math.floor(currentTime % 60);
-  const millis = Math.floor((currentTime % 1) * 100);
-
-  const format2 = (n: number) => n.toString().padStart(2, '0');
-  const format3 = (n: number) => n.toString().padStart(3, '0');
 
   return (
     // Fix(waveA): responsive — overflow-x-auto para que el transporte no rompa en pantallas estrechas.
@@ -308,24 +330,8 @@ export const TransportBar: React.FC = () => {
         />
       </div>
 
-      {/* High-Resolution Time Display */}
-      {/* Fix(waveA): display de compás con title aclarando que la rejilla no estira el audio (los stems son buffers fijos). */}
-      <div
-        className="flex items-center space-x-3 bg-dark-bg px-3.5 py-1.5 rounded-xl border border-dark-border font-mono text-sm shadow-inner flex-shrink-0"
-        title="Rejilla (no estira el audio)"
-      >
-        <div className="flex items-baseline space-x-1">
-          <span className="text-cyan-400 font-bold text-base">{format3(currentBar)}</span>
-          <span className="text-slate-600">:</span>
-          <span className="text-slate-200 font-semibold">{currentBeatInBar}</span>
-          <span className="text-slate-600">:</span>
-          <span className="text-slate-400 text-xs">{format2(sixteenth)}</span>
-        </div>
-        <div className="h-4 w-px bg-dark-border" />
-        <div className="text-slate-400 text-xs">
-          {format2(minutes)}:{format2(seconds)}.<span className="text-slate-500">{format2(millis)}</span>
-        </div>
-      </div>
+      {/* High-Resolution Isolated Time Display */}
+      <TransportTimeDisplay bpm={bpm} timeSignature={timeSignature} />
 
       {/* Tempo, Time Signature & Metronome */}
       <div className="flex items-center space-x-3 flex-shrink-0">

@@ -9,33 +9,26 @@ import { calculateMagneticSnap } from '../../audio/timelineOps';
 import { ZoomIn, ZoomOut, Scissors, Plus } from 'lucide-react';
 
 export const Timeline: React.FC = () => {
-  const {
-    tracks,
-    clips,
-    zoom,
-    setZoom,
-    duration,
-    currentTime,
-    bpm,
-    timeSignature,
-    selectedTrackId,
-    selectedClipId,
-    setSelectedClip,
-    splitClip,
-    removeClip,
-    addClip,
-    addTrack,
-    play,
-    pause,
-    isPlaying,
-    pushToast,
-  } = useDawStore();
+  const tracks = useDawStore((s) => s.tracks);
+  const clips = useDawStore((s) => s.clips);
+  const zoom = useDawStore((s) => s.zoom);
+  const setZoom = useDawStore((s) => s.setZoom);
+  const duration = useDawStore((s) => s.duration);
+  const bpm = useDawStore((s) => s.bpm);
+  const timeSignature = useDawStore((s) => s.timeSignature);
+  const selectedTrackId = useDawStore((s) => s.selectedTrackId);
+  const selectedClipId = useDawStore((s) => s.selectedClipId);
+  const setSelectedClip = useDawStore((s) => s.setSelectedClip);
+  const splitClip = useDawStore((s) => s.splitClip);
+  const addClip = useDawStore((s) => s.addClip);
+  const addTrack = useDawStore((s) => s.addTrack);
+  const isPlaying = useDawStore((s) => s.isPlaying);
+  const pushToast = useDawStore((s) => s.pushToast);
+  const snapMode = useDawStore((s) => s.snapMode);
+  const setSnapMode = useDawStore((s) => s.setSnapMode);
 
-  // Fix(waveA): clip seleccionado + si el cursor está dentro (para habilitar/deshabilitar Cortar).
   const selectedClip = clips.find((c) => c.id === selectedClipId) ?? null;
-  const canSplit =
-    !!selectedClip && currentTime > selectedClip.startTime &&
-    currentTime < selectedClip.startTime + selectedClip.duration;
+  const canSplit = Boolean(selectedClip);
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const playheadRef = useRef<HTMLDivElement>(null);
@@ -53,48 +46,37 @@ export const Timeline: React.FC = () => {
 
   // Fix (doble loop rAF): se mantiene este loop local del playhead (mutación directa del DOM sin
   // re-renders) separado del loop de telemetría del engine (meters + time callbacks). Unificarlos
-  // obligaría al playhead a pasar por estado React o a los meters a tocar el DOM; la separación evita
-  // re-renders a 60fps. Playhead smooth position sync at 60 FPS
+  // Playhead smooth position sync: runs at 60fps via rAF ONLY when playing,
+  // and syncs immediately on zoom or time updates when paused.
   useEffect(() => {
     let animId: number;
-    const syncPlayhead = () => {
+    const updatePlayhead = () => {
       if (playheadRef.current) {
         const time = audioEngine.getCurrentTime();
         playheadRef.current.style.transform = `translateX(${time * zoom}px)`;
       }
-      animId = requestAnimationFrame(syncPlayhead);
     };
-    animId = requestAnimationFrame(syncPlayhead);
-    return () => cancelAnimationFrame(animId);
-  }, [zoom]);
+    updatePlayhead();
 
-  // Global Keyboard Shortcuts (Space, S for Split, Delete)
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      // Fix(waveA): no corromper la edición en campos de texto/botones/selects.
-      const t = e.target as HTMLElement;
-      if (t.closest('input,textarea,select,[contenteditable="true"]')) return;
-
-      if (e.code === 'Space') {
-        // Fix(waveA): Space en BUTTON/SELECT activa el control, no el transporte.
-        if (t.closest('button,select') || t.tagName === 'BUTTON' || t.tagName === 'SELECT') return;
-        e.preventDefault();
-        if (isPlaying) pause();
-        else play();
-      } else if (e.key === 's' || e.key === 'S') {
-        if (selectedClipId) {
-          splitClip(selectedClipId, currentTime);
-        }
-      } else if (e.key === 'Delete' || e.key === 'Backspace') {
-        if (selectedClipId) {
-          removeClip(selectedClipId);
-        }
+    const unsub = audioEngine.onTimeUpdate((time) => {
+      if (playheadRef.current) {
+        playheadRef.current.style.transform = `translateX(${time * zoom}px)`;
       }
-    };
+    });
 
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isPlaying, selectedClipId, currentTime, play, pause, splitClip, removeClip]);
+    if (isPlaying) {
+      const syncPlayhead = () => {
+        updatePlayhead();
+        animId = requestAnimationFrame(syncPlayhead);
+      };
+      animId = requestAnimationFrame(syncPlayhead);
+    }
+
+    return () => {
+      unsub();
+      if (animId) cancelAnimationFrame(animId);
+    };
+  }, [zoom, isPlaying]);
 
   // Handle Drag & Drop of Audio Files directly onto Timeline
   const handleDrop = async (e: React.DragEvent, trackId?: string) => {
@@ -114,10 +96,10 @@ export const Timeline: React.FC = () => {
         const peaks = generateWaveformPeaks(audioBuffer, 800);
         const targetTrackId = trackId || addTrack(file.name.replace(/\.[^/.]+$/, ''));
         const dur = audioBuffer.duration;
-        const rawStart = currentTime + i * (dur + 0.5);
+        const rawStart = audioEngine.getCurrentTime() + i * (dur + 0.5);
         // Fix(waveA): snap magnético al colocar el clip importado.
         const liveClips = useDawStore.getState().clips;
-        const { snappedTime } = calculateMagneticSnap(rawStart, bpm, timeSignature, liveClips);
+        const { snappedTime } = calculateMagneticSnap(rawStart, bpm, timeSignature, liveClips, 0.1, snapMode);
 
         addClip({
           id: 'clip_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
@@ -164,20 +146,43 @@ export const Timeline: React.FC = () => {
         <div className="h-4 w-px bg-dark-border mx-1" />
 
         <button
-          onClick={() => { if (canSplit && selectedClip) splitClip(selectedClip.id, currentTime); }}
+          onClick={() => {
+            if (!selectedClip) return;
+            const curTime = audioEngine.getCurrentTime();
+            if (curTime > selectedClip.startTime && curTime < selectedClip.startTime + selectedClip.duration) {
+              splitClip(selectedClip.id, curTime);
+            } else {
+              pushToast('El cursor de reproducción debe estar dentro del clip para cortar');
+            }
+          }}
           disabled={!canSplit}
           className="flex items-center space-x-1 px-2 py-1 rounded text-xs font-semibold bg-dark-surfaceLight hover:bg-dark-border disabled:opacity-40 text-cyan-400"
-          title={
-            !selectedClip
-              ? 'Selecciona un clip para cortar'
-              : !canSplit
-                ? 'El cursor debe estar dentro del clip seleccionado para cortar'
-                : "Cortar clip seleccionado en el cursor ('S')"
-          }
+          title={!selectedClip ? 'Selecciona un clip para cortar' : "Cortar clip seleccionado en el cursor ('S')"}
         >
           <Scissors className="w-3.5 h-3.5" />
           <span>Cortar ('S')</span>
         </button>
+
+        <div className="h-4 w-px bg-dark-border mx-1" />
+
+        <div className="flex items-center space-x-1.5">
+          <span className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">Snap</span>
+          <select
+            value={snapMode}
+            onChange={(e) => setSnapMode(e.target.value as any)}
+            className="bg-dark-surfaceLight border border-dark-border/80 text-cyan-400 text-xs rounded px-1.5 py-0.5 outline-none focus:border-cyan-500 cursor-pointer"
+            title="Rejilla de Snap Magnético"
+          >
+            <option value="bar">1 Bar</option>
+            <option value="1/2">1/2</option>
+            <option value="1/4">1/4</option>
+            <option value="1/8">1/8</option>
+            <option value="1/16">1/16</option>
+            <option value="1/32">1/32</option>
+            <option value="triplet">1/3 Triolet</option>
+            <option value="off">Off</option>
+          </select>
+        </div>
       </div>
 
       {/* Timeline Main Layout: Headers on left, Scrollable Lanes on right */}
@@ -232,7 +237,7 @@ export const Timeline: React.FC = () => {
               className="absolute top-0 bottom-0 w-px bg-cyan-400 shadow-md shadow-cyan-400/50 z-20 pointer-events-none"
               style={{
                 height: `${Math.max(tracks.length * 96, 400)}px`,
-                transform: `translateX(${currentTime * zoom}px)`,
+                willChange: 'transform',
               }}
             >
               <div className="w-2.5 h-2.5 -ml-[4px] rounded-full bg-cyan-400 border-2 border-slate-950" />

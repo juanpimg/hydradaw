@@ -36,6 +36,8 @@ export interface PluginInstance {
 
 export type WavBitDepth = 16 | 24 | 32;
 
+export type SnapMode = 'bar' | '1/2' | '1/4' | '1/8' | '1/16' | '1/32' | 'triplet' | 'off';
+
 export interface AudioClip {
   id: string;
   trackId: string;
@@ -48,6 +50,8 @@ export interface AudioClip {
   // (un clip con solo `buffer` no sonaba ni se exportaba).
   peaks: Float32Array;   // Pre-calculated min/max waveform peaks for 60fps canvas
   color?: string;
+  fadeIn?: number;       // Fade-in duration in seconds (optional)
+  fadeOut?: number;      // Fade-out duration in seconds (optional)
 }
 
 export interface AudioTrack {

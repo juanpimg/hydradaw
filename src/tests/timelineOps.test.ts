@@ -227,5 +227,43 @@ describe('HydraDAW Timeline Operations & Manipulation Math', () => {
         expect(pieces[i]!.startTime + pieces[i]!.duration).toBeCloseTo(pieces[i + 1]!.startTime, 5);
       }
     });
+
+    describe('Configurable Snap Modes (Task 2.1)', () => {
+      it('disables snapping when snapMode is "off"', () => {
+        const snap = calculateMagneticSnap(1.98, 120, [4, 4], [], 0.1, 'off');
+        expect(snap.isSnapped).toBe(false);
+        expect(snap.snappedTime).toBe(1.98);
+      });
+
+      it('snaps to 1 Bar boundaries (2.0s per bar at 120 bpm 4/4)', () => {
+        // At 120 BPM 4/4, 1 bar = 2.0s.
+        const snapNearBar = calculateMagneticSnap(2.04, 120, [4, 4], [], 0.1, 'bar');
+        expect(snapNearBar.isSnapped).toBe(true);
+        expect(snapNearBar.snappedTime).toBeCloseTo(2.0, 4);
+
+        // Near 1.5s is not within 0.1s of any 2.0s bar
+        const snapOffBar = calculateMagneticSnap(1.5, 120, [4, 4], [], 0.1, 'bar');
+        expect(snapOffBar.isSnapped).toBe(false);
+      });
+
+      it('snaps to 1/4 note beats (0.5s at 120 bpm)', () => {
+        const snap = calculateMagneticSnap(1.52, 120, [4, 4], [], 0.1, '1/4');
+        expect(snap.isSnapped).toBe(true);
+        expect(snap.snappedTime).toBeCloseTo(1.5, 4);
+      });
+
+      it('snaps to 1/8 note subdivisions (0.25s at 120 bpm)', () => {
+        const snap = calculateMagneticSnap(0.77, 120, [4, 4], [], 0.05, '1/8');
+        expect(snap.isSnapped).toBe(true);
+        expect(snap.snappedTime).toBeCloseTo(0.75, 4);
+      });
+
+      it('snaps to triplets (1/3 beat: 0.5/3 = ~0.1667s)', () => {
+        const step = 0.5 / 3;
+        const snap = calculateMagneticSnap(step + 0.01, 120, [4, 4], [], 0.05, 'triplet');
+        expect(snap.isSnapped).toBe(true);
+        expect(snap.snappedTime).toBeCloseTo(step, 4);
+      });
+    });
   });
 });

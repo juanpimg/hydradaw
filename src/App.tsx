@@ -13,15 +13,126 @@ import { MixerConsole } from './components/Mixer/MixerConsole';
 import { TransportBar } from './components/Transport/TransportBar';
 import { Toaster } from './components/Toast/Toaster';
 import { StartScreen } from './components/Start/StartScreen';
+import { useGlobalShortcuts } from './hooks/useGlobalShortcuts';
 
 // Fix(waveB-shell): modales pesados fuera del chunk inicial (se cargan al abrirse).
 const PluginRackModal = lazy(() => import('./components/Plugins/PluginRackModal'));
 const ExportModal = lazy(() => import('./components/Export/ExportModal'));
 
-type BootBusy = 'continue' | 'blank' | 'import' | null;
+export type BootBusy = 'continue' | 'blank' | 'import' | null;
+
+export interface BootContinueOptions {
+  savedName: string | null;
+  setBusy: (b: BootBusy) => void;
+  finishBoot: () => void;
+  loadSavedProject: () => Promise<boolean>;
+  loadDemoProject: () => Promise<void>;
+  pushToast: (msg: string) => void;
+}
+
+export async function runHandleContinue({
+  savedName,
+  setBusy,
+  finishBoot,
+  loadSavedProject,
+  loadDemoProject,
+  pushToast,
+}: BootContinueOptions): Promise<void> {
+  setBusy('continue');
+  try {
+    if (savedName) {
+      const ok = await loadSavedProject();
+      if (!ok) {
+        pushToast('No se pudo abrir el proyecto guardado; se carga la demo.');
+        await loadDemoProject();
+      }
+    } else {
+      await loadDemoProject();
+    }
+    finishBoot();
+  } catch (err) {
+    console.error('[boot] Error al continuar el proyecto:', err);
+    pushToast('Aviso: Fallo o restricción en el motor de audio. Se inicia en modo silencioso.');
+    finishBoot();
+  } finally {
+    setBusy(null);
+  }
+}
+
+export interface BootBlankOptions {
+  setBusy: (b: BootBusy) => void;
+  finishBoot: () => void;
+  createBlankProject: () => Promise<void>;
+  pushToast: (msg: string) => void;
+}
+
+export async function runHandleBlank({
+  setBusy,
+  finishBoot,
+  createBlankProject,
+  pushToast,
+}: BootBlankOptions): Promise<void> {
+  setBusy('blank');
+  try {
+    await createBlankProject();
+    finishBoot();
+  } catch (err) {
+    console.error('[boot] Error al crear proyecto en blanco:', err);
+    pushToast('Aviso: Fallo o restricción en el motor de audio. Se inicia en modo silencioso.');
+    finishBoot();
+  } finally {
+    setBusy(null);
+  }
+}
+
+export interface BootPickFileOptions {
+  file: File;
+  setBusy: (b: BootBusy) => void;
+  finishBoot: () => void;
+  importProjectFromJson: (raw: unknown) => Promise<{ ok: boolean; name?: string }>;
+  pushToast: (msg: string) => void;
+}
+
+export async function runHandlePickFile({
+  file,
+  setBusy,
+  finishBoot,
+  importProjectFromJson,
+  pushToast,
+}: BootPickFileOptions): Promise<void> {
+  setBusy('import');
+  try {
+    let raw: unknown;
+    try {
+      raw = JSON.parse(await file.text());
+    } catch {
+      pushToast('No se pudo leer el archivo.');
+      return;
+    }
+
+    const res = await importProjectFromJson(raw);
+    if (res.ok) {
+      pushToast(`Proyecto «${res.name ?? file.name}» importado.`);
+      finishBoot();
+    } else {
+      pushToast('El archivo no es un proyecto HydraDAW válido.');
+    }
+  } catch (err) {
+    console.error('[boot] Error al importar proyecto desde archivo:', err);
+    pushToast('Aviso: Fallo o restricción en el motor de audio. Se inicia en modo silencioso.');
+    finishBoot();
+  } finally {
+    setBusy(null);
+  }
+}
 
 export default function App() {
-  const { activeView, loadDemoProject, createBlankProject, pushToast } = useDawStore();
+  useGlobalShortcuts();
+
+  const activeView = useDawStore((s) => s.activeView);
+  const loadDemoProject = useDawStore((s) => s.loadDemoProject);
+  const createBlankProject = useDawStore((s) => s.createBlankProject);
+  const pushToast = useDawStore((s) => s.pushToast);
   // Fix(waveB-shell): flags para montaje diferido (el lazy solo fetchea al abrir).
   const exportModalOpen = useDawStore((s) => s.exportModalOpen);
   const pluginModalTrackId = useDawStore((s) => s.pluginModalTrackId);
@@ -59,47 +170,47 @@ export default function App() {
   // y "seguir editando" no aparecería tras recargar. `saveProjectNow`
   // nunca lanza (degrada en silencio).
   const finishBoot = () => {
-    void saveProjectNow();
-    stopAutosaveRef.current = startAutosave();
-    setBooted(true);
+    try {
+      void saveProjectNow();
+      stopAutosaveRef.current = startAutosave();
+    } catch (err) {
+      console.warn('[boot] Error al inicializar persistencia tras arranque:', err);
+    } finally {
+      setBooted(true);
+    }
   };
 
   const handleContinue = async () => {
-    setBusy('continue');
-    if (savedName) {
-      const ok = await loadSavedProject();
-      if (!ok) {
-        pushToast('No se pudo abrir el proyecto guardado; se carga la demo.');
-        await loadDemoProject();
-      }
-    } else {
-      await loadDemoProject();
-    }
-    finishBoot();
+    if (busy !== null) return;
+    await runHandleContinue({
+      savedName,
+      setBusy,
+      finishBoot,
+      loadSavedProject,
+      loadDemoProject,
+      pushToast,
+    });
   };
 
   const handleBlank = async () => {
-    setBusy('blank');
-    await createBlankProject();
-    finishBoot();
+    if (busy !== null) return;
+    await runHandleBlank({
+      setBusy,
+      finishBoot,
+      createBlankProject,
+      pushToast,
+    });
   };
 
   const handlePickFile = async (file: File) => {
-    setBusy('import');
-    try {
-      const raw: unknown = JSON.parse(await file.text());
-      const res = await importProjectFromJson(raw);
-      if (res.ok) {
-        pushToast(`Proyecto «${res.name ?? file.name}» importado.`);
-        finishBoot();
-      } else {
-        pushToast('El archivo no es un proyecto HydraDAW válido.');
-        setBusy(null);
-      }
-    } catch {
-      pushToast('No se pudo leer el archivo.');
-      setBusy(null);
-    }
+    if (busy !== null) return;
+    await runHandlePickFile({
+      file,
+      setBusy,
+      finishBoot,
+      importProjectFromJson,
+      pushToast,
+    });
   };
 
   return (

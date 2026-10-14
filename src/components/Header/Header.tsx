@@ -12,16 +12,14 @@ import {
 } from 'lucide-react';
 
 export const Header: React.FC = () => {
-  const { 
-    projectName, 
-    setProjectName, 
-    activeView, 
-    setActiveView, 
-    addTrack, 
-    loadDemoProject, 
-    setExportModalOpen,
-    tracks
-  } = useDawStore();
+  const projectName = useDawStore((s) => s.projectName);
+  const setProjectName = useDawStore((s) => s.setProjectName);
+  const activeView = useDawStore((s) => s.activeView);
+  const setActiveView = useDawStore((s) => s.setActiveView);
+  const addTrack = useDawStore((s) => s.addTrack);
+  const loadDemoProject = useDawStore((s) => s.loadDemoProject);
+  const setExportModalOpen = useDawStore((s) => s.setExportModalOpen);
+  const trackCount = useDawStore((s) => s.tracks.length);
 
   return (
     // Fix(waveA): scroll horizontal en viewports estrechos para no recortar acciones.
@@ -85,7 +83,7 @@ export const Header: React.FC = () => {
 
       {/* Action Buttons */}
       <div className="flex items-center space-x-2.5">
-        {tracks.length === 0 && (
+        {trackCount === 0 && (
           <button
             onClick={() => loadDemoProject()}
             aria-label="Cargar proyecto de demostración"

@@ -94,13 +94,39 @@ export class PluginHost {
    * Registers a local custom audio plugin imported from a JS/JSON file
    */
   registerCustomPlugin(code: string): PluginDefinition {
-    // Custom plugin evaluation in a controlled wrapper
-    const fn = new Function('PluginHost', `
-      ${code}
-      return typeof customPlugin !== 'undefined' ? customPlugin : null;
-    `);
+    // Sanitize input code against malicious globals and network/DOM exfiltration
+    const forbidden = [
+      /\b(window|document|localStorage|sessionStorage|indexedDB)\b/i,
+      /\b(fetch|XMLHttpRequest|WebSocket|EventSource)\b/i,
+      /\b(eval|Function)\s*\(/i,
+      /\bimport\s*\(/i,
+    ];
 
-    const pluginDef = fn(this) as PluginDefinition | null;
+    for (const pattern of forbidden) {
+      if (pattern.test(code)) {
+        throw new Error(
+          `Código de plugin bloqueado por seguridad: acceso restringido a APIs del navegador (${pattern}).`
+        );
+      }
+    }
+
+    // Custom plugin evaluation in a sandboxed wrapper shadowing dangerous globals
+    const fn = new Function(
+      'window',
+      'document',
+      'localStorage',
+      'sessionStorage',
+      'indexedDB',
+      'fetch',
+      'XMLHttpRequest',
+      'WebSocket',
+      'PluginHost',
+      `"use strict";
+       ${code}
+       return typeof customPlugin !== 'undefined' ? customPlugin : null;`
+    );
+
+    const pluginDef = fn(null, null, null, null, null, null, null, null, this) as PluginDefinition | null;
     if (!pluginDef || !pluginDef.id || !pluginDef.createDSPNode) {
       throw new Error('El plugin local no exporta una definición válida de PluginDefinition con createDSPNode.');
     }

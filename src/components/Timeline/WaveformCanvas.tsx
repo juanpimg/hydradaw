@@ -2,6 +2,7 @@ import React, { useEffect, useRef } from 'react';
 import type { AudioClip } from '../../types/daw';
 import { useDawStore } from '../../store/useDawStore';
 import { calculateMagneticSnap } from '../../audio/timelineOps';
+import { audioEngine } from '../../audio/AudioEngine';
 
 interface WaveformCanvasProps {
   clip: AudioClip;
@@ -17,8 +18,12 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
   isSelected,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const { zoom, updateClip, setSelectedClip, setSelectedTrack, removeClip, splitClip, currentTime } =
-    useDawStore();
+  const zoom = useDawStore((s) => s.zoom);
+  const updateClip = useDawStore((s) => s.updateClip);
+  const setSelectedClip = useDawStore((s) => s.setSelectedClip);
+  const setSelectedTrack = useDawStore((s) => s.setSelectedTrack);
+  const removeClip = useDawStore((s) => s.removeClip);
+  const splitClip = useDawStore((s) => s.splitClip);
 
   // Fix(waveA): al seleccionar el clip, sincronizar también la pista seleccionada.
   const selectClip = () => {
@@ -82,7 +87,42 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     ctx.moveTo(0, halfHeight);
     ctx.lineTo(width, halfHeight);
     ctx.stroke();
-  }, [clip.peaks, width, height, clip.color]);
+
+    // Render Fade-In visual overlay
+    if (clip.fadeIn && clip.fadeIn > 0 && clip.duration > 0) {
+      const fadeWidth = Math.min(width, (clip.fadeIn / clip.duration) * width);
+      ctx.fillStyle = 'rgba(6, 182, 212, 0.25)';
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.lineTo(fadeWidth, 0);
+      ctx.lineTo(0, height);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(6, 182, 212, 0.7)';
+      ctx.beginPath();
+      ctx.moveTo(0, height);
+      ctx.lineTo(fadeWidth, 0);
+      ctx.stroke();
+    }
+
+    // Render Fade-Out visual overlay
+    if (clip.fadeOut && clip.fadeOut > 0 && clip.duration > 0) {
+      const fadeWidth = Math.min(width, (clip.fadeOut / clip.duration) * width);
+      const startX = width - fadeWidth;
+      ctx.fillStyle = 'rgba(6, 182, 212, 0.25)';
+      ctx.beginPath();
+      ctx.moveTo(startX, 0);
+      ctx.lineTo(width, 0);
+      ctx.lineTo(width, height);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(6, 182, 212, 0.7)';
+      ctx.beginPath();
+      ctx.moveTo(startX, 0);
+      ctx.lineTo(width, height);
+      ctx.stroke();
+    }
+  }, [clip.peaks, width, height, clip.color, clip.fadeIn, clip.fadeOut, clip.duration]);
 
   // Handle Drag Move & Trim
   const handleMouseDown = (e: React.MouseEvent) => {
@@ -97,48 +137,60 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     // Fix(waveB): solo `audioBuffer` (alias `buffer` eliminado).
     const bufferDuration = clip.audioBuffer?.duration ?? Number.POSITIVE_INFINITY;
 
+    const clipEl = e.currentTarget as HTMLElement;
+    let pendingUpdates: Partial<typeof clip> | null = null;
+    let hasMoved = false;
+
     // Detect if clicking near left or right edge for trimming
     const rect = e.currentTarget.getBoundingClientRect();
     const clickOffset = e.clientX - rect.left;
-    // Fix(waveA): zona trim proporcional (máx 8px); en clips estrechos (<24px) prima mover.
-    const edge = Math.min(8, width * 0.2);
-    const canTrim = width >= 24;
+    // Fix: zona trim ergonómica ampliada a 12px con cursor col-resize.
+    const edge = Math.min(12, Math.max(8, width * 0.2));
+    const canTrim = width >= 20;
     const isTrimLeft = canTrim && clickOffset < edge;
     const isTrimRight = canTrim && clickOffset > rect.width - edge;
 
     const onMouseMove = (moveEvent: MouseEvent) => {
       const deltaX = moveEvent.clientX - startX;
+      if (Math.abs(deltaX) > 2) hasMoved = true;
       const deltaTime = deltaX / zoom;
 
       if (isTrimLeft) {
-        // Fix: clamp del delta y actualización de offset para no desincronizar el audio del buffer.
+        // Fix: clamp del delta y actualización visual inmediata
         const maxDelta = initialDuration - 0.2;
         const clampedDelta = Math.max(-initialStartTime, -initialOffset, Math.min(maxDelta, deltaTime));
         const newStart = Math.max(0, initialStartTime + clampedDelta);
         const newDuration = Math.max(0.2, initialDuration - clampedDelta);
         const newOffset = Math.max(0, initialOffset + clampedDelta);
-        updateClip(clip.id, { startTime: newStart, duration: newDuration, offset: newOffset });
+        pendingUpdates = { startTime: newStart, duration: newDuration, offset: newOffset };
+        clipEl.style.transform = `translateX(${clampedDelta * zoom}px)`;
+        clipEl.style.width = `${newDuration * zoom}px`;
       } else if (isTrimRight) {
         // Fix: clamp contra buffer.duration para no extender más allá del audio disponible.
         const maxDuration = Math.max(0.2, bufferDuration - initialOffset);
         const newDuration = Math.min(Math.max(0.2, initialDuration + deltaTime), maxDuration);
-        updateClip(clip.id, { duration: newDuration });
+        pendingUpdates = { duration: newDuration };
+        clipEl.style.width = `${newDuration * zoom}px`;
       } else {
-        // Move clip
-        // Fix(waveA): snap magnético al mover + clamp a [0, duraciónProyecto - duraciónClip].
+        // Move clip con transformación suave en tiempo real sin reiniciar audio a cada pixel
         const st = useDawStore.getState();
         const rawStart = Math.max(0, initialStartTime + deltaTime);
         const others = st.clips.filter((c) => c.id !== clip.id);
-        const { snappedTime } = calculateMagneticSnap(rawStart, st.bpm, st.timeSignature, others);
+        const { snappedTime } = calculateMagneticSnap(rawStart, st.bpm, st.timeSignature, others, 0.1, st.snapMode);
         const maxStart = Math.max(0, st.duration - initialDuration);
         const newStart = Math.min(Math.max(0, snappedTime), maxStart);
-        updateClip(clip.id, { startTime: newStart });
+        pendingUpdates = { startTime: newStart };
+        clipEl.style.transform = `translateX(${(newStart - initialStartTime) * zoom}px)`;
       }
     };
 
     const onMouseUp = () => {
       window.removeEventListener('mousemove', onMouseMove);
       window.removeEventListener('mouseup', onMouseUp);
+      clipEl.style.transform = '';
+      if (hasMoved && pendingUpdates) {
+        updateClip(clip.id, pendingUpdates);
+      }
     };
 
     window.addEventListener('mousemove', onMouseMove);
@@ -152,7 +204,8 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
       removeClip(clip.id);
     } else if (e.key === 's' || e.key === 'S') {
       e.stopPropagation();
-      splitClip(clip.id, currentTime);
+      const currTime = audioEngine.getCurrentTime();
+      splitClip(clip.id, currTime);
     }
   };
 
@@ -196,9 +249,19 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
         </span>
       </div>
 
-      {/* Trimming Grab Handles */}
-      <div className="absolute top-0 bottom-0 left-0 w-2.5 hover:bg-cyan-400/40 cursor-ew-resize opacity-0 hover:opacity-100 transition-opacity" />
-      <div className="absolute top-0 bottom-0 right-0 w-2.5 hover:bg-cyan-400/40 cursor-ew-resize opacity-0 hover:opacity-100 transition-opacity" />
+      {/* Trimming Grab Handles (12px, high visibility on hover/touch) */}
+      <div
+        className="absolute top-0 bottom-0 left-0 w-3 hover:bg-cyan-400/50 cursor-col-resize opacity-25 hover:opacity-100 transition-opacity flex items-center justify-center bg-gradient-to-r from-cyan-400/30 to-transparent"
+        title="Recortar inicio (Trim Izq)"
+      >
+        <div className="w-0.5 h-3.5 bg-cyan-200/80 rounded-full pointer-events-none" />
+      </div>
+      <div
+        className="absolute top-0 bottom-0 right-0 w-3 hover:bg-cyan-400/50 cursor-col-resize opacity-25 hover:opacity-100 transition-opacity flex items-center justify-center bg-gradient-to-l from-cyan-400/30 to-transparent"
+        title="Recortar final (Trim Der)"
+      >
+        <div className="w-0.5 h-3.5 bg-cyan-200/80 rounded-full pointer-events-none" />
+      </div>
     </div>
   );
 };

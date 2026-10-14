@@ -98,7 +98,7 @@ export class AudioEngine {
   private timeCallbacks: Set<TimeCallback> = new Set();
   private rafId: number | null = null;
 
-  private constructor() {}
+  constructor() {}
 
   static getInstance(): AudioEngine {
     if (!AudioEngine.instance) {
@@ -111,14 +111,18 @@ export class AudioEngine {
    * Explicit initialization contract for the audio engine
    */
   async init(): Promise<void> {
-    await this.ensureContext();
+    try {
+      await this.ensureContext();
+    } catch (err) {
+      console.warn('[AudioEngine] init: AudioContext initialization deferred or unavailable:', err);
+    }
   }
 
   /**
-   * Initializes or resumes the AudioContext on user interaction
+   * Initializes or resumes the AudioContext on user interaction with resilient fallback
    */
   async ensureContext(): Promise<AudioContext> {
-    if (!this.context) {
+    if (!this.context || this.context.state === 'closed') {
       const AudioCtx =
         typeof window !== 'undefined'
           ? window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext
@@ -128,13 +132,43 @@ export class AudioEngine {
         throw new Error('[AudioEngine] Web Audio API AudioContext is not supported in this environment.');
       }
 
-      this.context = new AudioCtx({ latencyHint: 'interactive', sampleRate: 44100 });
+      let ctx: AudioContext;
+      try {
+        // Preferred: interactive latency hint at standard 44.1kHz
+        ctx = new AudioCtx({ latencyHint: 'interactive', sampleRate: 44100 });
+      } catch (err) {
+        console.warn(
+          '[AudioEngine] Failed to initialize AudioContext with sampleRate: 44100, falling back to native device sample rate:',
+          err
+        );
+        try {
+          // Fallback 1: let the browser use the hardware device's native clock (e.g. 48kHz on mobile/Linux)
+          ctx = new AudioCtx({ latencyHint: 'interactive' });
+        } catch (err2) {
+          console.warn(
+            '[AudioEngine] Failed to initialize AudioContext with latencyHint: "interactive", falling back to default constructor:',
+            err2
+          );
+          // Fallback 2: default constructor without parameters
+          ctx = new AudioCtx();
+        }
+      }
+
+      this.context = ctx;
       this.masterBus = new MasterBus(this.context);
       this.startTelemetryLoop();
     }
 
-    if (this.context.state === 'suspended') {
-      await this.context.resume();
+    // Capture autoplay restrictions gracefully (NotAllowedError / interrupted state on iOS)
+    if (this.context.state === 'suspended' || (this.context.state as string) === 'interrupted') {
+      try {
+        await this.context.resume();
+      } catch (err) {
+        console.warn(
+          '[AudioEngine] AudioContext.resume() was rejected (autoplay policy restriction). Proceeding in suspended state:',
+          err
+        );
+      }
     }
 
     return this.context;
@@ -303,11 +337,19 @@ export class AudioEngine {
   }
 
   /**
-   * Syncs tracks with the audio engine
+   * Syncs tracks with the audio engine safely even in silent/unsupported mode
    */
   async syncTracks(tracks: AudioTrack[]) {
     this.cachedTracks = tracks;
-    const ctx = await this.ensureContext();
+
+    let ctx: AudioContext;
+    try {
+      ctx = await this.ensureContext();
+    } catch (err) {
+      console.warn('[AudioEngine] syncTracks: Web Audio context unavailable, caching tracks in silent mode.', err);
+      return;
+    }
+
     if (!this.masterBus) return;
 
     const anySoloed = tracks.some(t => t.solo);
@@ -390,7 +432,13 @@ export class AudioEngine {
    * (play(tracks, clips, time) sin opts) obtenga loop/metrónomo reales sin cambios.
    */
   async play(tracks?: AudioTrack[], clips?: AudioClip[], fromPosition: number = 0, opts?: PlayOptions) {
-    const ctx = await this.ensureContext();
+    let ctx: AudioContext;
+    try {
+      ctx = await this.ensureContext();
+    } catch (err) {
+      console.warn('[AudioEngine] play: AudioContext is not available, playback aborted safely.', err);
+      return;
+    }
     // Fix(waveA): el stop interno preserva la toma en curso (punch-in/seek no la matan).
     if (this.isPlaying) this.stop(true);
 
@@ -415,6 +463,7 @@ export class AudioEngine {
 
     this.isPlaying = true;
     this.playheadOffset = Math.max(0, fromPosition);
+    this.startTelemetryLoop();
 
     // Lookahead (20 ms) to guarantee all stems align at the exact same audio buffer quantum
     const scheduleLookahead = 0.02;
@@ -497,7 +546,12 @@ export class AudioEngine {
   async startRecording(armedTrackId: string, tracks?: AudioTrack[], clips?: AudioClip[]): Promise<void> {
     // Fix(waveA): captura si ya sonaba ANTES de cualquier await (punch-in hot).
     const wasPlaying = this.isPlaying;
-    await this.ensureContext();
+    try {
+      await this.ensureContext();
+    } catch (err) {
+      console.warn('[AudioEngine] startRecording: Web Audio context is not available.', err);
+      throw new Error('[AudioEngine] No se puede iniciar la grabación: el motor de audio no está disponible.');
+    }
     this.recordingTrackId = armedTrackId;
     this.recordingStartTime = this.getCurrentTime();
     this.recordingChunks = [];
@@ -675,7 +729,6 @@ export class AudioEngine {
       if (clipStart < totalDuration && clipEnd > 0) {
         const source = offlineCtx.createBufferSource();
         source.buffer = clip.audioBuffer;
-        source.connect(trackNode.inputNode);
 
         const offset = Math.max(0, -clipStart) + clip.offset;
         const startWhen = Math.max(0, clipStart);
@@ -684,6 +737,32 @@ export class AudioEngine {
           totalDuration - startWhen,
           clip.audioBuffer.duration - offset
         );
+
+        if ((clip.fadeIn || clip.fadeOut) && typeof offlineCtx.createGain === 'function') {
+          const clipGain = offlineCtx.createGain();
+          const fi = clip.fadeIn ? Math.min(clip.fadeIn, playDuration) : 0;
+          const fo = clip.fadeOut ? Math.min(clip.fadeOut, playDuration) : 0;
+          const endWhen = startWhen + playDuration;
+          try {
+            if (fi > 0) {
+              clipGain.gain.setValueAtTime?.(0, startWhen);
+              clipGain.gain.linearRampToValueAtTime?.(1, startWhen + fi);
+            } else {
+              clipGain.gain.setValueAtTime?.(1, startWhen);
+            }
+            if (fo > 0) {
+              const foStart = Math.max(startWhen + fi, endWhen - fo);
+              clipGain.gain.setValueAtTime?.(1, foStart);
+              clipGain.gain.linearRampToValueAtTime?.(0, endWhen);
+            }
+          } catch (_) {
+            clipGain.gain.value = 1;
+          }
+          source.connect(clipGain);
+          clipGain.connect(trackNode.inputNode);
+        } else {
+          source.connect(trackNode.inputNode);
+        }
 
         if (playDuration > 0 && offset < clip.audioBuffer.duration) {
           source.start(startWhen, offset, playDuration);
@@ -741,6 +820,13 @@ export class AudioEngine {
   }
 
   /**
+   * Alias for onMeterUpdate
+   */
+  subscribeMeters(cb: MeterCallback): () => void {
+    return this.onMeterUpdate(cb);
+  }
+
+  /**
    * Subscribe to playhead time updates
    */
   onTimeUpdate(cb: TimeCallback): () => void {
@@ -767,8 +853,36 @@ export class AudioEngine {
       try {
         const source = ctx.createBufferSource();
         source.buffer = clip.audioBuffer;
-        source.connect(trackNode.inputNode);
-        source.start(audioBaseTime + entry.whenOffset, entry.offsetIntoClip, entry.playDuration);
+        const startAt = audioBaseTime + entry.whenOffset;
+        const playDur = entry.playDuration;
+        const endAt = startAt + playDur;
+
+        if ((clip.fadeIn || clip.fadeOut) && typeof ctx.createGain === 'function') {
+          const clipGain = ctx.createGain();
+          const fi = clip.fadeIn ? Math.min(clip.fadeIn, playDur) : 0;
+          const fo = clip.fadeOut ? Math.min(clip.fadeOut, playDur) : 0;
+          try {
+            if (fi > 0) {
+              clipGain.gain.setValueAtTime?.(0, startAt);
+              clipGain.gain.linearRampToValueAtTime?.(1, startAt + fi);
+            } else {
+              clipGain.gain.setValueAtTime?.(1, startAt);
+            }
+            if (fo > 0) {
+              const foStart = Math.max(startAt + fi, endAt - fo);
+              clipGain.gain.setValueAtTime?.(1, foStart);
+              clipGain.gain.linearRampToValueAtTime?.(0, endAt);
+            }
+          } catch (_) {
+            clipGain.gain.value = 1;
+          }
+          source.connect(clipGain);
+          clipGain.connect(trackNode.inputNode);
+        } else {
+          source.connect(trackNode.inputNode);
+        }
+
+        source.start(startAt, entry.offsetIntoClip, playDur);
         trackNode.addActiveSource(source);
       } catch (err) {
         // Fix(waveA): warn con contexto (en headless no se dispara: los mocks sí tienen start).
@@ -912,10 +1026,8 @@ export class AudioEngine {
   }
 
   private startTelemetryLoop() {
-    // Fix (doble loop rAF): este loop central del engine emite meters + time callbacks para suscriptores
-    // React; el playhead de Timeline usa su propio loop con mutación directa del DOM para evitar
-    // re-renders a 60fps. Se mantienen separados a propósito (ver comentario en Timeline.tsx).
-    // Fix(waveA): reutiliza buffers pre-alojados y emite solo si playing o cambió el nivel.
+    if (this.rafId !== null) return;
+    let idleDecayFrames = 30; // ~500ms of meter decay after playback stops
     const loop = () => {
       if (this.isPlaying) {
         const time = this.getCurrentTime();
@@ -983,15 +1095,40 @@ export class AudioEngine {
         }
       }
 
-      this.rafId = requestAnimationFrame(loop);
+      if (typeof requestAnimationFrame === 'function') {
+        if (this.isPlaying || this.isRecording) {
+          idleDecayFrames = 30;
+          this.rafId = requestAnimationFrame(loop);
+        } else if (idleDecayFrames > 0) {
+          idleDecayFrames--;
+          this.rafId = requestAnimationFrame(loop);
+        } else {
+          // Reposo total: detener loop rAF para reducir consumo CPU a 0%
+          this.rafId = null;
+          this.telemetryPayload.master.rms = 0;
+          this.telemetryPayload.master.peak = 0;
+          for (const id of Object.keys(this.telemetryPayload.tracks)) {
+            const slot = this.telemetryPayload.tracks[id];
+            if (slot) {
+              slot.rms = 0;
+              slot.peak = 0;
+            }
+          }
+          this.meterCallbacks.forEach((cb) => cb(this.telemetryPayload));
+        }
+      }
     };
 
-    this.rafId = requestAnimationFrame(loop);
+    if (typeof requestAnimationFrame === 'function') {
+      this.rafId = requestAnimationFrame(loop);
+    }
   }
 
   dispose() {
-    if (this.rafId) {
-      cancelAnimationFrame(this.rafId);
+    if (this.rafId !== null) {
+      if (typeof cancelAnimationFrame === 'function') {
+        cancelAnimationFrame(this.rafId);
+      }
       this.rafId = null;
     }
     // Fix(wave3): dispose también desarma loop/metrónomo.

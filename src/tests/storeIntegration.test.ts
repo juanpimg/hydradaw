@@ -187,4 +187,44 @@ describe('store integration (wave2)', () => {
     expect(useDawStore.getState().metronome).toBe(true);
     expect(mockedEngine.setMetronome).toHaveBeenCalledWith(true);
   });
+
+  describe('Undo / Redo History System (Task 3.1)', () => {
+    it('restores previous track and clip state on undo and redo', () => {
+      useDawStore.setState({ tracks: [makeTrack()], clips: [makeClip()] });
+      expect(useDawStore.getState().clips).toHaveLength(1);
+
+      // Add a second clip
+      useDawStore.getState().addClip({
+        ...makeClip(),
+        id: 'clip_2',
+        startTime: 10,
+        duration: 5,
+      });
+      expect(useDawStore.getState().clips).toHaveLength(2);
+      expect(useDawStore.getState().canUndo).toBe(true);
+
+      // Undo adds of clip_2
+      useDawStore.getState().undo();
+      expect(useDawStore.getState().clips).toHaveLength(1);
+      expect(useDawStore.getState().clips[0]!.id).toBe('clip_1');
+      expect(useDawStore.getState().canRedo).toBe(true);
+
+      // Redo adds of clip_2
+      useDawStore.getState().redo();
+      expect(useDawStore.getState().clips).toHaveLength(2);
+      expect(useDawStore.getState().clips[1]!.id).toBe('clip_2');
+    });
+
+    it('undoes track removal', () => {
+      const initialTrack = makeTrack();
+      useDawStore.setState({ tracks: [initialTrack], clips: [] });
+
+      useDawStore.getState().removeTrack(initialTrack.id);
+      expect(useDawStore.getState().tracks).toHaveLength(0);
+
+      useDawStore.getState().undo();
+      expect(useDawStore.getState().tracks).toHaveLength(1);
+      expect(useDawStore.getState().tracks[0]!.id).toBe(initialTrack.id);
+    });
+  });
 });
