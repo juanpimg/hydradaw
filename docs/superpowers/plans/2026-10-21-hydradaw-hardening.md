@@ -55,7 +55,7 @@ tarea que posee ese código.
 
 Sin esto, ninguna corrección posterior queda fijada por un test. Es la ola que más valor entrega.
 
-### Tarea 1: Dependencias de test de DOM + stub de entorno
+### Task 1: Dependencias de test de DOM + stub de entorno
 
 **Ficheros:**
 - Modificar: `package.json` (devDependencies + scripts)
@@ -69,12 +69,15 @@ Sin esto, ninguna corrección posterior queda fijada por un test. Es la ola que 
 - [ ] **Paso 1: instalar las devDependencies**
 
 ```bash
-npm install -D jsdom @testing-library/react @testing-library/dom @testing-library/jest-dom puppeteer-core
+npm install -D jsdom@^30.1.3 @testing-library/react@^16.3.3 @testing-library/dom@^10 \
+  @testing-library/jest-dom@^7.0.1 puppeteer-core@^24.43.1
 ```
 
-Versiones exactas a anclar: `jsdom@^26`, `@testing-library/react@^16`, `@testing-library/dom@^10`,
-`@testing-library/jest-dom@^6`, `puppeteer-core@^24`. Si `@testing-library/react@16` exige React 19,
-bajar a `@testing-library/react@^15` (compatible con React 18) — **comprobar antes de fijar**.
+Versiones **verificadas** contra el registro: `@testing-library/react@16.3.3` declara
+`peerDependencies: react ^18.0.0 || ^19.0.0` ⇒ compatible con el React 18.3 del proyecto, no
+hace falta bajar a la 15. `jsdom` va a 30.x, `jest-dom` a 7.x y `puppeteer-core` a 24.x.
+`@testing-library/dom` es una dependencia *peer* de `@testing-library/react` y debe instalarse
+explícitamente.
 
 - [ ] **Paso 2: escribir `src/tests/dom/setup.ts`**
 
@@ -143,7 +146,7 @@ git commit -m "test(dom): arnés de render con jsdom + Testing Library"
 
 ---
 
-### Tarea 2: Honestizar la suite existente (`e2e` → `contract`)
+### Task 2: Honestizar la suite existente (`e2e` → `contract`)
 
 **Ficheros:**
 - Mover: `src/tests/e2e/` → `src/tests/contract/` (6 ficheros + `helpers/`)
@@ -207,7 +210,7 @@ git commit -m "test(contract): renombra e2e->contract y elimina aserciones tauto
 
 ---
 
-### Tarea 3: Capa de navegador real (puppeteer-core)
+### Task 3: Capa de navegador real (puppeteer-core)
 
 **Ficheros:**
 - Crear: `tests/browser/harness.mjs`
@@ -272,7 +275,7 @@ git commit -m "test(browser): capa de humo con Chrome real vía puppeteer-core"
 
 ---
 
-### Tarea 4: CI
+### Task 4: CI
 
 **Ficheros:**
 - Crear: `.github/workflows/ci.yml`
@@ -331,7 +334,7 @@ git commit -m "ci: puerta automatizada de tests y build"
 
 Cada bug lleva **primero** el test que falla.
 
-### Tarea 5: Token de generación de `play()` (AUD-01, AUD-02)
+### Task 5: Token de generación de `play()` (AUD-01, AUD-02)
 
 **Ficheros:**
 - Modificar: `src/audio/AudioEngine.ts` (campo `playGen`, `play()`, `stop()`, `seek()`)
@@ -391,7 +394,7 @@ git commit -m "fix(audio): token de generación evita doble audio y zombis post-
 
 ---
 
-### Tarea 6: Sello correcto de la toma en punch-in (AUD-03)
+### Task 6: Sello correcto de la toma en punch-in (AUD-03)
 
 **Ficheros:**
 - Modificar: `src/audio/AudioEngine.ts` (método de grabación)
@@ -423,7 +426,7 @@ y de `mediaRecorder.start(...)`, tomando `this.getCurrentTime()` en ese punto.
 
 ---
 
-### Tarea 7: Metrónomo sin solapes (AUD-04)
+### Task 7: Metrónomo sin solapes (AUD-04)
 
 **Ficheros:**
 - Modificar: `src/audio/AudioEngine.ts` (`armMetroExtender` y el estado del metrónomo)
@@ -451,7 +454,7 @@ al parar.
 
 ---
 
-### Tarea 8: Loop en el reloj de audio (AUD-05)
+### Task 8: Loop en el reloj de audio (AUD-05)
 
 **Ficheros:**
 - Modificar: `src/audio/AudioEngine.ts` (`handleLoopWrap`, `armLoopTimer`)
@@ -483,7 +486,7 @@ antelación. Si el wrap se detecta tarde, la siguiente iteración se ancla en
 
 ---
 
-### Tarea 9: Fugas de nodos: fades y clicks (AUD-06, AUD-07)
+### Task 9: Fugas de nodos: fades y clicks (AUD-06, AUD-07)
 
 **Ficheros:**
 - Modificar: `src/audio/TrackNode.ts` (`addActiveSource` — parámetro `cleanup`)
@@ -515,7 +518,7 @@ desconectados. Idem para el metrónomo (N clicks ⇒ N gains desconectados).
 
 ---
 
-### Tarea 10: Un plugin roto no rompe el transporte (AUD-10)
+### Task 10: Un plugin roto no rompe el transporte (AUD-10)
 
 **Ficheros:**
 - Modificar: `src/audio/PluginHost.ts` (`createInstanceNode` — validar forma del nodo)
@@ -545,7 +548,7 @@ conexión en `try/catch` y, ante excepción, insertar el pass-through y **no** p
 
 ---
 
-### Tarea 11: Recreación del contexto de audio (AUD-11)
+### Task 11: Recreación del contexto de audio (AUD-11)
 
 **Ficheros:**
 - Modificar: `src/audio/AudioEngine.ts` (`ensureContext`)
@@ -572,7 +575,7 @@ En la rama de `ensureContext()` que reemplaza `this.context`: desconectar y vaci
 
 ---
 
-### Tarea 12: Updaters puros en el store (ST-10)
+### Task 12: Updaters puros en el store (ST-10)
 
 **Ficheros:**
 - Modificar: `src/store/useDawStore.ts` (todas las acciones con efectos dentro de `set`)
@@ -603,7 +606,7 @@ Reescribir cada acción en la forma: `const next = get().tracks.map(...)` → `s
 
 ---
 
-### Tarea 13: Historial completo y sin fugas (ST-01, ST-02, ST-03, ST-11)
+### Task 13: Historial completo y sin fugas (ST-01, ST-02, ST-03, ST-11)
 
 **Ficheros:**
 - Modificar: `src/store/useDawStore.ts` (`HistorySnapshot`, `cloneHistoryState`, `recordHistory`,
@@ -650,7 +653,7 @@ resultado con el original y no registrar si no cambió.
 
 ---
 
-### Tarea 14: Autosave a prueba de cierre + `snapMode` persistente (ST-05, ST-06, ST-12)
+### Task 14: Autosave a prueba de cierre + `snapMode` persistente (ST-05, ST-06, ST-12)
 
 **Ficheros:**
 - Modificar: `src/store/persistence.ts` (`startAutosave`, `selectAutosaveSnapshot`,
@@ -687,7 +690,7 @@ selección del snapshot de autosave.
 
 ---
 
-### Tarea 15: Atajos globales sin djinn (ST-07, ST-12)
+### Task 15: Atajos globales sin djinn (ST-07, ST-12)
 
 **Ficheros:**
 - Modificar: `src/hooks/useGlobalShortcuts.ts`
@@ -717,7 +720,7 @@ selección del snapshot de autosave.
 
 ---
 
-### Tarea 16: Importación de proyecto blindada (ST-08, SEC-02)
+### Task 16: Importación de proyecto blindada (ST-08, SEC-02)
 
 **Ficheros:**
 - Modificar: `src/App.tsx` (`runHandlePickFile` — presupuesto de tamaño)
@@ -750,7 +753,7 @@ selección del snapshot de autosave.
 
 ---
 
-### Tarea 17: Exportación fiel al mixer (EXP-01, EXP-03, EXP-05, EXP-11, EXP-04)
+### Task 17: Exportación fiel al mixer (EXP-01, EXP-03, EXP-05, EXP-11, EXP-04)
 
 **Ficheros:**
 - Modificar: `src/audio/AudioEngine.ts` (`OfflineRenderOptions`, `renderOffline`)
@@ -784,7 +787,7 @@ selección del snapshot de autosave.
 
 ---
 
-### Tarea 18: LUFS conforme a BS.1770-4 (EXP-02, EXP-12)
+### Task 18: LUFS conforme a BS.1770-4 (EXP-02, EXP-12)
 
 **Ficheros:**
 - Modificar: `src/audio/loudness.ts` (`designHighShelf` → coeficientes de la Tabla 1 de BS.1770-4;
@@ -815,7 +818,7 @@ hasta 400 ms los bloques de entrada más cortos que un bloque.
 
 ---
 
-### Tarea 19: Guarding numérico en las utilidades (DSP-07, DSP-08, DSP-09, DSP-10, AUD-12, AAC-06)
+### Task 19: Guarding numérico en las utilidades (DSP-07, DSP-08, DSP-09, DSP-10, AUD-12, AAC-06)
 
 **Ficheros:**
 - Modificar: `src/audio/waveformUtils.ts`, `src/audio/audioMath.ts`, `src/audio/timelineOps.ts`,
@@ -843,7 +846,7 @@ hasta 400 ms los bloques de entrada más cortos que un bloque.
 
 # WAVE 2 — El contrato de interacción (F4-F8, F10-F13) implementado de verdad
 
-### Tarea 20: Pointer Events en los clips (UI-03, F4, F5, F6)
+### Task 20: Pointer Events en los clips (UI-03, F4, F5, F6)
 
 **Ficheros:**
 - Modificar: `src/components/Timeline/WaveformCanvas.tsx`
@@ -882,7 +885,7 @@ selección).
 
 ---
 
-### Tarea 21: El knob, con captura de puntero y rueda real (UI-04, F7)
+### Task 21: El knob, con captura de puntero y rueda real (UI-04, F7)
 
 **Ficheros:**
 - Modificar: `src/components/Plugins/Knob.tsx`
@@ -912,7 +915,7 @@ selección).
 
 ---
 
-### Tarea 22: Scroll vertical sincronizado y regla sticky (UI-01, UI-02, F10, F11, F12)
+### Task 22: Scroll vertical sincronizado y regla sticky (UI-01, UI-02, F10, F11, F12)
 
 **Ficheros:**
 - Modificar: `src/components/Timeline/Timeline.tsx`
@@ -946,7 +949,7 @@ selección).
 
 ---
 
-### Tarea 23: Seek acotado y por teclado (UI-08, F13)
+### Task 23: Seek acotado y por teclado (UI-08, F13)
 
 **Ficheros:**
 - Modificar: `src/components/Timeline/Ruler.tsx`
@@ -976,7 +979,7 @@ selección).
 
 ---
 
-### Tarea 24: Un solo bucle de playhead + seguimiento de scroll (UI-07, UI-12)
+### Task 24: Un solo bucle de playhead + seguimiento de scroll (UI-07, UI-12)
 
 **Ficheros:**
 - Crear: `src/hooks/usePlayheadSync.ts`
@@ -1010,7 +1013,7 @@ selección).
 
 # WAVE 3 — Accesibilidad, responsive y diseño
 
-### Tarea 25: Nombres accesibles en los controles de icono (UI-05)
+### Task 25: Nombres accesibles en los controles de icono (UI-05)
 
 **Ficheros:**
 - Modificar: `src/components/Transport/TransportBar.tsx`, `src/components/Timeline/Timeline.tsx`,
@@ -1034,7 +1037,7 @@ selección).
 
 ---
 
-### Tarea 26: Selectores granulares en el store (UI-06)
+### Task 26: Selectores granulares en el store (UI-06)
 
 **Ficheros:**
 - Modificar: `src/components/Mixer/MixerConsole.tsx`, `src/components/Timeline/TrackHeader.tsx`,
@@ -1058,7 +1061,7 @@ selección).
 
 ---
 
-### Tarea 27: Responsive y objetivos táctiles (UI-09, F8, F14, F15, F16, F17)
+### Task 27: Responsive y objetivos táctiles (UI-09, F8, F14, F15, F16, F17)
 
 **Ficheros:**
 - Modificar: `src/components/Timeline/Timeline.tsx`, `src/components/Timeline/TrackHeader.tsx`,
@@ -1086,7 +1089,7 @@ selección).
 
 ---
 
-### Tarea 28: Teclado en la selección y el foco atrapado en los modales (UI-10, UI-11)
+### Task 28: Teclado en la selección y el foco atrapado en los modales (UI-10, UI-11)
 
 **Ficheros:**
 - Modificar: `src/components/Timeline/TrackHeader.tsx`, `src/components/Timeline/Timeline.tsx`,
@@ -1112,7 +1115,7 @@ selección).
 
 ---
 
-### Tarea 29: Fidelidad al sistema de diseño (UI-13, UI-14)
+### Task 29: Fidelidad al sistema de diseño (UI-13, UI-14)
 
 **Ficheros:**
 - Modificar: `src/components/Timeline/WaveformCanvas.tsx`, `src/components/Transport/TransportBar.tsx`,
@@ -1139,7 +1142,7 @@ selección).
 
 # WAVE 4 — Funciones nuevas
 
-### Tarea 30: Importar audio sin arrastrar (G1)
+### Task 30: Importar audio sin arrastrar (G1)
 
 **Ficheros:**
 - Crear: `src/audio/importAudio.ts`
@@ -1180,7 +1183,7 @@ selección).
 
 ---
 
-### Tarea 31: Copiar, pegar y duplicar clips (G2)
+### Task 31: Copiar, pegar y duplicar clips (G2)
 
 **Ficheros:**
 - Modificar: `src/store/useDawStore.ts` (`copyClips`, `pasteClips`, `duplicateSelectedClips`,
@@ -1214,7 +1217,7 @@ selección).
 
 ---
 
-### Tarea 32: Multi-selección de clips (G5)
+### Task 32: Multi-selección de clips (G5)
 
 **Ficheros:**
 - Modificar: `src/store/useDawStore.ts` (`selectedClipIds: string[]` sustituye a `selectedClipId`;
@@ -1251,7 +1254,7 @@ selección).
 
 ---
 
-### Tarea 33: Barrido de documentación (DOC-01, DOC-02, OPS-01 ya resuelto en T4)
+### Task 33: Barrido de documentación (DOC-01, DOC-02, OPS-01 ya resuelto en T4)
 
 **Ficheros:**
 - Modificar: `PROJECT.md`, `HANDOFF.md`, `TEST_INFRA.md`, `TEST_READY.md`, `README.md`
@@ -1286,7 +1289,7 @@ npm run build 2>&1 | tail -8
 
 # WAVE 5 — Seguridad y operaciones
 
-### Tarea 34: Sandbox real de plugins (SEC-01, AUD-08)
+### Task 34: Sandbox real de plugins (SEC-01, AUD-08)
 
 **Ficheros:**
 - Modificar: `src/audio/PluginHost.ts`
@@ -1323,7 +1326,7 @@ npm run build 2>&1 | tail -8
 
 ---
 
-### Tarea 35: Service worker versionado (SW-01)
+### Task 35: Service worker versionado (SW-01)
 
 **Ficheros:**
 - Modificar: `public/sw.js`
@@ -1349,7 +1352,7 @@ npm run build 2>&1 | tail -8
 
 ---
 
-### Tarea 36: PWA instalable, cabeceras y meta (CFG-01, HDR-01, SEO-01, CFG-02)
+### Task 36: PWA instalable, cabeceras y meta (CFG-01, HDR-01, SEO-01, CFG-02)
 
 **Ficheros:**
 - Crear: `public/icons/icon-192.png`, `public/icons/icon-512.png`,
@@ -1378,7 +1381,7 @@ npm run build 2>&1 | tail -8
 
 ---
 
-### Tarea 37: Endurecer el tsconfig y cerrar el build (TS-01, CFG-02)
+### Task 37: Endurecer el tsconfig y cerrar el build (TS-01, CFG-02)
 
 **Ficheros:**
 - Modificar: `tsconfig.json` (`exactOptionalPropertyTypes: true`)
