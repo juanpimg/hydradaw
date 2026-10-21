@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useDawStore } from '../../store/useDawStore';
+import { useShallow } from 'zustand/react/shallow';
 import type { AudioClip } from '../../types/daw';
 import { audioEngine } from '../../audio/AudioEngine';
 import { encodeWavAsync, downloadAudioBlob } from '../../audio/WavExporter';
@@ -77,7 +78,18 @@ export const ExportModal: React.FC = () => {
     masterVolume,
     masterMute,
     pushToast
-  } = useDawStore();
+  } = useDawStore(
+    useShallow((s) => ({
+      exportModalOpen: s.exportModalOpen,
+      setExportModalOpen: s.setExportModalOpen,
+      tracks: s.tracks,
+      clips: s.clips,
+      projectName: s.projectName,
+      masterVolume: s.masterVolume,
+      masterMute: s.masterMute,
+      pushToast: s.pushToast,
+    })),
+  );
 
   const [bitDepth, setBitDepth] = useState<16 | 24 | 32>(16);
   const [sampleRate, setSampleRate] = useState<number>(44100);

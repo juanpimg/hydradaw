@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useDawStore } from '../../store/useDawStore';
+import { useShallow } from 'zustand/react/shallow';
 import { audioEngine } from '../../audio/AudioEngine';
 import { ChannelStrip } from './ChannelStrip';
 import { VUMeter } from './VUMeter';
@@ -13,7 +14,16 @@ export const MixerConsole: React.FC = () => {
     masterMute,
     setMasterMute,
     addTrack,
-  } = useDawStore();
+  } = useDawStore(
+    useShallow((s) => ({
+      tracks: s.tracks,
+      masterVolume: s.masterVolume,
+      setMasterVolume: s.setMasterVolume,
+      masterMute: s.masterMute,
+      setMasterMute: s.setMasterMute,
+      addTrack: s.addTrack,
+    })),
+  );
 
   const [meterLevels, setMeterLevels] = useState<{
     master: { rms: number; peak: number };

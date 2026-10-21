@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useDawStore } from '../../store/useDawStore';
+import { useShallow } from 'zustand/react/shallow';
 import { pluginHost } from '../../audio/PluginHost';
 import { Knob } from './Knob';
 import { 
@@ -22,7 +23,18 @@ export const PluginRackModal: React.FC = () => {
     updatePluginParam,
     addPluginToTrack,
     pushToast,
-  } = useDawStore();
+  } = useDawStore(
+    useShallow((s) => ({
+      pluginModalTrackId: s.pluginModalTrackId,
+      setPluginModal: s.setPluginModal,
+      tracks: s.tracks,
+      togglePlugin: s.togglePlugin,
+      removePluginFromTrack: s.removePluginFromTrack,
+      updatePluginParam: s.updatePluginParam,
+      addPluginToTrack: s.addPluginToTrack,
+      pushToast: s.pushToast,
+    })),
+  );
 
   const [selectedCatalogPlugin, setSelectedCatalogPlugin] = useState<string>('eq3');
   const [importingCustom, setImportingCustom] = useState<boolean>(false);

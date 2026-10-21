@@ -1,6 +1,7 @@
 import React from 'react';
 import type { AudioTrack } from '../../types/daw';
 import { useDawStore } from '../../store/useDawStore';
+import { useShallow } from 'zustand/react/shallow';
 import { 
   Volume2, 
   Sliders, 
@@ -22,7 +23,15 @@ export const TrackHeader: React.FC<TrackHeaderProps> = ({ track, isSelected }) =
     setSelectedTrack, 
     setPluginModal,
     pushToast 
-  } = useDawStore();
+  } = useDawStore(
+    useShallow((s) => ({
+      updateTrack: s.updateTrack,
+      removeTrack: s.removeTrack,
+      setSelectedTrack: s.setSelectedTrack,
+      setPluginModal: s.setPluginModal,
+      pushToast: s.pushToast,
+    })),
+  );
 
   const activePluginsCount = track.plugins.filter((p) => p.enabled).length;
 
