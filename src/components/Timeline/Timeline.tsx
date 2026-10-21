@@ -5,8 +5,7 @@ import { usePlayheadSync } from '../../hooks/usePlayheadSync';
 import { Ruler } from './Ruler';
 import { TrackHeader } from './TrackHeader';
 import { WaveformCanvas } from './WaveformCanvas';
-import { decodeAudioFile, generateWaveformPeaks } from '../../audio/waveformUtils';
-import { calculateMagneticSnap } from '../../audio/timelineOps';
+import { importAudioFiles } from '../../audio/importAudio';
 import { ZoomIn, ZoomOut, Scissors, Plus } from 'lucide-react';
 
 export const Timeline: React.FC = () => {
@@ -15,13 +14,10 @@ export const Timeline: React.FC = () => {
   const zoom = useDawStore((s) => s.zoom);
   const setZoom = useDawStore((s) => s.setZoom);
   const duration = useDawStore((s) => s.duration);
-  const bpm = useDawStore((s) => s.bpm);
-  const timeSignature = useDawStore((s) => s.timeSignature);
   const selectedTrackId = useDawStore((s) => s.selectedTrackId);
   const selectedClipId = useDawStore((s) => s.selectedClipId);
   const setSelectedClip = useDawStore((s) => s.setSelectedClip);
   const splitClip = useDawStore((s) => s.splitClip);
-  const addClip = useDawStore((s) => s.addClip);
   const addTrack = useDawStore((s) => s.addTrack);
   const pushToast = useDawStore((s) => s.pushToast);
   const snapMode = useDawStore((s) => s.snapMode);
@@ -99,45 +95,13 @@ export const Timeline: React.FC = () => {
   // Playhead: lo mueve el bucle compartido `usePlayheadSync` (posición suave
   // a 60 fps sin re-renders, más seguimiento de scroll). Nada local aquí.
 
-  // Handle Drag & Drop of Audio Files directly onto Timeline
+  // Handle Drag & Drop of Audio Files directly onto Timeline (una sola
+  // implementación: el módulo compartido `importAudioFiles`).
   const handleDrop = async (e: React.DragEvent, trackId?: string) => {
     e.preventDefault();
     const files = Array.from(e.dataTransfer.files).filter((f) => f.type.startsWith('audio/'));
     if (files.length === 0) return;
-
-    const ctx = await audioEngine.ensureContext();
-
-    // Fix(waveA): repartir los clips en cascada para no apilarlos todos en currentTime.
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
-      // Fix(waveB-ts): files[i] es File|undefined en tipo; en la práctica i < length.
-      if (!file) continue;
-      try {
-        const audioBuffer = await decodeAudioFile(file, ctx);
-        const peaks = generateWaveformPeaks(audioBuffer, 800);
-        const targetTrackId = trackId || addTrack(file.name.replace(/\.[^/.]+$/, ''));
-        const dur = audioBuffer.duration;
-        const rawStart = audioEngine.getCurrentTime() + i * (dur + 0.5);
-        // Fix(waveA): snap magnético al colocar el clip importado.
-        const liveClips = useDawStore.getState().clips;
-        const { snappedTime } = calculateMagneticSnap(rawStart, bpm, timeSignature, liveClips, 0.1, snapMode);
-
-        addClip({
-          id: 'clip_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
-          trackId: targetTrackId,
-          name: file.name,
-          startTime: snappedTime,
-          duration: dur,
-          offset: 0,
-          audioBuffer,
-          peaks,
-          color: '#06b6d4',
-        });
-      } catch (err) {
-        // Fix(waveB-shell): toast no bloqueante en vez de alert().
-        pushToast('Error al importar archivo de audio: ' + err);
-      }
-    }
+    await importAudioFiles(files, { targetTrackId: trackId });
   };
 
   // Fix(waveA): ancho de lanes = viewport menos la columna de headers MEDIDA

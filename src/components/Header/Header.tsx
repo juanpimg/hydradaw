@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useRef } from 'react';
 import { useDawStore } from '../../store/useDawStore';
+import { importAudioFiles } from '../../audio/importAudio';
 import { 
   Music, 
   Layers, 
@@ -8,7 +9,8 @@ import {
   Plus, 
   Sparkles,
   ExternalLink,
-  Github
+  Github,
+  Upload
 } from 'lucide-react';
 
 export const Header: React.FC = () => {
@@ -20,6 +22,14 @@ export const Header: React.FC = () => {
   const loadDemoProject = useDawStore((s) => s.loadDemoProject);
   const setExportModalOpen = useDawStore((s) => s.setExportModalOpen);
   const trackCount = useDawStore((s) => s.tracks.length);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleImportFiles = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files ? Array.from(e.target.files) : [];
+    e.target.value = '';
+    if (files.length === 0) return;
+    await importAudioFiles(files, {});
+  };
 
   return (
     // Fix(waveA): scroll horizontal en viewports estrechos para no recortar acciones.
@@ -103,6 +113,25 @@ export const Header: React.FC = () => {
           <Plus className="w-3.5 h-3.5 text-cyan-400" />
           <span className="hidden sm:inline">Nueva Pista</span>
         </button>
+
+        <button
+          onClick={() => fileInputRef.current?.click()}
+          aria-label="Importar audio"
+          className="flex items-center space-x-1 px-3 py-1.5 rounded-lg text-xs font-medium bg-dark-surfaceLight hover:bg-dark-border text-slate-200 border border-dark-border transition-colors"
+          title="Importar archivos de audio desde tu dispositivo"
+        >
+          <Upload className="w-3.5 h-3.5 text-cyan-400" />
+          <span className="hidden sm:inline">Importar audio</span>
+        </button>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="audio/*"
+          multiple
+          aria-label="Seleccionar archivos de audio"
+          className="hidden"
+          onChange={handleImportFiles}
+        />
 
         <button
           onClick={() => setExportModalOpen(true)}
