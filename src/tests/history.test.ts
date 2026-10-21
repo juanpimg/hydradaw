@@ -130,7 +130,7 @@ describe('history (ST-01/02/03/11)', () => {
     expect(useDawStore.getState().tracks[0]!.plugins).toHaveLength(1);
   });
 
-  it('H4: undo() tras cambiar el BPM devuelve el BPM y el tempo del engine', () => {
+  it('H4: undo() de una acción registrable restaura el BPM del snapshot (setBpm solo no registra historial)', () => {
     useDawStore.getState().addTrack('Base');
     useDawStore.getState().setBpm(150);
     expect(useDawStore.getState().bpm).toBe(150);
@@ -139,7 +139,37 @@ describe('history (ST-01/02/03/11)', () => {
     expect(mockedEngine.setTempo).toHaveBeenLastCalledWith(120);
   });
 
-  it('H4b: undo() reinyecta loop, metrónomo y master en el engine', () => {
+  it('H4c: los ajustes de transporte no registran historial por sí solos (contrato real)', () => {
+    // Ni setBpm ni los toggles ni el volumen master son deshacibles por sí
+    // mismos: undo() sin acción registrable previa es un no-op.
+    useDawStore.getState().setBpm(150);
+    useDawStore.getState().toggleLoop();
+    useDawStore.getState().toggleMetronome();
+    useDawStore.getState().setMasterVolume(0.3);
+    expect(useDawStore.getState().canUndo).toBe(false);
+    useDawStore.getState().undo();
+    const s = useDawStore.getState();
+    expect(s.bpm).toBe(150);
+    expect(s.isLooping).toBe(true);
+    expect(s.metronome).toBe(true);
+    expect(s.masterVolume).toBe(0.3);
+    // ...pero el snapshot de la siguiente acción registrable LOS INCLUYE, y
+    // deshacerla los restaura y reinyecta en el engine (eso fijan H4/H4b).
+    useDawStore.getState().addTrack('Posterior');
+    expect(useDawStore.getState().canUndo).toBe(true);
+    useDawStore.getState().undo();
+    const back = useDawStore.getState();
+    expect(back.tracks).toHaveLength(1);
+    expect(back.bpm).toBe(150);
+    expect(back.isLooping).toBe(true);
+    expect(back.metronome).toBe(true);
+    expect(back.masterVolume).toBe(0.3);
+    expect(mockedEngine.setTempo).toHaveBeenLastCalledWith(150);
+    expect(mockedEngine.setLoop).toHaveBeenLastCalledWith(true, 0, 16);
+    expect(mockedEngine.setMetronome).toHaveBeenLastCalledWith(true);
+    expect(masterBus().setVolume).toHaveBeenLastCalledWith(0.3);
+  });
+  it('H4b: undo() de una acción registrable reinyecta loop/metrónomo/master (esos ajustes solos no registran historial)', () => {
     useDawStore.getState().addTrack('Base');
     useDawStore.getState().toggleLoop();
     useDawStore.getState().toggleMetronome();
