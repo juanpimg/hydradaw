@@ -1,16 +1,19 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { render, screen, cleanup } from '@testing-library/react';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { render, screen, cleanup, fireEvent } from '@testing-library/react';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { useDawStore } from '../../store/useDawStore';
+import { audioEngine } from '../../audio/AudioEngine';
 import { WaveformCanvas } from '../../components/Timeline/WaveformCanvas';
 import { TransportBar } from '../../components/Transport/TransportBar';
 import { ChannelStrip } from '../../components/Mixer/ChannelStrip';
 import { Knob } from '../../components/Plugins/Knob';
 import { TrackHeader } from '../../components/Timeline/TrackHeader';
 import { VUMeter } from '../../components/Mixer/VUMeter';
+import { ExportModal } from '../../components/Export/ExportModal';
+import { StartScreen } from '../../components/Start/StartScreen';
 
 function seed() {
   useDawStore.setState({
@@ -46,6 +49,8 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  vi.restoreAllMocks();
+  useDawStore.setState({ exportModalOpen: false });
 });
 
 const tokens = (el: Element): string[] => (el as HTMLElement).className.split(/\s+/);
@@ -118,5 +123,62 @@ describe('Fidelidad al sistema de diseño (UI-13, UI-14)', () => {
   it('D4: index.css incluye la guarda prefers-reduced-motion', () => {
     const css = fs.readFileSync(path.resolve(process.cwd(), 'src/index.css'), 'utf8');
     expect(css).toContain('@media (prefers-reduced-motion: reduce)');
+  });
+
+  it('D5: los spinners de carga también llevan motion-safe:', () => {
+    render(
+      <StartScreen
+        savedName={null}
+        lookingUp
+        busy={null}
+        onContinue={() => {}}
+        onBlank={() => {}}
+        onPickFile={() => {}}
+      />,
+    );
+    const busy = Array.from(document.querySelectorAll('svg')).filter((el) =>
+      (el as SVGElement).className.baseVal.split(/\s+/).some((t: string) => t.includes('animate-spin')),
+    );
+    expect(busy.length).toBeGreaterThan(0);
+    busy.forEach((el) => {
+      const toks = (el as SVGElement).className.baseVal.split(/\s+/);
+      expect(toks).toContain('motion-safe:animate-spin');
+    });
+    cleanup();
+
+    // ExportModal: el render offline no resuelve nunca ⇒ el spinner se queda.
+    useDawStore.setState({
+      exportModalOpen: true,
+      projectName: 'Test',
+      masterVolume: 1,
+      masterMute: false,
+      tracks: [
+        {
+          id: 't1', name: 'Voz', type: 'vocal' as const, color: '#a855f7',
+          volume: 1, pan: 0, mute: false, solo: false, armed: false, plugins: [],
+        },
+      ],
+      clips: [
+        {
+          id: 'c1', trackId: 't1', name: 'C1', startTime: 0, duration: 1,
+          offset: 0, audioBuffer: null, peaks: new Float32Array(0),
+        },
+      ],
+    });
+    vi.spyOn(audioEngine, 'renderOfflineMixdown').mockImplementation(
+      () => new Promise(() => {}) as unknown as Promise<AudioBuffer>,
+    );
+    const { container } = render(<ExportModal />);
+    fireEvent.click(screen.getByText('Exportar Mezcla Completa'));
+    const spins = Array.from(container.querySelectorAll('svg')).filter((el) =>
+      (el as unknown as SVGElement).className.baseVal
+        .split(/\s+/)
+        .some((t: string) => t.includes('animate-spin')),
+    );
+    expect(spins.length).toBeGreaterThan(0);
+    spins.forEach((el) => {
+      const toks = (el as unknown as SVGElement).className.baseVal.split(/\s+/);
+      expect(toks).toContain('motion-safe:animate-spin');
+    });
   });
 });

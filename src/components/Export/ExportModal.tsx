@@ -500,7 +500,7 @@ export const ExportModal: React.FC = () => {
           >
             {isExporting ? (
               <>
-                <Loader2 className="w-4 h-4 animate-spin" />
+                <Loader2 className="w-4 h-4 motion-safe:animate-spin" />
                 <span>
                   {exportProgress === null
                     ? 'Renderizando en CPU...'

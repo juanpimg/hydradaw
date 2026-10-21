@@ -30,7 +30,7 @@ export const StartScreen: React.FC<StartScreenProps> = ({
   const disabled = busy !== null || lookingUp;
 
   const spin = (key: 'continue' | 'blank' | 'import') =>
-    busy === key ? <Loader2 className="w-5 h-5 animate-spin" /> : null;
+    busy === key ? <Loader2 className="w-5 h-5 motion-safe:animate-spin" /> : null;
 
   return (
     <div
@@ -53,7 +53,7 @@ export const StartScreen: React.FC<StartScreenProps> = ({
         <div className="p-5 space-y-3">
           {lookingUp ? (
             <p className="text-xs text-slate-400 text-center py-4 flex items-center justify-center space-x-2">
-              <Loader2 className="w-4 h-4 animate-spin" />
+              <Loader2 className="w-4 h-4 motion-safe:animate-spin" />
               <span>Buscando proyecto guardado…</span>
             </p>
           ) : (
