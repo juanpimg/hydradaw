@@ -13,7 +13,10 @@ export class TrackNode {
   readonly analyserNode: AnalyserNode;
 
   private activeDSPNodes: ActiveDSPNode[] = [];
-  private activeSourceNodes: AudioBufferSourceNode[] = [];
+  // Fix(AUD-06/C1): el cleanup viaja junto a la fuente para que corra en
+  // TODAS las vías de teardown (fin natural y stop explícito). `done`
+  // lo hace idempotente: fin natural + stop no lo ejecutan dos veces.
+  private activeSourceNodes: Array<{ source: AudioBufferSourceNode; cleanup?: () => void; done: boolean }> = [];
   // Fix(waveA): guard flag — prevents double connect() (+6 dB summing when
   // the analyser is wired twice to the same destination).
   private connectedDestinations = new Set<AudioNode>();
@@ -210,30 +213,47 @@ export class TrackNode {
    * Registers a playing AudioBufferSourceNode for stopping/cleanup.
    * Fix(AUD-06): optional cleanup runs in onended before disconnecting the
    * source, so per-clip helper nodes (e.g. fade clipGain) don't leak.
+   * Fix(C1): el cleanup queda guardado en la entrada para que stopAllSources()
+   * también lo ejecute (el stop anula onended, así que sin esto el clipGain
+   * sobrevivía a cada play→stop). Idempotente vía `done`.
    */
   addActiveSource(source: AudioBufferSourceNode, cleanup?: () => void) {
-    this.activeSourceNodes.push(source);
+    const entry = { source, cleanup, done: false };
+    this.activeSourceNodes.push(entry);
     source.onended = () => {
-      try {
-        cleanup?.();
-      } catch (_) {}
+      this.runEntryCleanup(entry);
       try {
         source.disconnect();
       } catch (_) {}
       source.onended = null;
-      this.activeSourceNodes = this.activeSourceNodes.filter(s => s !== source);
+      this.activeSourceNodes = this.activeSourceNodes.filter(e => e !== entry);
     };
+  }
+
+  /**
+   * Runs an entry's cleanup at most once, swallowing disconnection errors
+   * (the node may already be disconnected).
+   */
+  private runEntryCleanup(entry: { cleanup?: () => void; done: boolean }) {
+    if (entry.done) return;
+    entry.done = true;
+    try {
+      entry.cleanup?.();
+    } catch (_) {}
   }
 
   /**
    * Stops and disconnects all running audio sources on this track
    */
   stopAllSources() {
-    for (const source of this.activeSourceNodes) {
+    for (const entry of this.activeSourceNodes) {
       try {
-        source.onended = null;
-        source.stop(0);
-        source.disconnect();
+        entry.source.onended = null;
+        // Fix(C1): el stop explícito también suelta los nodos auxiliares
+        // (clipGain del fade); si el onended ya corrió, el flag lo hace noop.
+        this.runEntryCleanup(entry);
+        entry.source.stop(0);
+        entry.source.disconnect();
       } catch (_) {
         // Source already stopped or disconnected
       }

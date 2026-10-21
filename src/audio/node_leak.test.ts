@@ -216,4 +216,20 @@ describe('AUD-06/AUD-07: sin fugas de nodos de fade ni de clicks', () => {
     for (const o of [...mockCtx.oscillators]) o.onended?.();
     for (const g of clickGains) expect(g.disconnected).toBe(true);
   });
+
+  it('play(clip con fade) → stop() desconecta todos los clipGains', async () => {
+    const { engine, mockCtx } = setupEngine();
+    await engine.syncTracks([makeTrack()]);
+    const baseline = mockCtx.gains.length;
+    await engine.play(
+      [makeTrack()],
+      [makeClip({ fadeIn: 0.5, fadeOut: 0.5 })],
+      0
+    );
+    const clipGains = mockCtx.gains.slice(baseline);
+    expect(clipGains.length).toBe(1);
+    // Parada explícita: el onended se anula, pero el cleanup debe correr igual.
+    engine.stop();
+    for (const g of clipGains) expect(g.disconnected).toBe(true);
+  });
 });
