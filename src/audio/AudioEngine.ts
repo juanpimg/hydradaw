@@ -569,7 +569,7 @@ export class AudioEngine {
       throw new Error('[AudioEngine] No se puede iniciar la grabación: el motor de audio no está disponible.');
     }
     this.recordingTrackId = armedTrackId;
-    this.recordingStartTime = this.getCurrentTime();
+    // Fix(AUD-03): el sello se toma DESPUÉS de conceder el micro (ver abajo).
     this.recordingChunks = [];
 
     if (tracks) this.cachedTracks = tracks;
@@ -612,6 +612,9 @@ export class AudioEngine {
     };
 
     this.mediaRecorder.start(100);
+    // Fix(AUD-03): sella la toma DESPUÉS de getUserMedia() y de start(), con el
+    // reloj actual — si el prompt tardó, el clip ya no cae segundos antes.
+    this.recordingStartTime = this.getCurrentTime();
     // Fix(waveA): punch-in no reinicia clips si ya sonaba (solo arranca recorder).
     if (wasPlaying) {
       this.isRecording = true;

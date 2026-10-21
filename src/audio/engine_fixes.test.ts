@@ -230,6 +230,43 @@ describe('waveA: fixes del engine', () => {
     expect((engine as unknown as { isRecording: boolean }).isRecording).toBe(true);
   });
 
+  it('punch-in: la toma se ancla tras conceder el micro, no antes (AUD-03)', async () => {
+    const { engine, mockCtx } = setupEngine();
+    // getUserMedia que tarda 5 s en resolverse (prompt del navegador).
+    const stream = { getTracks: () => [] as Array<{ stop: () => void }> };
+    (globalThis as unknown as { navigator?: unknown }).navigator = {
+      mediaDevices: {
+        getUserMedia: vi.fn().mockImplementation(async () => {
+          mockCtx.currentTime += 5;
+          return stream;
+        }),
+      },
+    };
+    class MockMediaRecorder {
+      static isTypeSupported = () => false;
+      state = 'inactive';
+      ondataavailable: ((e: { data: Blob }) => void) | null = null;
+      onstop: (() => void) | null = null;
+      mimeType = '';
+      constructor(public s: unknown, public o?: unknown) {}
+      start(): void {
+        this.state = 'recording';
+      }
+      stop(): void {
+        this.state = 'inactive';
+        this.onstop?.();
+      }
+    }
+    (globalThis as unknown as { MediaRecorder?: unknown }).MediaRecorder = MockMediaRecorder;
+    // Punch-in en caliente: ya sonaba al pedir el micro.
+    await engine.play([makeTrack()], [makeClip()], 10);
+    const prePrompt = engine.getCurrentTime();
+    await engine.startRecording('track_1', [makeTrack()], [makeClip()]);
+    const stamp = (engine as unknown as { recordingStartTime: number }).recordingStartTime;
+    // El sello debe reflejar los 5 s del prompt, no el instante previo.
+    expect(stamp - prePrompt).toBeCloseTo(5, 1);
+  });
+
   it('stop() preserva la toma en lastTake (getter) en vez de perderla', async () => {
     const { engine } = setupEngine();
     const fakeClip = {
