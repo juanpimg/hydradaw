@@ -1,6 +1,6 @@
 import { get, set, del, keys, delMany } from 'idb-keyval';
 import type { AudioClip, AudioTrack } from '../types/daw';
-import { useDawStore } from './useDawStore';
+import { useDawStore, resetHistory } from './useDawStore';
 import { audioEngine } from '../audio/AudioEngine';
 import { generateDemoTrackBuffer, generateWaveformPeaks } from '../audio/waveformUtils';
 import { encodeWav } from '../audio/WavExporter';
@@ -1021,6 +1021,9 @@ export async function applySerializedProject(
   clips: RestoredAudioClip[]
 ): Promise<boolean> {
   try {
+    // ST-03: el proyecto aplicado es nuevo ⇒ las pilas no pueden contener
+    // snapshots del proyecto anterior.
+    resetHistory();
     useDawStore.setState({
       projectName: data.projectName,
       bpm: data.bpm,

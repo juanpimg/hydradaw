@@ -11,6 +11,11 @@ vi.mock('../audio/AudioEngine', () => ({
     setLoop: vi.fn(),
     setMetronome: vi.fn(),
     syncTracks: vi.fn(),
+    rebuildTrackEffects: vi.fn(),
+    setTempo: vi.fn(),
+    setTimeSignature: vi.fn(),
+    updateTrackPluginParam: vi.fn(),
+    getMasterBus: vi.fn(() => null),
   },
 }));
 

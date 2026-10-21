@@ -21,30 +21,76 @@ export interface Toast {
 export interface HistorySnapshot {
   tracks: AudioTrack[];
   clips: AudioClip[];
+  bpm: number;
+  timeSignature: [number, number];
+  loopStart: number;
+  loopEnd: number;
+  isLooping: boolean;
+  metronome: boolean;
+  masterVolume: number;
+  masterMute: boolean;
+  projectName: string;
+  snapMode: SnapMode;
+  selectedTrackId: string | null;
+  selectedClipId: string | null;
 }
 
 const MAX_HISTORY = 30;
 let undoStack: HistorySnapshot[] = [];
 let redoStack: HistorySnapshot[] = [];
 
-export function cloneHistoryState(tracks: AudioTrack[], clips: AudioClip[]): HistorySnapshot {
+// ST-01: el arrastre de un knob emite decenas de cambios por segundo; el historial
+// se coalesce (leading-edge, 1 snapshot cada 400 ms) para que un solo gesto no
+// vacíe la pila de 30. Ver `updatePluginParam`.
+const PLUGIN_PARAM_HISTORY_MS = 400;
+let lastPluginParamHistoryAt = 0;
+
+export function cloneHistoryState(state: {
+  tracks: AudioTrack[];
+  clips: AudioClip[];
+  bpm: number;
+  timeSignature: [number, number];
+  loopStart: number;
+  loopEnd: number;
+  isLooping: boolean;
+  metronome: boolean;
+  masterVolume: number;
+  masterMute: boolean;
+  projectName: string;
+  snapMode: SnapMode;
+  selectedTrackId: string | null;
+  selectedClipId: string | null;
+}): HistorySnapshot {
   return {
-    tracks: tracks.map((t) => ({
+    tracks: state.tracks.map((t) => ({
       ...t,
       plugins: t.plugins.map((p) => ({ ...p, parameters: { ...p.parameters } })),
     })),
-    clips: clips.map((c) => ({ ...c })),
+    clips: state.clips.map((c) => ({ ...c })),
+    bpm: state.bpm,
+    timeSignature: [state.timeSignature[0], state.timeSignature[1]],
+    loopStart: state.loopStart,
+    loopEnd: state.loopEnd,
+    isLooping: state.isLooping,
+    metronome: state.metronome,
+    masterVolume: state.masterVolume,
+    masterMute: state.masterMute,
+    projectName: state.projectName,
+    snapMode: state.snapMode,
+    selectedTrackId: state.selectedTrackId,
+    selectedClipId: state.selectedClipId,
   };
 }
 
 export function resetHistory(): void {
   undoStack = [];
   redoStack = [];
+  lastPluginParamHistoryAt = 0;
   useDawStore?.setState?.({ canUndo: false, canRedo: false });
 }
 
-function recordHistory(tracks: AudioTrack[], clips: AudioClip[]): void {
-  undoStack.push(cloneHistoryState(tracks, clips));
+function recordHistory(snapshot: HistorySnapshot): void {
+  undoStack.push(snapshot);
   if (undoStack.length > MAX_HISTORY) undoStack.shift();
   redoStack = [];
   useDawStore?.setState?.({ canUndo: true, canRedo: false });
@@ -185,37 +231,77 @@ export const useDawStore = create<DawState>((set, get) => ({
   canRedo: false,
   undo: () => {
     if (undoStack.length === 0) return;
-    const current = cloneHistoryState(get().tracks, get().clips);
+    const current = cloneHistoryState(get());
     redoStack.push(current);
     const prev = undoStack.pop()!;
+    // ST-02: se restaura el snapshot completo (no solo tracks/clips) para que
+    // el estado y el engine no diverjan tras deshacer.
     set({
       tracks: prev.tracks,
       clips: prev.clips,
       duration: recalcDuration(prev.clips),
+      bpm: prev.bpm,
+      timeSignature: [prev.timeSignature[0], prev.timeSignature[1]],
+      loopStart: prev.loopStart,
+      loopEnd: prev.loopEnd,
+      isLooping: prev.isLooping,
+      metronome: prev.metronome,
+      masterVolume: prev.masterVolume,
+      masterMute: prev.masterMute,
+      projectName: prev.projectName,
+      snapMode: prev.snapMode,
+      selectedTrackId: prev.selectedTrackId,
+      selectedClipId: prev.selectedClipId,
       canUndo: undoStack.length > 0,
       canRedo: true,
     });
-    audioEngine.syncTracks(prev.tracks);
+    // ST-02: reinyectar transporte/mezcla en el engine (si no, suenan distintos).
+    audioEngine.setTempo(prev.bpm);
+    audioEngine.setTimeSignature(prev.timeSignature[0], prev.timeSignature[1]);
+    audioEngine.setLoop(prev.isLooping, prev.loopStart, prev.loopEnd);
+    audioEngine.setMetronome(prev.metronome);
+    audioEngine.getMasterBus()?.setVolume(prev.masterVolume);
+    audioEngine.getMasterBus()?.setMute(prev.masterMute);
+    void audioEngine.syncTracks(prev.tracks);
     if (get().isPlaying) {
-      audioEngine.play(prev.tracks, prev.clips, audioEngine.getCurrentTime());
+      void audioEngine.play(prev.tracks, prev.clips, audioEngine.getCurrentTime());
     }
     get().pushToast('Deshecho');
   },
   redo: () => {
     if (redoStack.length === 0) return;
-    const current = cloneHistoryState(get().tracks, get().clips);
+    const current = cloneHistoryState(get());
     undoStack.push(current);
     const next = redoStack.pop()!;
+    // ST-02: idem undo (restauración completa + reinyección).
     set({
       tracks: next.tracks,
       clips: next.clips,
       duration: recalcDuration(next.clips),
+      bpm: next.bpm,
+      timeSignature: [next.timeSignature[0], next.timeSignature[1]],
+      loopStart: next.loopStart,
+      loopEnd: next.loopEnd,
+      isLooping: next.isLooping,
+      metronome: next.metronome,
+      masterVolume: next.masterVolume,
+      masterMute: next.masterMute,
+      projectName: next.projectName,
+      snapMode: next.snapMode,
+      selectedTrackId: next.selectedTrackId,
+      selectedClipId: next.selectedClipId,
       canUndo: true,
       canRedo: redoStack.length > 0,
     });
-    audioEngine.syncTracks(next.tracks);
+    audioEngine.setTempo(next.bpm);
+    audioEngine.setTimeSignature(next.timeSignature[0], next.timeSignature[1]);
+    audioEngine.setLoop(next.isLooping, next.loopStart, next.loopEnd);
+    audioEngine.setMetronome(next.metronome);
+    audioEngine.getMasterBus()?.setVolume(next.masterVolume);
+    audioEngine.getMasterBus()?.setMute(next.masterMute);
+    void audioEngine.syncTracks(next.tracks);
     if (get().isPlaying) {
-      audioEngine.play(next.tracks, next.clips, audioEngine.getCurrentTime());
+      void audioEngine.play(next.tracks, next.clips, audioEngine.getCurrentTime());
     }
     get().pushToast('Rehecho');
   },
@@ -337,7 +423,7 @@ export const useDawStore = create<DawState>((set, get) => ({
   },
 
   addTrack: (name, type = 'audio') => {
-    recordHistory(get().tracks, get().clips);
+    recordHistory(cloneHistoryState(get()));
     const colors = ['#06b6d4', '#10b981', '#a855f7', '#f59e0b', '#ec4899', '#3b82f6'];
     const trackCount = get().tracks.length;
     const newId = 'track_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6);
@@ -373,7 +459,7 @@ export const useDawStore = create<DawState>((set, get) => ({
   },
 
   removeTrack: (id) => {
-    recordHistory(get().tracks, get().clips);
+    recordHistory(cloneHistoryState(get()));
     // Release underlying AudioBuffer memory to avoid memory leaks
     // Fix(waveB): solo `audioBuffer` (alias `buffer` eliminado).
     get().clips.filter((c) => c.trackId === id).forEach((c) => {
@@ -397,6 +483,8 @@ export const useDawStore = create<DawState>((set, get) => ({
   },
 
   updateTrack: (id, updates) => {
+    // ST-01: la edición más común (volumen/pan/mute/solo, arrastre) se puede deshacer.
+    recordHistory(cloneHistoryState(get()));
     // ST-10: calcular con `get()`, luego `set(...)`, luego el efecto.
     const updated = get().tracks.map((t) => (t.id === id ? { ...t, ...updates } : t));
     set({ tracks: updated });
@@ -404,7 +492,7 @@ export const useDawStore = create<DawState>((set, get) => ({
   },
 
   addClip: (clip) => {
-    recordHistory(get().tracks, get().clips);
+    recordHistory(cloneHistoryState(get()));
     set((state) => {
       const maxEnd = Math.max(state.duration, clip.startTime + clip.duration + 4);
       return {
@@ -416,6 +504,8 @@ export const useDawStore = create<DawState>((set, get) => ({
   },
 
   updateClip: (id, updates) => {
+    // ST-01: el arrastre de clips se puede deshacer.
+    recordHistory(cloneHistoryState(get()));
     // Fix(waveA): resincroniza audio en play (mismo patrón que removeClip/removeTrack;
     // antes mover un clip durante la reproducción no sonaba hasta reiniciar) y recalcula
     // duración para que arrastrar fuera no deje clips invisibles.
@@ -429,7 +519,7 @@ export const useDawStore = create<DawState>((set, get) => ({
   },
 
   removeClip: (id) => {
-    recordHistory(get().tracks, get().clips);
+    recordHistory(cloneHistoryState(get()));
     const clip = get().clips.find((c) => c.id === id);
     // Fix(waveB): solo `audioBuffer` (alias `buffer` eliminado).
     if (clip) {
@@ -456,7 +546,7 @@ export const useDawStore = create<DawState>((set, get) => ({
     const result = splitClipOperation(clip, atTime);
     if (!result) return;
 
-    recordHistory(get().tracks, get().clips);
+    recordHistory(cloneHistoryState(get()));
     // Fix(wave2): regenera picos si hay audioBuffer (como hacía el store antes); sin buffer
     // se conservan los picos existentes para no romper clips sin audio decodificado.
     const withPeaks = (c: AudioClip): AudioClip =>
@@ -474,22 +564,32 @@ export const useDawStore = create<DawState>((set, get) => ({
   trimClip: (clipId, edge, deltaSeconds) => {
     const clip = get().clips.find((c) => c.id === clipId);
     if (!clip) return;
-    recordHistory(get().tracks, get().clips);
     const trimmed =
       edge === 'left' ? trimLeftOperation(clip, deltaSeconds) : trimRightOperation(clip, deltaSeconds);
+    // ST-11: si el trim no cambió nada, no registrar (ni mutar): evita snapshots
+    // inútiles y autosaves espurios.
+    if (
+      trimmed.startTime === clip.startTime &&
+      trimmed.duration === clip.duration &&
+      trimmed.offset === clip.offset
+    ) {
+      return;
+    }
+    recordHistory(cloneHistoryState(get()));
     const next: AudioClip = trimmed.audioBuffer
       ? { ...trimmed, peaks: generateWaveformPeaks(trimmed.audioBuffer, 500) }
       : trimmed;
     // Fix(waveA): recalcular duración tras el trim (encoger puede liberar compases).
-    set((state) => {
-      const updatedClips = state.clips.map((c) => (c.id === clipId ? next : c));
-      return { clips: updatedClips, duration: recalcDuration(updatedClips) };
-    });
+    const updatedClips = get().clips.map((c) => (c.id === clipId ? next : c));
+    set({ clips: updatedClips, duration: recalcDuration(updatedClips) });
   },
 
   addPluginToTrack: (trackId, pluginId) => {
     const def = BUILTIN_PLUGINS[pluginId];
     if (!def) return;
+
+    // ST-01: añadir plugins se puede deshacer.
+    recordHistory(cloneHistoryState(get()));
 
     const defaultParams: Record<string, number> = {};
     def.parameters.forEach((p) => {
@@ -517,6 +617,8 @@ export const useDawStore = create<DawState>((set, get) => ({
   },
 
   removePluginFromTrack: (trackId, instanceId) => {
+    // ST-01: quitar plugins se puede deshacer.
+    recordHistory(cloneHistoryState(get()));
     // ST-10: calcular con `get()`, luego `set(...)`, luego el efecto.
     const tracks = get().tracks.map((t) => {
       if (t.id === trackId) {
@@ -530,6 +632,8 @@ export const useDawStore = create<DawState>((set, get) => ({
   },
 
   togglePlugin: (trackId, instanceId) => {
+    // ST-01: activar/desactivar plugins se puede deshacer.
+    recordHistory(cloneHistoryState(get()));
     // ST-10: calcular con `get()`, luego `set(...)`, luego el efecto.
     const tracks = get().tracks.map((t) => {
       if (t.id === trackId) {
@@ -546,23 +650,34 @@ export const useDawStore = create<DawState>((set, get) => ({
   },
 
   updatePluginParam: (trackId, instanceId, paramId, value) => {
-    set((state) => {
-      const tracks = state.tracks.map((t) => {
-        if (t.id === trackId) {
-          return {
-            ...t,
-            plugins: t.plugins.map((p) => {
-              if (p.instanceId === instanceId) {
-                return { ...p, parameters: { ...p.parameters, [paramId]: value } };
-              }
-              return p;
-            }),
-          };
-        }
-        return t;
-      });
-      return { tracks };
+    // ST-01: el giro de un knob se puede deshacer, pero coalescado —un arrastre
+    // emite decenas de eventos por segundo y cada uno no puede ser un snapshot
+    // (vaciaría la pila de 30 con un solo gesto). Leading-edge: el primer evento
+    // del gesto guarda el valor previo (el que undo debe restaurar); se fuerza un
+    // snapshot nuevo al pasar 400 ms desde el último. El "fin del gesto" es
+    // implícito: el siguiente gesto empieza con snapshot fresco porque ya pasaron
+    // >400 ms; dos gestos rapidísimos coalescen en un solo paso de undo.
+    const now = Date.now();
+    if (now - lastPluginParamHistoryAt >= PLUGIN_PARAM_HISTORY_MS) {
+      recordHistory(cloneHistoryState(get()));
+      lastPluginParamHistoryAt = now;
+    }
+    // ST-10: calcular con `get()`, luego `set(...)`, luego el efecto.
+    const tracks = get().tracks.map((t) => {
+      if (t.id === trackId) {
+        return {
+          ...t,
+          plugins: t.plugins.map((p) => {
+            if (p.instanceId === instanceId) {
+              return { ...p, parameters: { ...p.parameters, [paramId]: value } };
+            }
+            return p;
+          }),
+        };
+      }
+      return t;
     });
+    set({ tracks });
     // Fix(wave2): propaga al engine para que los knobs suenen en vivo
     // (patrón igual que add/remove/toggle, que llaman a rebuildTrackEffects).
     audioEngine.updateTrackPluginParam(trackId, instanceId, paramId, value);
@@ -574,6 +689,9 @@ export const useDawStore = create<DawState>((set, get) => ({
     get().clips.forEach((c) => {
       c.audioBuffer = null;
     });
+    // ST-03: proyecto nuevo ⇒ pilas de undo/redo vacías (si no, Ctrl+Z
+    // resucita pistas del proyecto anterior).
+    resetHistory();
     audioEngine.stop();
 
     let drumBuffer: AudioBuffer | null = null;
@@ -771,6 +889,8 @@ export const useDawStore = create<DawState>((set, get) => ({
     get().clips.forEach((c) => {
       c.audioBuffer = null;
     });
+    // ST-03: proyecto nuevo ⇒ pilas de undo/redo vacías.
+    resetHistory();
     audioEngine.stop();
 
     set({
