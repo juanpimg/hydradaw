@@ -29,7 +29,14 @@ function allocWav(audioBuffer: AudioBuffer, bitDepth: 16 | 24 | 32): WavAllocati
   const blockAlign = numChannels * bytesPerSample;
   const byteRate = sampleRate * blockAlign;
   const dataSize = length * blockAlign;
-  const bufferSize = 44 + dataSize;
+  // EXP-04: alineación de palabra RIFF. Con dataSize impar (p. ej. 24-bit
+  // mono con nº impar de frames) el archivo mediría un nº impar de bytes y
+  // los importadores estrictos lo rechazan: se añade un byte de padding a 0
+  // y el tamaño RIFF pasa a 37 + dataSize (36 + dataSize + 1 de pad).
+  // El campo dataSize (subchunk2Size) queda intacto. El ArrayBuffer ya viene
+  // a ceros, así que el pad queda a 0 sin escritura explícita.
+  const padBytes = dataSize % 2;
+  const bufferSize = 44 + dataSize + padBytes;
 
   const arrayBuffer = new ArrayBuffer(bufferSize);
   const view = new DataView(arrayBuffer);
@@ -43,7 +50,7 @@ function allocWav(audioBuffer: AudioBuffer, bitDepth: 16 | 24 | 32): WavAllocati
 
   /* RIFF chunk descriptor */
   writeString(0, 'RIFF');
-  view.setUint32(4, 36 + dataSize, true); // chunkSize (36 + dataSize)
+  view.setUint32(4, 36 + dataSize + padBytes, true); // chunkSize (36 + dataSize [+ pad])
   writeString(8, 'WAVE');
 
   /* FMT sub-chunk */

@@ -96,6 +96,20 @@ describe('WavExporter waveB: vectores conocidos por bit depth', () => {
     expect(view.getFloat32(44 + 5 * 4, true)).toBe(-2);
   });
 
+  it('E3: 3 frames mono a 24 bits ⇒ archivo par con padding a 0 (alineación RIFF)', async () => {
+    // dataSize = 3 frames × 1 ch × 3 bytes = 9 (impar): el WAV debe medir
+    // 44 + 9 + 1 = 54 bytes (par), con el byte 53 a 0 y el tamaño RIFF a
+    // 37 + 9 = 46. Sin padding, los importadores estrictos rechazan el archivo.
+    const buf = mockBuffer([new Float32Array([0.5, -0.5, 0.25])]);
+    for (const out of [encodeWav(buf, 24), await encodeWavAsync(buf, 24)]) {
+      expect(out.length).toBe(54);
+      expect(out.length % 2).toBe(0);
+      expect(out[out.length - 1]).toBe(0);
+      const view = new DataView(out.buffer, out.byteOffset, out.byteLength);
+      expect(view.getUint32(4, true)).toBe(37 + 9); // tamaño RIFF
+      expect(view.getUint32(40, true)).toBe(9); // dataSize intacto
+    }
+  });
   it('cabecera de 44 bytes idéntica para mono/44100/2 frames/16-bit', () => {
     const wav = encodeWav(mockBuffer([new Float32Array(2)]), 16);
     expect(wav.length).toBe(48);

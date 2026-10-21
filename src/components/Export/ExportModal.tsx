@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useDawStore } from '../../store/useDawStore';
 import type { AudioClip } from '../../types/daw';
 import { audioEngine } from '../../audio/AudioEngine';
-import { encodeWav, downloadAudioBlob } from '../../audio/WavExporter';
+import { encodeWavAsync, downloadAudioBlob } from '../../audio/WavExporter';
 // Fix(waveC): sonoridad BS.1770 + export AAC (WebCodecs + ADTS manual).
 import {
   measureLoudness,
@@ -33,6 +33,23 @@ export const computeExportDuration = (
   return maxTime + 1.5;
 };
 
+/**
+ * EXP-05: tope de duración del bounce (10 min). Un proyecto de horas (p. ej.
+ * duration 86400 tras importar) pediría un OfflineAudioContext de GBs y
+ * tumbaría la pestaña por OOM: se recorta con aviso en español.
+ */
+export const MAX_EXPORT_DURATION_SEC = 600;
+
+export function resolveExportDuration(
+  clips: Pick<AudioClip, 'startTime' | 'duration'>[],
+): { duration: number; capped: boolean } {
+  const raw = computeExportDuration(clips);
+  if (raw > MAX_EXPORT_DURATION_SEC) {
+    return { duration: MAX_EXPORT_DURATION_SEC, capped: true };
+  }
+  return { duration: raw, capped: false };
+}
+
 // Fix(waveC): formato de export (WAV existente intacto; AAC vía WebCodecs+ADTS).
 export type ExportFormat = 'wav' | 'aac';
 export type AacBitrate = 128_000 | 192_000 | 256_000;
@@ -57,13 +74,18 @@ export const ExportModal: React.FC = () => {
     tracks,
     clips,
     projectName,
+    masterVolume,
+    masterMute,
     pushToast
   } = useDawStore();
 
-  const [bitDepth, setBitDepth] = useState<16 | 24>(16);
+  const [bitDepth, setBitDepth] = useState<16 | 24 | 32>(16);
   const [sampleRate, setSampleRate] = useState<number>(44100);
   const [includeMetronome, setIncludeMetronome] = useState<boolean>(false);
   const [isExporting, setIsExporting] = useState<boolean>(false);
+  // EXP-03: progreso de la codificación por chunks (la vía asíncrona cede el
+  // event loop; el pie muestra el % en vez de congelar la pestaña).
+  const [exportProgress, setExportProgress] = useState<number | null>(null);
   const [exportComplete, setExportComplete] = useState<boolean>(false);
   const [fileSizeMb, setFileSizeMb] = useState<number>(0);
   // Fix(waveC): formato WAV/AAC + bitrate AAC + sonoridad + normalización.
@@ -87,6 +109,7 @@ export const ExportModal: React.FC = () => {
     // Fix(waveA): resetea el estado de éxito anterior al abrir el modal.
     setExportComplete(false);
     setFileSizeMb(0);
+    setExportProgress(null);
     // Fix(waveC): resetea la lectura de sonoridad al abrir (conserva formato/opciones).
     setLoudness(null);
     setNormalizeGainDb(null);
@@ -136,19 +159,24 @@ export const ExportModal: React.FC = () => {
   const handleStartExport = async () => {
     setIsExporting(true);
     setExportComplete(false);
+    setExportProgress(null);
 
     try {
-      // Fix(waveA): duración extraída a función pura testeable.
-      const exportDuration = computeExportDuration(clips);
+      // EXP-05: duración con tope anti-OOM (aviso en español si se recorta).
+      const { duration: exportDuration, capped } = resolveExportDuration(clips);
+      if (capped) {
+        pushToast('El proyecto es muy largo: la exportación se limita a los primeros 10 minutos.');
+      }
 
       // 1. Offline faster-than-realtime render
       // Fix(waveA): respeta la opción de click de metrónomo (firma: opts?: { metronome?: boolean }).
+      // EXP-01: el render respeta el master audible (fader + mute del store).
       const renderedBuffer = await audioEngine.renderOfflineMixdown(
         tracks,
         clips,
         exportDuration,
         sampleRate,
-        { metronome: includeMetronome }
+        { metronome: includeMetronome, masterVolume, masterMute }
       );
 
       // Fix(waveC): mide sonoridad integrada + pico sobre el render (solo lectura).
@@ -193,8 +221,10 @@ export const ExportModal: React.FC = () => {
         setExportComplete(true);
         downloadAudioBlob(blob, `${cleanName}_aac${Math.round(aacBitrate / 1000)}k.aac`);
       } else {
-        // 2. Encode to WAV (flujo existente intacto cuando AAC no se elige).
-        const wavBytes = encodeWav(renderedBuffer, bitDepth);
+        // 2. Encode to WAV por chunks (no congela la pestaña en bounces largos).
+        const wavBytes = await encodeWavAsync(renderedBuffer, bitDepth, (done, total) => {
+          setExportProgress(total > 0 ? Math.round((done / total) * 100) : 100);
+        });
         const blob = new Blob([wavBytes as unknown as BlobPart], { type: 'audio/wav' });
 
         setFileSizeMb(Math.round((blob.size / (1024 * 1024)) * 100) / 100);
@@ -303,6 +333,14 @@ export const ExportModal: React.FC = () => {
                   }`}
                 >
                   24-bit (Studio)
+                </button>
+                <button
+                  onClick={() => setBitDepth(32)}
+                  className={`px-3 py-1 rounded text-xs font-bold transition-all ${
+                    bitDepth === 32 ? 'bg-cyan-500 text-slate-950' : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  32-bit (Float)
                 </button>
               </div>
             </div>
@@ -443,7 +481,11 @@ export const ExportModal: React.FC = () => {
             {isExporting ? (
               <>
                 <Loader2 className="w-4 h-4 animate-spin" />
-                <span>Renderizando en CPU...</span>
+                <span>
+                  {exportProgress === null
+                    ? 'Renderizando en CPU...'
+                    : `Codificando… ${exportProgress} %`}
+                </span>
               </>
             ) : (
               <>

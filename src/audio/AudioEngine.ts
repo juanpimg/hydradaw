@@ -20,6 +20,13 @@ export interface PlayOptions {
 export interface OfflineRenderOptions {
   metronome?: boolean;
   timeSignature?: [number, number];
+  /**
+   * EXP-01: el export respeta el master que el usuario escucha. Sin estos
+   * campos el render offline construía un MasterBus a unidad y exportar con
+   * el fader a −20 dB producía un archivo a plena escala.
+   */
+  masterVolume?: number;
+  masterMute?: boolean;
 }
 
 export interface MetronomeClick {
@@ -763,6 +770,13 @@ export class AudioEngine {
 
     // Setup master bus on offline context
     const masterBus = new MasterBus(offlineCtx);
+    // EXP-01: aplica el master audible al bus del render (no-finito ⇒ unidad).
+    if (typeof opts?.masterVolume === 'number' && Number.isFinite(opts.masterVolume)) {
+      masterBus.setVolume(opts.masterVolume);
+    }
+    if (typeof opts?.masterMute === 'boolean') {
+      masterBus.setMute(opts.masterMute);
+    }
 
     const anySoloed = tracks.some(t => t.solo);
 
