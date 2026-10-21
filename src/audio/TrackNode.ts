@@ -188,11 +188,16 @@ export class TrackNode {
   }
 
   /**
-   * Registers a playing AudioBufferSourceNode for stopping/cleanup
+   * Registers a playing AudioBufferSourceNode for stopping/cleanup.
+   * Fix(AUD-06): optional cleanup runs in onended before disconnecting the
+   * source, so per-clip helper nodes (e.g. fade clipGain) don't leak.
    */
-  addActiveSource(source: AudioBufferSourceNode) {
+  addActiveSource(source: AudioBufferSourceNode, cleanup?: () => void) {
     this.activeSourceNodes.push(source);
     source.onended = () => {
+      try {
+        cleanup?.();
+      } catch (_) {}
       try {
         source.disconnect();
       } catch (_) {}

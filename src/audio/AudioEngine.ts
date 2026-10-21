@@ -906,6 +906,9 @@ export class AudioEngine {
         const playDur = entry.playDuration;
         const endAt = startAt + playDur;
 
+        // Fix(AUD-06): el clipGain del fade se suelta en el onended vía
+        // cleanup para no acumular nodos en el grafo.
+        let cleanup: (() => void) | undefined;
         if ((clip.fadeIn || clip.fadeOut) && typeof ctx.createGain === 'function') {
           const clipGain = ctx.createGain();
           const fi = clip.fadeIn ? Math.min(clip.fadeIn, playDur) : 0;
@@ -927,12 +930,19 @@ export class AudioEngine {
           }
           source.connect(clipGain);
           clipGain.connect(trackNode.inputNode);
+          cleanup = () => {
+            try {
+              clipGain.disconnect();
+            } catch (_) {
+              // Ya desconectado.
+            }
+          };
         } else {
           source.connect(trackNode.inputNode);
         }
 
         source.start(startAt, entry.offsetIntoClip, playDur);
-        trackNode.addActiveSource(source);
+        trackNode.addActiveSource(source, cleanup);
       } catch (err) {
         // Fix(waveA): warn con contexto (en headless no se dispara: los mocks sí tienen start).
         console.warn('[AudioEngine] scheduleClipsRange: no se pudo programar clip', entry.clipId, err);
@@ -965,6 +975,11 @@ export class AudioEngine {
         this.metronomeNodes.push(osc);
         osc.onended = () => {
           this.metronomeNodes = this.metronomeNodes.filter((n) => n !== osc);
+          // Fix(AUD-07): el gain del click también se suelta para no fugar
+          // un nodo por click en sesiones largas con metrónomo.
+          try {
+            gain.disconnect();
+          } catch (_) {}
         };
       }
     } catch (err) {
