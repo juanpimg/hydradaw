@@ -24,6 +24,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
   const setSelectedTrack = useDawStore((s) => s.setSelectedTrack);
   const removeClip = useDawStore((s) => s.removeClip);
   const removeSelectedClips = useDawStore((s) => s.removeSelectedClips);
+  const splitSelectedClips = useDawStore((s) => s.splitSelectedClips);
   const splitClip = useDawStore((s) => s.splitClip);
 
   // Fix(waveA): al seleccionar el clip, sincronizar también la pista seleccionada.
@@ -300,8 +301,11 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
       else removeClip(clip.id);
     } else if (e.key === 's' || e.key === 'S') {
       e.stopPropagation();
+      // G5: igual que el borrado — con multiselección se cortan todos.
+      const ids = useDawStore.getState().selectedClipIds;
       const currTime = audioEngine.getCurrentTime();
-      splitClip(clip.id, currTime);
+      if (ids.includes(clip.id) && ids.length > 1) splitSelectedClips(currTime);
+      else splitClip(clip.id, currTime);
     }
   };
 
