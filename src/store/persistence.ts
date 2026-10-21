@@ -617,6 +617,14 @@ function buildProjectFromRaw(raw: Record<string, unknown>): SerializedProject | 
     console.warn(
       `[persistence] Proyecto con ${tracksRaw.length} pistas (límite ${MAX_IMPORT_TRACKS}): se importan las ${MAX_IMPORT_TRACKS} primeras.`,
     );
+    // M8: el aviso debe llegar al usuario (toast), no solo a la consola: quien
+    // acaba de perder pistas no mira la consola. Best-effort: nunca rompe la
+    // importación.
+    try {
+      useDawStore.getState().pushToast(
+        `El proyecto trae ${tracksRaw.length} pistas (límite ${MAX_IMPORT_TRACKS}): se importan las ${MAX_IMPORT_TRACKS} primeras.`,
+      );
+    } catch { /* la importación sigue sin toast */ }
   }
   const tracks: AudioTrack[] = [];
   const seenTrackIds = new Set<string>();
@@ -643,6 +651,13 @@ function buildProjectFromRaw(raw: Record<string, unknown>): SerializedProject | 
     console.warn(
       `[persistence] Proyecto con ${clipsRaw.length} clips (límite ${MAX_IMPORT_CLIPS}): se importan los ${MAX_IMPORT_CLIPS} primeros.`,
     );
+    // M8: idem pistas — el recorte de hasta decenas de miles de clips se avisa
+    // con toast, no solo por consola.
+    try {
+      useDawStore.getState().pushToast(
+        `El proyecto trae ${clipsRaw.length} clips (límite ${MAX_IMPORT_CLIPS}): se importan los ${MAX_IMPORT_CLIPS} primeros.`,
+      );
+    } catch { /* la importación sigue sin toast */ }
   }
   const clips: SerializedClip[] = [];
   const seenClipIds = new Set<string>();

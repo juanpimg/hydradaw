@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { deserializeProject } from '../store/persistence';
+import { deserializeProject, MAX_IMPORT_TRACKS, MAX_IMPORT_CLIPS } from '../store/persistence';
+import { useDawStore } from '../store/useDawStore';
 import { runHandlePickFile } from '../App';
 
 afterEach(() => {
@@ -134,5 +135,28 @@ describe('import hardening (ST-08, SEC-02)', () => {
     expect(pushToast).toHaveBeenCalled();
     expect(textFn).not.toHaveBeenCalled();
     expect(importProjectFromJson).not.toHaveBeenCalled();
+  });
+
+  it('M8: truncar un proyecto hostil avisa con un toast visible (no solo consola)', () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    useDawStore.setState({ toasts: [] });
+    const raw = baseRaw();
+    const tracks: unknown[] = [];
+    for (let i = 0; i < MAX_IMPORT_TRACKS + 1; i++) {
+      tracks.push({ id: `t${i}`, name: `T${i}`, type: 'audio', color: '#fff', volume: 1, pan: 0, mute: false, solo: false, armed: false, plugins: [] });
+    }
+    raw['tracks'] = tracks;
+    const clips: unknown[] = [];
+    for (let i = 0; i < MAX_IMPORT_CLIPS + 1; i++) {
+      clips.push({ id: `c${i}`, trackId: 't0', name: `Clip ${i}`, startTime: 0, duration: 1, offset: 0, demoKind: null, needsReimport: true });
+    }
+    raw['clips'] = clips;
+    const back = deserializeProject(raw);
+    expect(back).not.toBeNull();
+    expect(back!.tracks.length).toBe(MAX_IMPORT_TRACKS);
+    expect(back!.clips.length).toBe(MAX_IMPORT_CLIPS);
+    const toasts = useDawStore.getState().toasts.map((t) => t.message);
+    expect(toasts.some((m) => m.includes('pistas'))).toBe(true);
+    expect(toasts.some((m) => m.includes('clips'))).toBe(true);
   });
 });
