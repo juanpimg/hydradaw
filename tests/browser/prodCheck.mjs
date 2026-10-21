@@ -181,6 +181,75 @@ async function main() {
       }
     });
 
+    // ---- Fase 2: sandbox de extremo a extremo en Chrome real ----
+    const browser = await launchBrowser();
+    try {
+      const page = await browser.newPage();
+      await page.setViewport({ width: 1440, height: 900 });
+      const errors = collectErrors(page);
+      await page.goto(base, { waitUntil: 'domcontentloaded', timeout: 60000 });
+
+      await check('P4 arranque del build de producción', async () => {
+        await page.waitForSelector('[aria-label="Pantalla de inicio de HydraDAW"]', {
+          visible: true,
+          timeout: 30000,
+        });
+        await clickButtonByText(page, 'Empezar con la demo', 'Seguir editando');
+        await page.waitForFunction(
+          () => document.querySelectorAll('[role="option"]').length === 4,
+          { timeout: 30000 }
+        );
+      });
+
+      await check('P5 plugin benigno aceptado bajo la CSP real', async () => {
+        await page.evaluate(() => {
+          window.__prodProbe = [];
+        });
+        await page.click('button[aria-label="Ver mixer"]');
+        await page.waitForFunction(
+          () => !!document.querySelector('button[aria-label="Añadir efecto"]'),
+          { timeout: 15000 }
+        );
+        const addButtons = await page.$$('button[aria-label="Añadir efecto"]');
+        if (addButtons.length === 0) throw new Error('sin botón Añadir efecto');
+        await addButtons[0].click();
+        await page.waitForSelector('[role="dialog"]', { visible: true, timeout: 15000 });
+        await ensureEditorOpen(page);
+        await fillEditor(page, BENIGN_CODE);
+        await compileAndWaitToast(page, 'importado', 30000);
+      });
+
+      for (const evil of EVIL_PAYLOADS) {
+        await check(`P6 malicioso rechazado (${evil.name})`, async () => {
+          await ensureEditorOpen(page);
+          await fillEditor(page, evil.code);
+          await compileAndWaitToast(page, 'bloqueado', 15000);
+        });
+      }
+
+      await check('P7 nada malicioso se ejecutó ni llamó a la red', async () => {
+        const probe = await page.evaluate(() => window.__prodProbe ?? null);
+        if (!Array.isArray(probe) || probe.length !== 0) {
+          throw new Error(`__prodProbe tocada: ${JSON.stringify(probe)}`);
+        }
+        const hits = requested.filter((r) =>
+          r.includes('__exfil_fetch__') || r.includes('__exfil_beacon__') || r.includes('__exfil_eval__')
+        );
+        if (hits.length > 0) throw new Error(`peticiones de exfiltración: ${hits.join(', ')}`);
+      });
+
+      await check('P8 cero errores de consola/pageerror', async () => {
+        const problems = [
+          ...errors.pageErrors.map((e) => `pageerror: ${e}`),
+          ...errors.consoleErrors.map((e) => `console.error: ${e}`),
+        ];
+        if (problems.length > 0) {
+          throw new Error(`${problems.length} error(es):\n${problems.join('\n')}`);
+        }
+      });
+    } finally {
+      await browser.close();
+    }
   } finally {
     await new Promise((resolve) => server.close(resolve));
   }
