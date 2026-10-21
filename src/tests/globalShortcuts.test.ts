@@ -29,6 +29,9 @@ describe('handleGlobalKeyDown', () => {
       metronome: false,
       selectedClipId: null,
       selectedTrackId: null,
+      exportModalOpen: false,
+      pluginModalTrackId: null,
+      pluginModalInstanceId: null,
       tracks: [{ id: 't1', name: 'Track 1', type: 'audio', color: '#fff', volume: 1, pan: 0, mute: false, solo: false, armed: false, plugins: [] }],
       clips: [{ id: 'c1', trackId: 't1', name: 'Clip 1', startTime: 0, duration: 10, offset: 0, color: '#fff', audioBuffer: null, peaks: new Float32Array(0) }],
     });
@@ -49,6 +52,7 @@ describe('handleGlobalKeyDown', () => {
       metaKey: props.metaKey || false,
       altKey: props.altKey || false,
       shiftKey: props.shiftKey || false,
+      repeat: (props as { repeat?: boolean }).repeat || false,
     } as unknown as KeyboardEvent;
   }
 
@@ -132,5 +136,55 @@ describe('handleGlobalKeyDown', () => {
 
     handleGlobalKeyDown(makeKeyEvent({ key: 'z', ctrlKey: true, shiftKey: true } as any));
     expect(redoSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it('S1: con exportModalOpen, Delete no borra el clip seleccionado', () => {
+    const removeSpy = vi.spyOn(useDawStore.getState(), 'removeClip');
+    useDawStore.setState({ selectedClipId: 'c1', exportModalOpen: true });
+    handleGlobalKeyDown(makeKeyEvent({ key: 'Delete' }));
+    expect(removeSpy).not.toHaveBeenCalled();
+    expect(useDawStore.getState().clips).toHaveLength(1);
+  });
+
+  it('S1b: con exportModalOpen, Space/Ctrl+Z tampoco mutan el proyecto', () => {
+    const undoSpy = vi.spyOn(useDawStore.getState(), 'undo');
+    useDawStore.setState({ exportModalOpen: true, isPlaying: false });
+    handleGlobalKeyDown(makeKeyEvent({ code: 'Space' }));
+    expect(useDawStore.getState().isPlaying).toBe(false);
+    handleGlobalKeyDown(makeKeyEvent({ key: 'z', ctrlKey: true }));
+    expect(undoSpy).not.toHaveBeenCalled();
+  });
+
+  it('S2: con pluginModalTrackId activo, S no corta el clip', () => {
+    const splitSpy = vi.spyOn(useDawStore.getState(), 'splitClip');
+    useDawStore.setState({ selectedClipId: 'c1', pluginModalTrackId: 't1', pluginModalInstanceId: 'inst_1' });
+    handleGlobalKeyDown(makeKeyEvent({ key: 's' }));
+    expect(splitSpy).not.toHaveBeenCalled();
+    expect(useDawStore.getState().clips).toHaveLength(1);
+  });
+
+  it('S3: con un modal abierto, Escape no dispara atajos y se deja pasar al modal', () => {
+    const removeSpy = vi.spyOn(useDawStore.getState(), 'removeClip');
+    const undoSpy = vi.spyOn(useDawStore.getState(), 'undo');
+    useDawStore.setState({ selectedClipId: 'c1', exportModalOpen: true });
+    const ev = makeKeyEvent({ key: 'Escape' });
+    handleGlobalKeyDown(ev);
+    expect(removeSpy).not.toHaveBeenCalled();
+    expect(undoSpy).not.toHaveBeenCalled();
+    // El modal cierra con Escape en su propio listener: no se interfiere.
+    expect(ev.preventDefault).not.toHaveBeenCalled();
+  });
+
+  it('S4: e.repeat no dispara toggleRecord (ni el resto de atajos de una tecla)', () => {
+    const recordSpy = vi.spyOn(useDawStore.getState(), 'toggleRecord');
+    handleGlobalKeyDown(makeKeyEvent({ key: 'r', repeat: true } as any));
+    expect(recordSpy).not.toHaveBeenCalled();
+
+    handleGlobalKeyDown(makeKeyEvent({ key: 'c', repeat: true } as any));
+    expect(useDawStore.getState().metronome).toBe(false);
+    handleGlobalKeyDown(makeKeyEvent({ key: 'l', repeat: true } as any));
+    expect(useDawStore.getState().isLooping).toBe(false);
+    handleGlobalKeyDown(makeKeyEvent({ code: 'Space', repeat: true } as any));
+    expect(useDawStore.getState().isPlaying).toBe(false);
   });
 });
