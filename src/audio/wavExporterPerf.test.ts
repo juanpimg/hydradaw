@@ -131,7 +131,11 @@ describe('WavExporter waveB: vectores conocidos por bit depth', () => {
   });
 });
 
-describe('WavExporter waveB: encodeWavAsync equivale a sync y cede el loop', () => {
+// Task 38 (flake): presupuesto explícito para todo el describe. Codifica
+// ~510k muestras estéreo en CPU síncrono; bajo contención de CPU el timeout
+// de 5 s por defecto tumbaba el worker (run-11: timeout del RPC). 60 s de
+// margen sin cambiar lo verificado.
+describe('WavExporter waveB: encodeWavAsync equivale a sync y cede el loop', { timeout: 60_000 }, () => {
   // Buffer que supera 1 chunk (fuerza el camino por bloques + yields).
   function bigStereo(): AudioBuffer {
     const length = Math.floor(WAV_ASYNC_CHUNK_SAMPLES / 2) + 10_000;
@@ -219,7 +223,8 @@ describe('WavExporter waveB: round-trip con el parser de persistencia', () => {
   });
 });
 
-describe('WavExporter waveB: volumen a escala (smoke previo cuello de botella)', () => {
+// Task 38 (flake): ver comentario del describe anterior (500k frames en CPU).
+describe('WavExporter waveB: volumen a escala (smoke previo cuello de botella)', { timeout: 60_000 }, () => {
   it('codifica 500k frames estéreo 16-bit con longitud y muestras exactas', () => {
     const n = 500_000;
     const ch0 = new Float32Array(n);
@@ -234,7 +239,8 @@ describe('WavExporter waveB: volumen a escala (smoke previo cuello de botella)',
   });
 });
 
-describe('WavExporter waveB: downloadAudioBlob revoca tarde y una sola vez', () => {
+// Task 38 (flake): ver comentario anterior (codificaciones grandes + timers).
+describe('WavExporter waveB: downloadAudioBlob revoca tarde y una sola vez', { timeout: 60_000 }, () => {
   let urls: string[];
   let createSpy: { mockRestore: () => void };
   let revokeSpy: { mockRestore: () => void };

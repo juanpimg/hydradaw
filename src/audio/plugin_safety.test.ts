@@ -221,7 +221,10 @@ describe('waveA: seguridad de plugins y operaciones', () => {
     expect(clampToDef('eq3', 'inexistente', 123)).toBe(123);
   });
 
-  it('IR de reverb determinista (misma decay -> mismo buffer)', () => {
+  // Task 38 (flake): presupuesto explícito. IR multi-MB en CPU síncrono:
+  // medía segundos en máquina descargada y tumbaba el timeout de 5 s por
+  // defecto de Vitest bajo cualquier contención. 60 s da >10× de margen.
+  it('IR de reverb determinista (misma decay -> mismo buffer)', { timeout: 60_000 }, () => {
     const { ctx } = makeMockCtx();
     const a = createReverbImpulse(ctx, 0.5, 2.5) as unknown as MockBuffer;
     const b = createReverbImpulse(ctx, 0.5, 2.5) as unknown as MockBuffer;
@@ -281,7 +284,10 @@ describe('waveA: seguridad de plugins y operaciones', () => {
     dsp.cleanup?.();
   });
 
-  it('demo determinista + pico final <= ~0.89', () => {
+  // Task 38 (flake): presupuesto explícito. 8 buffers demo generados en CPU
+  // síncrono (medido hasta ~4.6 s descargado, 92% del timeout por defecto):
+  // 60 s da >12× de margen bajo contención.
+  it('demo determinista + pico final <= ~0.89', { timeout: 60_000 }, () => {
     const { ctx } = makeMockCtx();
     const kinds = ['drums', 'bass', 'chords', 'lead'] as const;
     for (const kind of kinds) {
