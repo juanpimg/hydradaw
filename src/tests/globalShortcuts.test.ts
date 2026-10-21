@@ -87,12 +87,12 @@ describe('handleGlobalKeyDown', () => {
     expect(useDawStore.getState().metronome).toBe(true);
   });
 
-  it('S splits clip when a clip is selected', () => {
-    const splitSpy = vi.spyOn(useDawStore.getState(), 'splitClip');
+  it('S splits all selected clips at the playhead', () => {
+    const splitSpy = vi.spyOn(useDawStore.getState(), 'splitSelectedClips');
     useDawStore.setState({ selectedClipIds: ['c1'] });
 
     handleGlobalKeyDown(makeKeyEvent({ key: 's' }));
-    expect(splitSpy).toHaveBeenCalledWith('c1', 5.0);
+    expect(splitSpy).toHaveBeenCalledWith(5.0);
   });
 
   it('S toggles solo on track when track is selected and no clip is selected', () => {

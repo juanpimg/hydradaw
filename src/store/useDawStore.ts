@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import type { AudioTrack, AudioClip, PluginInstance, SnapMode } from '../types/daw';
 import { audioEngine } from '../audio/AudioEngine';
-import { splitClipOperation, trimLeftOperation, trimRightOperation } from '../audio/timelineOps';
+import { splitClipOperation, trimLeftOperation, trimRightOperation, type SplitResult } from '../audio/timelineOps';
 import { generateDemoTrackBuffer, generateWaveformPeaks } from '../audio/waveformUtils';
 import { BUILTIN_PLUGINS } from '../audio/builtinPlugins';
 
@@ -190,6 +190,7 @@ interface DawState {
   updateClip: (id: string, updates: Partial<AudioClip>) => void;
   removeClip: (id: string) => void;
   splitClip: (clipId: string, atTime: number) => void;
+  splitSelectedClips: (atTime: number) => void;
   trimClip: (clipId: string, edge: 'left' | 'right', deltaSeconds: number) => void;
 
   // Portapapeles interno de clips (G2)
@@ -619,6 +620,38 @@ export const useDawStore = create<DawState>((set, get) => ({
       clips: state.clips.map((c) => (c.id === clipId ? clip1 : c)).concat(clip2),
       selectedClipIds: [clip2.id],
     }));
+  },
+
+  splitSelectedClips: (atTime) => {
+    // G5: corta TODOS los seleccionados que contienen atTime en un solo
+    // snapshot (un undo revierte el lote). Los no cortables conservan su
+    // selección; las dos mitades de cada corte quedan seleccionadas.
+    if (!Number.isFinite(atTime)) return;
+    const ids = get().selectedClipIds;
+    if (ids.length === 0) return;
+    const splits = new Map<string, SplitResult>();
+    for (const clip of get().clips) {
+      if (!ids.includes(clip.id)) continue;
+      const result = splitClipOperation(clip, atTime);
+      if (result) splits.set(clip.id, result);
+    }
+    if (splits.size === 0) return;
+    recordHistory(cloneHistoryState(get()));
+    const withPeaks = (c: AudioClip): AudioClip =>
+      c.audioBuffer ? { ...c, peaks: generateWaveformPeaks(c.audioBuffer, 500) } : c;
+    // ST-10: calcular con `get()`, luego `set(...)` (sin efectos: el corte no
+    // replanifica el engine, igual que `splitClip`).
+    const next = get().clips.flatMap((c) => {
+      const r = splits.get(c.id);
+      return r ? [withPeaks(r.clip1), withPeaks(r.clip2)] : [c];
+    });
+    const selected: string[] = [];
+    for (const id of ids) {
+      const r = splits.get(id);
+      if (r) selected.push(r.clip1.id, r.clip2.id);
+      else selected.push(id);
+    }
+    set({ clips: next, selectedClipIds: selected });
   },
 
   // Fix(wave2): nueva acción trimClip que delega en trimLeft/RightOperation y regen picos.

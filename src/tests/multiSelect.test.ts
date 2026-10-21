@@ -21,6 +21,7 @@ vi.mock('../audio/AudioEngine', () => ({
 
 import { useDawStore, resetHistory } from '../store/useDawStore';
 import { handleGlobalKeyDown } from '../hooks/useGlobalShortcuts';
+import { audioEngine } from '../audio/AudioEngine';
 import { serializeProject, deserializeProject } from '../store/persistence';
 
 function makeTrack(overrides: Partial<AudioTrack> = {}): AudioTrack {
@@ -164,5 +165,38 @@ describe('Multi-selección de clips (G5)', () => {
     const raw = { ...serialized, selectedClipIds: ['c1', 'fantasma'] };
     const back = deserializeProject(raw);
     expect(back!.selectedClipIds).toEqual(['c1']);
+  });
+
+  function seedThreeOverlapping() {
+    useDawStore.setState({
+      tracks: [makeTrack({ id: 't1' }), makeTrack({ id: 't2', name: 'Pista 2' }), makeTrack({ id: 't3', name: 'Pista 3' })],
+      clips: [
+        makeClip({ id: 'c1', trackId: 't1', startTime: 0, duration: 4 }),
+        makeClip({ id: 'c2', trackId: 't2', startTime: 0, duration: 4 }),
+        makeClip({ id: 'c3', trackId: 't3', startTime: 0, duration: 4 }),
+      ],
+    });
+    vi.mocked(audioEngine.getCurrentTime).mockReturnValue(2);
+    useDawStore.getState().selectClip('c1', 'single');
+    useDawStore.getState().selectClip('c2', 'toggle');
+    useDawStore.getState().selectClip('c3', 'toggle');
+  }
+
+  it('M7: S con tres clips seleccionados corta los tres sin reducir la selección', () => {
+    seedThreeOverlapping();
+    handleGlobalKeyDown(makeKeyEvent({ key: 's' }));
+    expect(useDawStore.getState().clips).toHaveLength(6);
+    // Las dos mitades de cada corte siguen seleccionadas: nada se pierde.
+    expect(useDawStore.getState().selectedClipIds).toHaveLength(6);
+  });
+
+  it('M8: un solo undo revierte el corte múltiple entero (y redo lo repone)', () => {
+    seedThreeOverlapping();
+    handleGlobalKeyDown(makeKeyEvent({ key: 's' }));
+    expect(useDawStore.getState().clips).toHaveLength(6);
+    useDawStore.getState().undo();
+    expect(useDawStore.getState().clips.map((c) => c.id).sort()).toEqual(['c1', 'c2', 'c3']);
+    useDawStore.getState().redo();
+    expect(useDawStore.getState().clips).toHaveLength(6);
   });
 });

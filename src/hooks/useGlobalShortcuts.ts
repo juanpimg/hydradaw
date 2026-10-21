@@ -70,16 +70,14 @@ export function handleGlobalKeyDown(e: KeyboardEvent) {
     return;
   }
 
-  // 'S' / 's' for Split clip if a clip is selected, or Solo track if a track is selected
+  // 'S' / 's' for Split selected clips at the playhead, or Solo track if a track is selected
   if ((e.key === 's' || e.key === 'S') && !e.ctrlKey && !e.metaKey && !e.altKey) {
     // ST-12: una sola pulsación.
     if (e.repeat) return;
     const st = useDawStore.getState();
-    const firstSelected = st.selectedClipIds[0];
-    if (firstSelected) {
+    if (st.selectedClipIds.length > 0) {
       e.preventDefault();
-      const currTime = audioEngine.getCurrentTime();
-      st.splitClip(firstSelected, currTime);
+      st.splitSelectedClips(audioEngine.getCurrentTime());
     } else if (st.selectedTrackId) {
       e.preventDefault();
       const track = st.tracks.find((tr) => tr.id === st.selectedTrackId);

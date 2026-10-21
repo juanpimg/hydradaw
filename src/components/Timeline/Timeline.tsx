@@ -17,14 +17,13 @@ export const Timeline: React.FC = () => {
   const selectedTrackId = useDawStore((s) => s.selectedTrackId);
   const selectedClipIds = useDawStore((s) => s.selectedClipIds);
   const selectClip = useDawStore((s) => s.selectClip);
-  const splitClip = useDawStore((s) => s.splitClip);
+  const splitSelectedClips = useDawStore((s) => s.splitSelectedClips);
   const addTrack = useDawStore((s) => s.addTrack);
   const pushToast = useDawStore((s) => s.pushToast);
   const snapMode = useDawStore((s) => s.snapMode);
   const setSnapMode = useDawStore((s) => s.setSnapMode);
 
-  const selectedClip = clips.find((c) => c.id === selectedClipIds[0]) ?? null;
-  const canSplit = Boolean(selectedClip);
+  const canSplit = selectedClipIds.length > 0;
 
   const lanesScrollRef = useRef<HTMLDivElement>(null);
   const headersScrollRef = useRef<HTMLDivElement>(null);
@@ -134,10 +133,14 @@ export const Timeline: React.FC = () => {
 
         <button
           onClick={() => {
-            if (!selectedClip) return;
+            if (selectedClipIds.length === 0) return;
             const curTime = audioEngine.getCurrentTime();
-            if (curTime > selectedClip.startTime && curTime < selectedClip.startTime + selectedClip.duration) {
-              splitClip(selectedClip.id, curTime);
+            const selected = clips.filter((c) => selectedClipIds.includes(c.id));
+            const inside = selected.some(
+              (c) => curTime > c.startTime && curTime < c.startTime + c.duration,
+            );
+            if (inside) {
+              splitSelectedClips(curTime);
             } else {
               pushToast('El cursor de reproducción debe estar dentro del clip para cortar');
             }
@@ -145,7 +148,7 @@ export const Timeline: React.FC = () => {
           disabled={!canSplit}
           aria-label="Cortar clip"
           className="flex items-center justify-center space-x-1 px-2 py-1 rounded text-xs font-semibold bg-dark-surfaceLight hover:bg-dark-border disabled:opacity-40 text-cyan-400 min-w-[44px] min-h-[44px]"
-          title={!selectedClip ? 'Selecciona un clip para cortar' : "Cortar clip seleccionado en el cursor ('S')"}
+          title={canSplit ? "Cortar clips seleccionados en el cursor ('S')" : 'Selecciona un clip para cortar'}
         >
           <Scissors className="w-3.5 h-3.5" />
           <span>Cortar ('S')</span>
