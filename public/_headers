@@ -4,12 +4,11 @@
 # mantienen por higiene futura (SharedArrayBuffer / WASM threads).
 # Permissions-Policy: solo self puede pedir microfono (grabacion local).
 #
-# HDR-01: CSP sin 'unsafe-inline' en scripts. 'unsafe-eval' SIGUE porque el
-# materializado del DSP de plugins de usuario (`new Function` en
-# src/audio/pluginSandbox.ts) lo exige: quitarlo desactiva los plugins
-# locales en producción. La mitigación es el sandbox real (iframe opaco +
-# escáner denegar-por-defecto, SEC-01), no el CSP. Si los plugins JS se
-# eliminan algún día, quitar 'unsafe-eval' del script-src.
+# HDR-01: CSP sin 'unsafe-inline' en scripts y SIN 'unsafe-eval'. El hilo
+# principal nunca evalúa código de plugins (todo corre en el iframe opaco con
+# proxy allowlisted, SEC-01): quitar 'unsafe-eval' es lo que cierra la puerta
+# a nivel plataforma. Si vuelve a hacer falta eval en el hilo principal, esta
+# línea debe cambiar a la vez que el sandbox.
 # X-Frame-Options + frame-ancestors 'none': la app nunca se incrusta (ni
 # siquiera a sí misma; el iframe del sandbox de plugins es srcdoc y no le
 # afecta frame-ancestors).
@@ -18,7 +17,7 @@
   Cross-Origin-Embedder-Policy: credentialless
   X-Content-Type-Options: nosniff
   Permissions-Policy: microphone=(self)
-  Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self'; font-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'none'; frame-src 'self'; worker-src 'self' blob:
+  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self'; font-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'none'; frame-src 'self'; worker-src 'self' blob:
   Strict-Transport-Security: max-age=31536000; includeSubDomains; preload
   X-Frame-Options: DENY
   Referrer-Policy: no-referrer

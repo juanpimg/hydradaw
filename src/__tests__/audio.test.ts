@@ -5,6 +5,7 @@ import { encodeWav } from '../audio/WavExporter';
 import { generateWaveformPeaks } from '../audio/waveformUtils';
 import { BUILTIN_PLUGINS } from '../audio/builtinPlugins';
 import { pluginHost } from '../audio/PluginHost';
+import { registerCustomPluginForTest } from '../audio/pluginTestBridge';
 
 // Simple mock for AudioBuffer in headless node environment
 class MockAudioBuffer {
@@ -103,7 +104,10 @@ describe('HydraDAW Audio Architecture Tests', () => {
     }
   });
 
-  it('allows registering and discovering custom local plugins in PluginHost', () => {
+  it('allows registering and discovering custom local plugins in PluginHost', async () => {
+    // Ronda fix 1: el registro de código de usuario va por el puente del
+    // sandbox (aquí, el contenedor de test). El plugin debe usar el proxy y
+    // responder a updateParameter para cada parámetro declarado.
     const customCode = `
       var customPlugin = {
         id: 'flanger_test',
@@ -114,16 +118,20 @@ describe('HydraDAW Audio Architecture Tests', () => {
           { id: 'rate', name: 'Rate', min: 0.1, max: 10, step: 0.1, defaultValue: 1.0 }
         ],
         createDSPNode: (context, params) => {
+          const g = context.createGain();
+          g.gain.setTargetAtTime(params.rate ?? 1.0, 0, 0.02);
           return {
-            inputNode: null,
-            outputNode: null,
-            updateParameter: () => {}
+            inputNode: g,
+            outputNode: g,
+            updateParameter: (pid, val) => {
+              if (pid === 'rate') g.gain.setTargetAtTime(val, 0, 0.02);
+            }
           };
         }
       };
     `;
 
-    const registered = pluginHost.registerCustomPlugin(customCode);
+    const registered = await registerCustomPluginForTest(customCode);
     expect(registered.id).toBe('flanger_test');
     expect(registered.name).toBe('Stereo Flanger');
 

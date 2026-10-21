@@ -331,6 +331,29 @@ const customPlugin = {
                   rows={8}
                   className="w-full bg-[#05070a] text-slate-200 font-mono text-xs p-3 rounded-lg border border-dark-border focus:border-purple-500 focus:outline-none"
                 />
+                <div className="text-[11px] leading-relaxed text-slate-400 space-y-1">
+                  <p className="font-bold text-slate-300">
+                    El código se ejecuta aislado (sandbox): no hay DOM, red, almacenamiento ni
+                    temporizadores del navegador. Solo esta API de audio:
+                  </p>
+                  <p className="font-mono text-[10px] text-slate-400">
+                    createGain · createBiquadFilter (type, frequency, Q, gain) · createWaveShaper
+                    (oversample) · createDelay (delayTime) · createConvolver · createDynamicsCompressor
+                    (threshold, knee, ratio, attack, release) · createStereoPanner (pan) ·
+                    createOscillator (type, frequency, detune; arranca solo)
+                  </p>
+                  <p>
+                    Operaciones: <span className="font-mono">connect</span>,{' '}
+                    <span className="font-mono">disconnect</span> y parámetros (
+                    <span className="font-mono">value</span>,{' '}
+                    <span className="font-mono">setValueAtTime</span>,{' '}
+                    <span className="font-mono">setTargetAtTime</span>, rampas lineal y
+                    exponencial). Todo lo demás (p. ej. <span className="font-mono">convolver.buffer</span>,
+                    curvas, <span className="font-mono">eval</span>) rechaza la importación. La
+                    estructura de nodos queda fijada al importar y cada parámetro declarado debe
+                    responder a <span className="font-mono">updateParameter</span>.
+                  </p>
+                </div>
               </div>
             )}
           </div>
