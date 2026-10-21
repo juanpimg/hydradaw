@@ -1,4 +1,4 @@
-import { useDawStore } from '../store/useDawStore';
+import { useDawStore, generateClipId } from '../store/useDawStore';
 import { audioEngine } from './AudioEngine';
 import { decodeAudioFile, generateWaveformPeaks } from './waveformUtils';
 import { calculateMagneticSnap } from './timelineOps';
@@ -97,7 +97,7 @@ export async function importAudioFiles(
         state.snapMode,
       );
       state.addClip({
-        id: 'clip_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
+        id: generateClipId(),
         trackId: laneId,
         name: file.name,
         startTime: snappedTime,

@@ -152,4 +152,26 @@ describe('Portapapeles de clips (G2)', () => {
     expect(useDawStore.getState().clips).toHaveLength(2);
     expect(useDawStore.getState().clips.map((c) => c.id).sort()).toEqual(['c1', 'c2']);
   });
+
+  it('C6: el portapapeles no cruza proyectos (copiar, proyecto nuevo, pegar ⇒ nada)', async () => {
+    useDawStore.getState().copyClips(['c1']);
+    await useDawStore.getState().createBlankProject();
+    useDawStore.getState().addTrack('Nueva');
+    useDawStore.getState().pasteClips();
+    expect(useDawStore.getState().clips).toHaveLength(0);
+  });
+
+  it('C7: pegados repetidos generan ids únicos aunque el reloj no avance', () => {
+    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(1700000000000);
+    const randSpy = vi.spyOn(Math, 'random').mockReturnValue(0.5);
+    try {
+      useDawStore.getState().copyClips(['c1']);
+      for (let i = 0; i < 20; i++) useDawStore.getState().pasteClips();
+      const ids = useDawStore.getState().clips.map((c) => c.id);
+      expect(new Set(ids).size).toBe(ids.length);
+    } finally {
+      nowSpy.mockRestore();
+      randSpy.mockRestore();
+    }
+  });
 });

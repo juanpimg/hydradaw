@@ -50,8 +50,15 @@ let lastPluginParamHistoryAt = 0;
 // Vive fuera del estado: no persiste ni entra en el historial.
 let clipClipboard: AudioClip[] = [];
 
-const newClipId = (): string =>
-  'clip_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6);
+let clipIdCounter = 0;
+export function generateClipId(): string {
+  // Contador monótono: ni dos pegados en el mismo milisegundo colisionan
+  // aunque `Date.now()` no avance y `Math.random()` se repita.
+  return (
+    'clip_' + Date.now().toString(36) + '_' + (clipIdCounter++).toString(36) +
+    Math.random().toString(36).slice(2, 6)
+  );
+}
 
 // Ancla de la multi-selección (G5): el último clip seleccionado en simple o
 // añadido con toggle; el rango se calcula desde aquí. Se limpia con el
@@ -100,6 +107,9 @@ export function resetHistory(): void {
   redoStack = [];
   lastPluginParamHistoryAt = 0;
   selectionAnchorId = null;
+  // M-3: el portapapeles interno no cruza proyectos (los caminos de proyecto
+  // nuevo/demo/carga ya llaman aquí).
+  clipClipboard = [];
   useDawStore?.setState?.({ canUndo: false, canRedo: false });
 }
 
@@ -699,7 +709,7 @@ export const useDawStore = create<DawState>((set, get) => ({
     const minStart = Math.min(...clipClipboard.map((c) => c.startTime));
     const pasted: AudioClip[] = clipClipboard.map((c) => ({
       ...c,
-      id: newClipId(),
+      id: generateClipId(),
       trackId: liveTrackIds.has(c.trackId) ? c.trackId : fallbackTrackId,
       startTime: atTime === undefined ? c.startTime : atTime + (c.startTime - minStart),
     }));
@@ -726,7 +736,7 @@ export const useDawStore = create<DawState>((set, get) => ({
     // Cada duplicado va justo después de su original.
     const dups: AudioClip[] = targets.map((clip) => ({
       ...clip,
-      id: newClipId(),
+      id: generateClipId(),
       startTime: clip.startTime + clip.duration,
     }));
     // ST-10: calcular con `get()`, luego `set(...)`, luego el efecto.
