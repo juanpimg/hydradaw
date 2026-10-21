@@ -44,6 +44,8 @@ function swVersionPlugin(version: string): Plugin {
 }
 
 export default defineConfig({
+  // CFG-02: rutas relativas para que el build funcione también en sub-path.
+  base: './',
   plugins: [react(), swVersionPlugin(swVersion)],
   define: {
     __SW_VERSION__: JSON.stringify(swVersion),
@@ -61,6 +63,8 @@ export default defineConfig({
     environment: 'node',
   },
   build: {
+    // CFG-02: target explícito (alineado con tsconfig target ES2020).
+    target: 'es2020',
     rollupOptions: {
       output: {
         // Fix(waveB-shell): vendor React aparte para caché larga del framework.

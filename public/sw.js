@@ -17,7 +17,14 @@ const SW_VERSION = '__SW_VERSION__';
 const CACHE_NAME = `hydradaw-${SW_VERSION}`;
 
 // Precache del shell: lo mínimo para arrancar offline en primera visita.
-const SHELL = ['/', '/index.html', '/manifest.webmanifest'];
+const SHELL = [
+  '/',
+  '/index.html',
+  '/manifest.webmanifest',
+  '/icons/icon-192.png',
+  '/icons/icon-512.png',
+  '/icons/icon-512-maskable.png',
+];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(

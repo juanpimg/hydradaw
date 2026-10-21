@@ -11,7 +11,8 @@
     "test": "vitest run",
     "test:dom": "vitest run src/tests/dom",
     "test:browser": "node tests/browser/smoke.mjs",
-    "test:all": "npm test && npm run test:dom && npm run test:browser"
+    "test:all": "npm test && npm run test:dom && npm run test:browser",
+    "icons": "node scripts/generate-icons.mjs"
   },
   "dependencies": {
     "clsx": "^2.1.1",
