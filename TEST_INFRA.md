@@ -16,32 +16,32 @@ The HydraDAW test architecture follows a strict **requirement-driven, opaque-box
 
 | Feature | Description | Milestone | Source Requirement | Target Test Suite |
 |---------|-------------|-----------|--------------------|-------------------|
-| **F1** | Resilient Audio Startup & Toast | M1 | ORIGINAL_REQUEST §R1 | `src/tests/e2e/tier1_m1_m2_features.test.ts` / `tier2_m1_m2_boundaries.test.ts` |
-| **F2** | AudioEngine Context Fallback | M1 | ORIGINAL_REQUEST §R1 | `src/tests/e2e/tier1_m1_m2_features.test.ts` / `tier2_m1_m2_boundaries.test.ts` |
-| **F3** | Safe Demo & Blank Project Boot | M1 | ORIGINAL_REQUEST §R1 | `src/tests/e2e/tier1_m1_m2_features.test.ts` / `tier2_m1_m2_boundaries.test.ts` |
-| **F4** | Pointer Events for WaveformCanvas | M2 | ORIGINAL_REQUEST §R2 | `src/tests/e2e/tier1_m1_m2_features.test.ts` / `tier2_m1_m2_boundaries.test.ts` |
-| **F5** | Touch-Action None on Interactive Surfaces | M2 | ORIGINAL_REQUEST §R2 | `src/tests/e2e/tier1_m1_m2_features.test.ts` / `tier2_m1_m2_boundaries.test.ts` |
-| **F6** | Touch Ergonomic Trim Zones | M2 | ORIGINAL_REQUEST §R2 | `src/tests/e2e/tier1_m1_m2_features.test.ts` / `tier2_m1_m2_boundaries.test.ts` |
-| **F7** | Rotary Control Pointer Capture | M2 | ORIGINAL_REQUEST §R2 | `src/tests/e2e/tier1_m1_m2_features.test.ts` / `tier2_m1_m2_boundaries.test.ts` |
-| **F8** | Touch Hitbox Standards (>=44x44px) | M2 | ORIGINAL_REQUEST §R2 | `src/tests/e2e/tier1_m1_m2_features.test.ts` / `tier2_m1_m2_boundaries.test.ts` |
-| **F9** | UI Clip Deletion Action | M2 | ORIGINAL_REQUEST §R2 | `src/tests/e2e/tier1_m1_m2_features.test.ts` / `tier2_m1_m2_boundaries.test.ts` |
-| **F10** | Timeline Bidirectional Scroll Sync | M3 | ORIGINAL_REQUEST §R3 | `src/tests/e2e/tier1_m3_m4_features.test.ts` / `tier2_m3_m4_boundaries.test.ts` |
-| **F11** | Sticky Ruler & Alignment | M3 | ORIGINAL_REQUEST §R3 | `src/tests/e2e/tier1_m3_m4_features.test.ts` / `tier2_m3_m4_boundaries.test.ts` |
-| **F12** | Ruler Horizontal Width Unification | M3 | ORIGINAL_REQUEST §R3 | `src/tests/e2e/tier1_m3_m4_features.test.ts` / `tier2_m3_m4_boundaries.test.ts` |
-| **F13** | Ruler Seek Clamping | M3 | ORIGINAL_REQUEST §R3 | `src/tests/e2e/tier1_m3_m4_features.test.ts` / `tier2_m3_m4_boundaries.test.ts` |
-| **F14** | Timeline 320px Usability & Adaptive Headers | M3 | ORIGINAL_REQUEST §R4 | `src/tests/e2e/tier1_m3_m4_features.test.ts` / `tier2_m3_m4_boundaries.test.ts` |
-| **F15** | Responsive Floating Toolbar | M3 | ORIGINAL_REQUEST §R4 | `src/tests/e2e/tier1_m3_m4_features.test.ts` / `tier2_m3_m4_boundaries.test.ts` |
-| **F16** | Responsive Header Layout | M4 | ORIGINAL_REQUEST §R4 | `src/tests/e2e/tier1_m3_m4_features.test.ts` / `tier2_m3_m4_boundaries.test.ts` |
-| **F17** | Essential Transport Control Retention | M4 | ORIGINAL_REQUEST §R4 | `src/tests/e2e/tier1_m3_m4_features.test.ts` / `tier2_m3_m4_boundaries.test.ts` |
+| **F1** | Resilient Audio Startup & Toast | M1 | ORIGINAL_REQUEST §R1 | `src/tests/contract/tier1_m1_m2_features.test.ts` / `tier2_m1_m2_boundaries.test.ts` |
+| **F2** | AudioEngine Context Fallback | M1 | ORIGINAL_REQUEST §R1 | `src/tests/contract/tier1_m1_m2_features.test.ts` / `tier2_m1_m2_boundaries.test.ts` |
+| **F3** | Safe Demo & Blank Project Boot | M1 | ORIGINAL_REQUEST §R1 | `src/tests/contract/tier1_m1_m2_features.test.ts` / `tier2_m1_m2_boundaries.test.ts` |
+| **F4** | Pointer Events for WaveformCanvas | M2 | ORIGINAL_REQUEST §R2 | `src/tests/contract/tier1_m1_m2_features.test.ts` / `tier2_m1_m2_boundaries.test.ts` |
+| **F5** | Touch-Action None on Interactive Surfaces | M2 | ORIGINAL_REQUEST §R2 | `src/tests/contract/tier1_m1_m2_features.test.ts` / `tier2_m1_m2_boundaries.test.ts` |
+| **F6** | Touch Ergonomic Trim Zones | M2 | ORIGINAL_REQUEST §R2 | `src/tests/contract/tier1_m1_m2_features.test.ts` / `tier2_m1_m2_boundaries.test.ts` |
+| **F7** | Rotary Control Pointer Capture | M2 | ORIGINAL_REQUEST §R2 | `src/tests/contract/tier1_m1_m2_features.test.ts` / `tier2_m1_m2_boundaries.test.ts` |
+| **F8** | Touch Hitbox Standards (>=44x44px) | M2 | ORIGINAL_REQUEST §R2 | `src/tests/contract/tier1_m1_m2_features.test.ts` / `tier2_m1_m2_boundaries.test.ts` |
+| **F9** | UI Clip Deletion Action | M2 | ORIGINAL_REQUEST §R2 | `src/tests/contract/tier1_m1_m2_features.test.ts` / `tier2_m1_m2_boundaries.test.ts` |
+| **F10** | Timeline Bidirectional Scroll Sync | M3 | ORIGINAL_REQUEST §R3 | `src/tests/contract/tier1_m3_m4_features.test.ts` / `tier2_m3_m4_boundaries.test.ts` |
+| **F11** | Sticky Ruler & Alignment | M3 | ORIGINAL_REQUEST §R3 | `src/tests/contract/tier1_m3_m4_features.test.ts` / `tier2_m3_m4_boundaries.test.ts` |
+| **F12** | Ruler Horizontal Width Unification | M3 | ORIGINAL_REQUEST §R3 | `src/tests/contract/tier1_m3_m4_features.test.ts` / `tier2_m3_m4_boundaries.test.ts` |
+| **F13** | Ruler Seek Clamping | M3 | ORIGINAL_REQUEST §R3 | `src/tests/contract/tier1_m3_m4_features.test.ts` / `tier2_m3_m4_boundaries.test.ts` |
+| **F14** | Timeline 320px Usability & Adaptive Headers | M3 | ORIGINAL_REQUEST §R4 | `src/tests/contract/tier1_m3_m4_features.test.ts` / `tier2_m3_m4_boundaries.test.ts` |
+| **F15** | Responsive Floating Toolbar | M3 | ORIGINAL_REQUEST §R4 | `src/tests/contract/tier1_m3_m4_features.test.ts` / `tier2_m3_m4_boundaries.test.ts` |
+| **F16** | Responsive Header Layout | M4 | ORIGINAL_REQUEST §R4 | `src/tests/contract/tier1_m3_m4_features.test.ts` / `tier2_m3_m4_boundaries.test.ts` |
+| **F17** | Essential Transport Control Retention | M4 | ORIGINAL_REQUEST §R4 | `src/tests/contract/tier1_m3_m4_features.test.ts` / `tier2_m3_m4_boundaries.test.ts` |
 
 ---
 
 ## 3. Test Architecture & Directory Layout
 
-The E2E test suite resides under `src/tests/e2e/` and runs natively using Vitest:
+The contract suite — contrato (opaco, sin DOM), formerly `e2e` — resides under `src/tests/contract/` and runs natively using Vitest in the node environment (no DOM, no browser):
 
 ```
-src/tests/e2e/
+src/tests/contract/
 ├── helpers/
 │   └── testHelpers.ts                 # Shared mock factories, DOM/event simulation, store resets
 ├── tier1_m1_m2_features.test.ts       # Tier 1: F1–F9 Feature Coverage (>=5 test cases per feature)
@@ -54,25 +54,46 @@ src/tests/e2e/
 
 ### Test Runner Commands
 
-- **Run all E2E tests**:
+- **Run all contract tests** (contrato opaco, sin DOM):
   ```bash
-  npx vitest run src/tests/e2e
+  npx vitest run src/tests/contract
   ```
-- **Run complete project test suite** (unit + integration + E2E):
+- **Run complete project test suite** (unit + integration + contract):
   ```bash
   npm test
   ```
 - **Run specific tier**:
   ```bash
-  npx vitest run src/tests/e2e/tier1_m1_m2_features.test.ts
-  npx vitest run src/tests/e2e/tier2_m1_m2_boundaries.test.ts
-  npx vitest run src/tests/e2e/tier3_combinations.test.ts
-  npx vitest run src/tests/e2e/tier4_scenarios.test.ts
+  npx vitest run src/tests/contract/tier1_m1_m2_features.test.ts
+  npx vitest run src/tests/contract/tier2_m1_m2_boundaries.test.ts
+  npx vitest run src/tests/contract/tier3_combinations.test.ts
+  npx vitest run src/tests/contract/tier4_scenarios.test.ts
   ```
+- **Run DOM-layer tests** (jsdom + Testing Library, componentes montados):
+  ```bash
+  npm run test:dom
+  ```
+- **Run every layer** (unit + contract + dom + browser):
+  ```bash
+  npm run test:all
+  ```
+
+### Test Layers (4 capas)
+
+| Capa | Qué cubre | Qué NO cubre | Estado |
+|------|-----------|--------------|--------|
+| **unit** (`src/tests/*.test.ts`, `src/audio/*.test.ts`) | Lógica pura y store: operaciones de timeline, utilidades de forma de onda, plugins, persistencia, atajos | Sin DOM, sin motor de audio real, sin navegador | Verde |
+| **contract** (`src/tests/contract/`, opaco, sin DOM) | Contratos observables: acciones del store, transiciones del engine, oráculos matemáticos, flujos nominales y bordes F1–F17 | No monta componentes, no verifica CSS/DOM real ni eventos de puntero, no abre navegador | Verde (172 tests tras eliminar 16 tautológicos en T2) |
+| **dom** (`src/tests/dom/`, jsdom + Testing Library) | Componentes montados: roles/aria, estilos computados, eventos de usuario simulados | Sin layout real (jsdom no maqueta), sin Web Audio real, sin navegador | Verde (1 test de humo; jsdom 25.x, ver TEST_READY.md §6) |
+| **browser** (`tests/browser/`, puppeteer-core) | Navegador Chromium real: layout, pointer/touch, regresión visual | Nada (es la capa de mayor fidelidad) | No existe aún (se añade en la Tarea 3) |
 
 ---
 
-## 4. 4-Tier Test Methodology
+## 4. 4-Tier Test Methodology (capa de contrato: opaco, sin DOM)
+
+> Los 4 tiers viven en la capa de contrato: verifican contratos observables sin montar
+> componentes ni abrir un navegador. La cobertura real de UI (DOM y navegador) corresponde a
+> las capas `dom` y `browser` descritas en §3.
 
 ### Tier 1: Feature Coverage (>=5 tests per feature)
 Verifies the nominal and standard operating paths for each individual feature:
@@ -168,4 +189,4 @@ Exercises complete, multi-step application user journeys:
 | **Tier 2** | Boundary & Corner Cases (F1–F17) | 85 (5/feature) | 85 |
 | **Tier 3** | Cross-Feature Pairwise Interactions | 10 | 12 |
 | **Tier 4** | Real-World Application Workflows | 5 | 6 |
-| **Total** | Full E2E Test Suite | **185** | **188** |
+| **Total** | Full contract suite | **185** | **172** |

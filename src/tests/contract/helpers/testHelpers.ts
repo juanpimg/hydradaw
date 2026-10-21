@@ -1,6 +1,7 @@
 import { vi } from 'vitest';
 import type { AudioTrack, AudioClip } from '../../../types/daw';
-import { useDawStore } from '../../../store/useDawStore';
+import { useDawStore, resetHistory } from '../../../store/useDawStore';
+import { ensureMockAudioContext } from '../../dom/audioContextStub';
 
 /**
  * Setup a lightweight, robust browser-like environment in Node for opaque-box testing.
@@ -25,127 +26,8 @@ export function setupTestEnvironment() {
   }
 
   // Ensure AudioContext is mocked cleanly if not present
-  if (typeof globalThis.AudioContext === 'undefined') {
-    class MockAudioContext {
-      sampleRate: number;
-      state: AudioContextState = 'suspended';
-      currentTime: number = 0;
-      destination = {};
-
-      constructor(options?: AudioContextOptions) {
-        this.sampleRate = options?.sampleRate ?? 44100;
-      }
-
-      async resume(): Promise<void> {
-        this.state = 'running';
-      }
-
-      async close(): Promise<void> {
-        this.state = 'closed';
-      }
-
-      createGain() {
-        return {
-          gain: { value: 1, setValueAtTime: vi.fn() },
-          connect: vi.fn(),
-          disconnect: vi.fn(),
-        };
-      }
-
-      createStereoPanner() {
-        return {
-          pan: { value: 0, setValueAtTime: vi.fn() },
-          connect: vi.fn(),
-          disconnect: vi.fn(),
-        };
-      }
-
-      createDynamicsCompressor() {
-        return {
-          threshold: { value: -24 },
-          knee: { value: 30 },
-          ratio: { value: 12 },
-          attack: { value: 0.003 },
-          release: { value: 0.25 },
-          connect: vi.fn(),
-        };
-      }
-
-      createAnalyser() {
-        return {
-          fftSize: 2048,
-          smoothingTimeConstant: 0.8,
-          getFloatTimeDomainData: vi.fn((arr: Float32Array) => arr.fill(0)),
-          connect: vi.fn(),
-        };
-      }
-
-      createBuffer(channels: number, length: number, sampleRate: number) {
-        const data = new Float32Array(length);
-        return {
-          numberOfChannels: channels,
-          length,
-          sampleRate,
-          duration: length / (sampleRate || 44100),
-          getChannelData: vi.fn(() => data),
-          copyFromChannel: vi.fn(),
-          copyToChannel: vi.fn(),
-        };
-      }
-
-      createBufferSource() {
-        return {
-          buffer: null,
-          connect: vi.fn(),
-          disconnect: vi.fn(),
-          start: vi.fn(),
-          stop: vi.fn(),
-        };
-      }
-
-      createBiquadFilter() {
-        return {
-          frequency: { value: 1000, setValueAtTime: vi.fn() },
-          gain: { value: 0, setValueAtTime: vi.fn() },
-          Q: { value: 1, setValueAtTime: vi.fn() },
-          type: 'peaking',
-          connect: vi.fn(),
-          disconnect: vi.fn(),
-        };
-      }
-
-      createWaveShaper() {
-        return {
-          curve: null,
-          oversample: 'none',
-          connect: vi.fn(),
-          disconnect: vi.fn(),
-        };
-      }
-
-      createConvolver() {
-        return {
-          buffer: null,
-          normalize: true,
-          connect: vi.fn(),
-          disconnect: vi.fn(),
-        };
-      }
-
-      createDelay() {
-        return {
-          delayTime: { value: 0, setValueAtTime: vi.fn() },
-          connect: vi.fn(),
-          disconnect: vi.fn(),
-        };
-      }
-    }
-    (globalThis as unknown as { AudioContext: typeof MockAudioContext }).AudioContext = MockAudioContext;
-  }
-
-  if (typeof globalThis.window !== 'undefined') {
-    (globalThis.window as unknown as { AudioContext: unknown }).AudioContext = globalThis.AudioContext;
-  }
+  // (implementación compartida en `src/tests/dom/audioContextStub.ts`).
+  ensureMockAudioContext();
 }
 
 /**
@@ -177,6 +59,8 @@ export function resetDawStore() {
     pluginModalTrackId: null,
     toasts: [],
   });
+  // Limpia el historial deshacer/rehacer para que no fugue estado entre tests.
+  resetHistory();
 }
 
 /**

@@ -99,41 +99,6 @@ describe('Tier 1: Feature Coverage (M1: F1–F3, M2: F4–F9)', () => {
       expect(useDawStore.getState().toasts.some((t) => t.message.includes('No se pudo leer'))).toBe(true);
     });
 
-    it('F1-4: busy state flag lifecycle is strictly bounded by try...finally', async () => {
-      let busy: string | null = null;
-      let executedFinally = false;
-
-      const runWithBusy = async (action: () => Promise<void>) => {
-        busy = 'continue';
-        try {
-          await action();
-        } finally {
-          busy = null;
-          executedFinally = true;
-        }
-      };
-
-      await runWithBusy(async () => {
-        expect(busy).toBe('continue');
-      });
-
-      expect(busy).toBeNull();
-      expect(executedFinally).toBe(true);
-    });
-
-    it('F1-5: finishBoot initiates autosave and clears splash overlay', () => {
-      let booted = false;
-      let autosaveStarted = false;
-
-      const finishBoot = () => {
-        autosaveStarted = true;
-        booted = true;
-      };
-
-      finishBoot();
-      expect(booted).toBe(true);
-      expect(autosaveStarted).toBe(true);
-    });
   });
 
   // =========================================================================
@@ -320,16 +285,6 @@ describe('Tier 1: Feature Coverage (M1: F1–F3, M2: F4–F9)', () => {
       expect(capturedId).toBe(42);
     });
 
-    it('F4-2: pointer move scales deltaX to timeline seconds using zoom ratio', () => {
-      const zoom = 50; // 50 px per second
-      const startX = 100;
-      const currentX = 250;
-      const deltaX = currentX - startX; // 150 px
-      const deltaTime = deltaX / zoom; // 3.0 seconds
-
-      expect(deltaTime).toBe(3.0);
-    });
-
     it('F4-3: releases pointer capture cleanly on pointerup', () => {
       let releasedId: number | null = null;
       const target = {
@@ -357,51 +312,15 @@ describe('Tier 1: Feature Coverage (M1: F1–F3, M2: F4–F9)', () => {
       }
     });
 
-    it('F4-5: pointercancel event safely aborts drag without persisting invalid state', () => {
-      let isDragging = true;
-      const onPointerCancel = () => {
-        isDragging = false;
-      };
-
-      onPointerCancel();
-      expect(isDragging).toBe(false);
-    });
   });
 
   // =========================================================================
   // F5: Touch-Action None on Interactive Surfaces
   // =========================================================================
-  describe('F5: Touch-Action None on Interactive Surfaces', () => {
-    it('F5-1: WaveformCanvas container specification requires touch-action: none', () => {
-      const canvasContainerStyle = { touchAction: 'none' };
-      expect(canvasContainerStyle.touchAction).toBe('none');
-    });
-
-    it('F5-2: Knob rotary dial element specification requires touch-action: none', () => {
-      const knobDialStyle = { touchAction: 'none' };
-      expect(knobDialStyle.touchAction).toBe('none');
-    });
-
-    it('F5-3: touch-action: none prevents browser viewport pan and pull-to-refresh gestures', () => {
-      // In CSS specification, touch-action: none disables all native browser gesture handling
-      const effectiveGesturePrevention = (touchAction: string) => touchAction === 'none';
-      expect(effectiveGesturePrevention('none')).toBe(true);
-      expect(effectiveGesturePrevention('auto')).toBe(false);
-    });
-
-    it('F5-4: track container background preserves default touch actions for vertical scroll', () => {
-      const trackLaneContainerStyle = { touchAction: 'pan-y' };
-      expect(trackLaneContainerStyle.touchAction).toBe('pan-y');
-    });
-
-    it('F5-5: interactive knobs retain touch-none regardless of initial parameter value', () => {
-      const values = [0, 50, 100];
-      for (const val of values) {
-        const knobProps = { value: val, style: { touchAction: 'none' } };
-        expect(knobProps.style.touchAction).toBe('none');
-      }
-    });
-  });
+  // NOTA (WP1/T2): los 5 tests F5-* solo afirmaban literales
+  // (`{touchAction:'none'}.touchAction`) sin montar ningún componente.
+  // Eliminados; sus escenarios reales se re-implementan como tests DOM
+  // (estilos computados sobre componentes montados) en oleadas siguientes.
 
   // =========================================================================
   // F6: Touch Ergonomic Trim Zones
@@ -493,18 +412,6 @@ describe('Tier 1: Feature Coverage (M1: F1–F3, M2: F4–F9)', () => {
       expect(val).toBe(0.2);
     });
 
-    it('F7-4: double-click resets rotary control to defaultValue', () => {
-      const defaultValue = 25;
-      let currentValue = 80;
-
-      const handleDoubleClick = () => {
-        currentValue = defaultValue;
-      };
-
-      handleDoubleClick();
-      expect(currentValue).toBe(25);
-    });
-
     it('F7-5: values clamp strictly between min and max bounds', () => {
       const valOver = calculateExpectedKnobValue(90, 200, 0, 100, 1);
       expect(valOver).toBe(100);
@@ -517,42 +424,10 @@ describe('Tier 1: Feature Coverage (M1: F1–F3, M2: F4–F9)', () => {
   // =========================================================================
   // F8: Touch Hitbox Standards (>=44x44px)
   // =========================================================================
-  describe('F8: Touch Hitbox Standards (>=44x44px)', () => {
-    it('F8-1: Zoom In and Zoom Out buttons meet >=44x44px target area requirement', () => {
-      const zoomButtonDims = { minWidth: 44, minHeight: 44 };
-      expect(zoomButtonDims.minWidth).toBeGreaterThanOrEqual(44);
-      expect(zoomButtonDims.minHeight).toBeGreaterThanOrEqual(44);
-    });
-
-    it('F8-2: Timeline Cut button meets >=44px height accessibility requirement', () => {
-      const cutButtonDims = { minHeight: 44 };
-      expect(cutButtonDims.minHeight).toBeGreaterThanOrEqual(44);
-    });
-
-    it('F8-3: TrackHeader Mute, Solo, and Record Arm buttons satisfy w-11 h-11 (44x44px)', () => {
-      // w-11 in Tailwind = 2.75rem = 44px
-      const twClassToPx = (twClass: string) => (twClass === 'w-11 h-11' ? 44 : 36);
-      expect(twClassToPx('w-11 h-11')).toBe(44);
-    });
-
-    it('F8-4: Delete Track button incorporates >=44x44px click target padding', () => {
-      const buttonTargetArea = { width: 44, height: 44 };
-      expect(buttonTargetArea.width * buttonTargetArea.height).toBeGreaterThanOrEqual(44 * 44);
-    });
-
-    it('F8-5: Transport Play, Stop, and Loop controls satisfy >=44x44px hitbox', () => {
-      const transportControls = [
-        { name: 'Play', width: 44, height: 44 },
-        { name: 'Stop', width: 44, height: 44 },
-        { name: 'Loop', width: 44, height: 44 },
-      ];
-
-      for (const ctrl of transportControls) {
-        expect(ctrl.width).toBeGreaterThanOrEqual(44);
-        expect(ctrl.height).toBeGreaterThanOrEqual(44);
-      }
-    });
-  });
+  // NOTA (WP1/T2): los 5 tests F8-* solo afirmaban literales
+  // (`expect(44).toBeGreaterThanOrEqual(44)`) sin medir ningún elemento real.
+  // Eliminados; sus escenarios reales se re-implementan como tests DOM
+  // (hitbox medida sobre componentes montados) en oleadas siguientes.
 
   // =========================================================================
   // F9: UI Clip Deletion Action
@@ -590,11 +465,6 @@ describe('Tier 1: Feature Coverage (M1: F1–F3, M2: F4–F9)', () => {
     it('F9-4: UI Delete button action handles non-existent clip ID gracefully', () => {
       const state = useDawStore.getState();
       expect(() => state.removeClip('non_existent_clip_id')).not.toThrow();
-    });
-
-    it('F9-5: UI Delete button defines aria-label for accessibility', () => {
-      const buttonAria = { 'aria-label': 'Eliminar clip seleccionado', role: 'button' };
-      expect(buttonAria['aria-label']).toContain('Eliminar clip');
     });
   });
 });
