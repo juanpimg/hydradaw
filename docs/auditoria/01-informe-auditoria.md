@@ -165,3 +165,20 @@ motor, los 6 huecos de deshacer y los 14 de UI no tienen ninguna red. Así que e
 4. **W3** — A11y, responsive, rendimiento de render.
 5. **W4** — Funciones nuevas: importar audio, copiar/pegar/duplicar, multi-select, CI.
 6. **W5** — Seguridad y operaciones: sandbox de plugins, service worker versionado, iconos, cabeceras, docs.
+
+## 5. Cierre W5 — estado final de los hallazgos (2026-10-21, rama `feature/audit-hardening-2026-10`)
+
+Verificación final: `npm test` **638/638** (55 ficheros), `npx tsc --noEmit` limpio con
+`exactOptionalPropertyTypes`, `npm run build` OK (JS total **99.6 kB gzip**, presupuesto 350 kB),
+`npm run test:browser` **9/9**.
+
+| ID | Estado final |
+|---|---|
+| SEC-01, AUD-08 | **Resuelto.** `src/audio/pluginSandbox.ts`: escáner denegar-por-defecto (toda la spec §3.7 + `constructor`/`__proto__`) + pre-ejecución en `<iframe sandbox="allow-scripts">` sin `allow-same-origin` con protocolo `postMessage` allowlisted. Sin sandbox ⇒ rechazo con toast, nunca ejecución sin protección. Tests SB1–SB7 + protocolo en `plugin_safety.test.ts`. Desviación documentada: el CSP conserva `'unsafe-eval'` porque materializar el DSP (`new Function`) lo exige; quitarlo desactivaría los plugins locales. La mitigación es el sandbox, no el CSP (ver comentario en `_headers`). |
+| SW-01 | **Resuelto.** `public/sw.js`: navegaciones network-first, `/assets/*` cache-first, `CACHE_NAME` con `__SW_VERSION__` inyectado por Vite (SHA del commit) ⇒ cada release invalida la anterior. Test de política `src/tests/swPolicy.test.ts`. |
+| CFG-01 | **Resuelto.** Iconos PNG reales (`icon-192/512/512-maskable`, generados por `scripts/generate-icons.mjs` con solo `zlib`, `npm run icons` los regenera), `apple-touch-icon` + `og:image`/`twitter:card`. Test `src/tests/pwaAssets.test.ts`. |
+| HDR-01 | **Resuelto.** `_headers`: CSP, HSTS, `X-Frame-Options: DENY` + `frame-ancestors 'none'`, `Referrer-Policy: no-referrer`. Se conservan COOP/COEP/nosniff/Permissions-Policy. |
+| SEO-01 | **Resuelto parcial.** `og:image` + `twitter:card` añadidos. El canonical sigue fijo (sin `VITE_SITE_URL`: fuera del alcance del brief). El fichero de Search Console **se conserva**: su contenido (`google-site-verification: google3fce…`) coincide con el formato real de Google y lo aportó el usuario (commit `c52c52e`), no es un placeholder inventado. |
+| CFG-02 | **Resuelto.** `vite.config.ts`: `base: './'` + `build.target: 'es2020'`. Nota: el registro del SW en `src/main.tsx` sigue en `/sw.js` absoluto (fuera del alcance; en sub-path el SW no se registraría pero la app funciona). |
+| TS-01 | **Resuelto.** `exactOptionalPropertyTypes: true` activo; fallout (10 errores) corregido ajustando tipos reales (`\| undefined` en opcionales que lo admiten; omisión condicional en `SerializedClip` para que `undefined` no se cuele en el DTO). Sin `!` ni `as`. |
+| Flake de la suite | **Resuelto (causa encontrada y corregida).** Bajo saturación de CPU se reprodujo un colapso del worker (`Timeout calling "onTaskUpdate"`, 10 tests perdidos, 136 s) con mecanismo identificado: tests de DSP síncrono pesado (~4.6 s medidos, 92% del timeout de 5 s por defecto). Fix: presupuestos explícitos de 60 s con margen comentado + ancla de regresión `src/tests/suiteStability.test.ts`. Verificación: 30/30 verdes post-fix con el mismo recuento (638/638). |

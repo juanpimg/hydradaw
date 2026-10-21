@@ -9,7 +9,8 @@ export interface ImportAudioResult {
 }
 
 export interface ImportAudioOptions {
-  targetTrackId?: string;
+  // TS-01 (exactOptionalPropertyTypes): `undefined` explícito ≡ sin destino.
+  targetTrackId?: string | undefined;
   atTime?: number;
   createTrackIfMissing?: boolean;
 }

@@ -7,7 +7,7 @@ interface KnobProps {
   max: number;
   step?: number;
   defaultValue?: number;
-  unit?: string;
+  unit?: string | undefined;
   onChange: (val: number) => void;
   size?: number;
 }

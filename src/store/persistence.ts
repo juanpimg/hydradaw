@@ -282,7 +282,8 @@ export function serializeProject(state: PersistableProjectState): SerializedProj
         startTime: c.startTime,
         duration: c.duration,
         offset: c.offset,
-        color: c.color,
+        // TS-01: `color` ausente se omite (SerializedClip no admite `undefined`).
+        ...(c.color !== undefined ? { color: c.color } : {}),
         demoKind,
         needsReimport,
       };
@@ -476,7 +477,8 @@ export function sanitizeClip(raw: unknown, validTrackIds: Set<string>): Serializ
     startTime: Math.max(0, asNumber(raw['startTime'], 0)),
     duration: Math.max(0, asNumber(raw['duration'], 0)),
     offset: Math.max(0, asNumber(raw['offset'], 0)),
-    color: typeof raw['color'] === 'string' ? raw['color'] : undefined,
+    // TS-01: `color` ausente o no-string se omite (nunca `undefined` en el DTO).
+    ...(typeof raw['color'] === 'string' ? { color: raw['color'] } : {}),
     demoKind,
     needsReimport,
   };

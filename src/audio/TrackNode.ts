@@ -16,7 +16,9 @@ export class TrackNode {
   // Fix(AUD-06/C1): el cleanup viaja junto a la fuente para que corra en
   // TODAS las vías de teardown (fin natural y stop explícito). `done`
   // lo hace idempotente: fin natural + stop no lo ejecutan dos veces.
-  private activeSourceNodes: Array<{ source: AudioBufferSourceNode; cleanup?: () => void; done: boolean }> = [];
+  // TS-01 (exactOptionalPropertyTypes): la entrada sin cleanup guarda
+  // `undefined` explícito; se declara para que la ausencia sea válida.
+  private activeSourceNodes: Array<{ source: AudioBufferSourceNode; cleanup?: (() => void) | undefined; done: boolean }> = [];
   // Fix(waveA): guard flag — prevents double connect() (+6 dB summing when
   // the analyser is wired twice to the same destination).
   private connectedDestinations = new Set<AudioNode>();
@@ -266,7 +268,7 @@ export class TrackNode {
    * Runs an entry's cleanup at most once, swallowing disconnection errors
    * (the node may already be disconnected).
    */
-  private runEntryCleanup(entry: { cleanup?: () => void; done: boolean }) {
+  private runEntryCleanup(entry: { cleanup?: (() => void) | undefined; done: boolean }) {
     if (entry.done) return;
     entry.done = true;
     try {

@@ -8,7 +8,8 @@ export interface ActiveDSPNode {
   inputNode: AudioNode;
   outputNode: AudioNode;
   updateParameter: (paramId: string, value: number) => void;
-  cleanup?: () => void;
+  // TS-01 (exactOptionalPropertyTypes): `cleanup` ausente ≡ `undefined`.
+  cleanup?: (() => void) | undefined;
 }
 
 export class PluginHost {

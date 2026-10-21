@@ -49,7 +49,9 @@ export interface AudioClip {
   // Fix(waveB): alias duplicado `buffer` eliminado — unificado en `audioBuffer`
   // (un clip con solo `buffer` no sonaba ni se exportaba).
   peaks: Float32Array;   // Pre-calculated min/max waveform peaks for 60fps canvas
-  color?: string;
+  // TS-01 (exactOptionalPropertyTypes): un clip sin color asigna `undefined`
+  // explícito; se declara para que la ausencia sea un valor válido.
+  color?: string | undefined;
   fadeIn?: number;       // Fade-in duration in seconds (optional)
   fadeOut?: number;      // Fade-out duration in seconds (optional)
 }
