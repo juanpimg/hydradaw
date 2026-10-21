@@ -232,4 +232,17 @@ describe('AUD-06/AUD-07: sin fugas de nodos de fade ni de clicks', () => {
     engine.stop();
     for (const g of clipGains) expect(g.disconnected).toBe(true);
   });
+
+  it('play(metrónomo) → stop() desconecta todos los gains de click', async () => {
+    const { engine, mockCtx } = setupEngine();
+    await engine.syncTracks([makeTrack()]);
+    const baseline = mockCtx.gains.length;
+    await engine.play([makeTrack()], [], 0, { metronome: true });
+    const clickGains = mockCtx.gains.slice(baseline);
+    expect(clickGains.length).toBe(mockCtx.oscillators.length);
+    expect(clickGains.length).toBeGreaterThan(0);
+    // Parada explícita: debe soltar también el gain de cada click.
+    engine.stop();
+    for (const g of clickGains) expect(g.disconnected).toBe(true);
+  });
 });

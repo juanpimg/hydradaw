@@ -80,7 +80,7 @@ export class AudioEngine {
   // está programada y toma el relevo al cruzar ese instante.
   private loopPendingAt: number | null = null;
   private metroTimer: ReturnType<typeof setInterval> | null = null;
-  private metronomeNodes: OscillatorNode[] = [];
+  private metronomeNodes: Array<{ osc: OscillatorNode; gain: GainNode; done: boolean }> = [];
   // Fix(AUD-04): watermark del metrónomo (segundos de timeline): hasta dónde ya
   // se programaron clicks. Cada disparo del extensor continúa desde aquí.
   private metroScheduledUntil = 0;
@@ -983,14 +983,13 @@ export class AudioEngine {
       osc.stop(t + 0.06);
       // Solo nodos realtime se rastrean para stop(); en offline terminan con el render.
       if (ctx === (this.context as unknown as BaseAudioContext)) {
-        this.metronomeNodes.push(osc);
+        const entry = { osc, gain, done: false };
+        this.metronomeNodes.push(entry);
         osc.onended = () => {
-          this.metronomeNodes = this.metronomeNodes.filter((n) => n !== osc);
+          this.metronomeNodes = this.metronomeNodes.filter((n) => n !== entry);
           // Fix(AUD-07): el gain del click también se suelta para no fugar
           // un nodo por click en sesiones largas con metrónomo.
-          try {
-            gain.disconnect();
-          } catch (_) {}
+          this.disconnectClickGain(entry);
         };
       }
     } catch (err) {
@@ -1104,12 +1103,25 @@ export class AudioEngine {
     }
   }
 
+  // Fix(C2): suelta el gain del click como máximo una vez (fin natural o
+  // stop explícito); el nodo puede estar ya desconectado.
+  private disconnectClickGain(entry: { gain: GainNode; done: boolean }): void {
+    if (entry.done) return;
+    entry.done = true;
+    try {
+      entry.gain.disconnect();
+    } catch (_) {}
+  }
+
   private stopMetronomeNodes(): void {
-    for (const osc of this.metronomeNodes) {
+    for (const entry of this.metronomeNodes) {
       try {
-        osc.onended = null;
-        osc.stop(0);
-        osc.disconnect();
+        entry.osc.onended = null;
+        // Fix(C2): osc.disconnect() solo corta osc→gain; el borde
+        // gain→destino sobrevivía a cada stop. Se suelta aquí también.
+        this.disconnectClickGain(entry);
+        entry.osc.stop(0);
+        entry.osc.disconnect();
       } catch (err) {
         // Fix(waveA): warn con contexto al soltar osciladores del click.
         console.warn('[AudioEngine] stopMetronomeNodes: no se pudo soltar un oscilador', err);
