@@ -93,16 +93,35 @@ export class TrackNode {
     for (const pluginInst of track.plugins) {
       if (!pluginInst.enabled) continue;
 
-      const dspNode = pluginHost.createInstanceNode(this.context, pluginInst);
-      if (dspNode) {
-        lastNode.connect(dspNode.inputNode);
-        lastNode = dspNode.outputNode;
-        this.activeDSPNodes.push(dspNode);
+      // Fix(AUD-10): cada paso se aísla — si crear o cablear el plugin
+      // falla, se inserta un pass-through y el transporte sigue. Nunca propaga.
+      try {
+        const dspNode = pluginHost.createInstanceNode(this.context, pluginInst);
+        if (dspNode) {
+          lastNode.connect(dspNode.inputNode);
+          lastNode = dspNode.outputNode;
+          this.activeDSPNodes.push(dspNode);
+        }
+      } catch (_) {
+        try {
+          const passNode = this.context.createGain();
+          lastNode.connect(passNode);
+          lastNode = passNode;
+        } catch (_) {}
       }
     }
 
     // 3. Connect to Pan -> Volume -> Mute -> Analyser
-    lastNode.connect(this.pannerNode);
+    // Fix(AUD-10): la salida final tampoco puede tumbar el transporte.
+    try {
+      lastNode.connect(this.pannerNode);
+    } catch (_) {
+      try {
+        const passNode = this.context.createGain();
+        this.inputNode.connect(passNode);
+        passNode.connect(this.pannerNode);
+      } catch (_) {}
+    }
     this.pannerNode.connect(this.volumeNode);
     this.volumeNode.connect(this.muteNode);
     this.muteNode.connect(this.analyserNode);

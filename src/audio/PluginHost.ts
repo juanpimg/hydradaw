@@ -63,19 +63,44 @@ export class PluginHost {
       for (const [key, val] of Object.entries(rawParams)) {
         sanitized[key] = this.clampToDef(instance.pluginId, key, val);
       }
-      const dsp = def.createDSPNode(context, sanitized);
-      const rawUpdate = dsp.updateParameter;
+      const dsp = def.createDSPNode(context, sanitized) as unknown as {
+        inputNode?: unknown;
+        outputNode?: unknown;
+        updateParameter?: (paramId: string, value: number) => void;
+        cleanup?: () => void;
+      } | null | undefined;
+      // Fix(AUD-10): validar la forma del nodo devuelto, no solo la definición.
+      // Un plugin que devuelve {} (o basura) degradaba a un nodo con
+      // inputNode undefined y tumbaba syncTracks/play() con TypeError.
+      const inputNode = dsp?.inputNode as AudioNode | undefined;
+      const outputNode = dsp?.outputNode as AudioNode | undefined;
+      if (
+        !dsp ||
+        typeof (inputNode as unknown as { connect?: unknown } | undefined)?.connect !== 'function' ||
+        !outputNode
+      ) {
+        console.warn(`[PluginHost] El plugin ${instance.pluginId} devolvió un nodo inválido; se usa pass-through.`);
+        const passNode = context.createGain();
+        return {
+          instanceId: instance.instanceId,
+          pluginId: instance.pluginId,
+          inputNode: passNode,
+          outputNode: passNode,
+          updateParameter: () => {},
+        };
+      }
+      const rawUpdate = typeof dsp.updateParameter === 'function' ? dsp.updateParameter : () => {};
       // Fix(waveA): aplicar clampToDef en TODOS los updateParameter.
       const host = this;
       return {
         instanceId: instance.instanceId,
         pluginId: instance.pluginId,
-        inputNode: dsp.inputNode,
-        outputNode: dsp.outputNode,
+        inputNode: inputNode as AudioNode,
+        outputNode: outputNode as AudioNode,
         updateParameter: (paramId: string, value: number) => {
           rawUpdate(paramId, host.clampToDef(instance.pluginId, paramId, value));
         },
-        cleanup: dsp.cleanup,
+        cleanup: typeof dsp.cleanup === 'function' ? dsp.cleanup : undefined,
       };
     } catch (err) {
       console.error(`[PluginHost] Error creating DSP node for ${instance.pluginId}:`, err);

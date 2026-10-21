@@ -10,6 +10,9 @@ import {
   SATURATOR_DRIVE_DEBOUNCE_MS,
 } from './builtinPlugins';
 import { pluginHost, clampToDef } from './PluginHost';
+import { AudioEngine } from './AudioEngine';
+import { MasterBus } from './MasterBus';
+import type { AudioTrack } from '../types/daw';
 import { generateDemoTrackBuffer, generateWaveformPeaks, DEMO_TARGET_PEAK } from './waveformUtils';
 import {
   splitClipOperation,
@@ -137,6 +140,20 @@ function makeMockCtx(sampleRate = 44100) {
 
 afterEach(() => {
   vi.useRealTimers();
+  // Fix(AUD-10): resetea el singleton compartido (patrón de engine_fixes.test.ts)
+  // para que los stubs de ensureContext no fuguen al resto del worker.
+  const engine = AudioEngine.getInstance();
+  try {
+    (engine as unknown as { isRecording: boolean }).isRecording = false;
+    engine.stop();
+  } catch (_) {}
+  try {
+    engine.clear();
+  } catch (_) {}
+  engine.setLoop(false, 0, 16);
+  engine.setMetronome(false);
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 
 function peakOf(buf: { getChannelData(c: number): Float32Array; length: number; numberOfChannels: number }): number {
@@ -386,5 +403,242 @@ describe('waveA: seguridad de plugins y operaciones', () => {
       };
     `);
     expect(valid.id).toBe('clean_gain');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AUD-10: un plugin roto no rompe el transporte
+// ---------------------------------------------------------------------------
+
+class T10AudioParam {
+  value: number;
+  constructor(defaultValue: number = 0) {
+    this.value = defaultValue;
+  }
+  setTargetAtTime(target: number): void {
+    this.value = target;
+  }
+  setValueAtTime(v: number): void {
+    this.value = v;
+  }
+  linearRampToValueAtTime(): void {}
+  exponentialRampToValueAtTime(): void {}
+}
+
+class T10AudioNode {
+  connectedTo: T10AudioNode[] = [];
+  disconnected = false;
+  connect(destination: T10AudioNode): T10AudioNode {
+    // Simula el InvalidAccessError real al cablear un nodo ajeno/neutralizado.
+    if ((destination as unknown as { __boomPlug?: boolean })?.__boomPlug) {
+      throw new Error('connect roto (nodo ajeno)');
+    }
+    this.connectedTo.push(destination);
+    this.disconnected = false;
+    return destination;
+  }
+  disconnect(): void {
+    this.connectedTo = [];
+    this.disconnected = true;
+  }
+}
+
+class T10GainNode extends T10AudioNode {
+  gain = new T10AudioParam(1.0);
+}
+
+class T10BufferSourceNode extends T10AudioNode {
+  buffer: AudioBuffer | null = null;
+  onended: (() => void) | null = null;
+  startCalls: Array<{ when: number; offset: number; dur: number }> = [];
+  start(when?: number, offset?: number, dur?: number): void {
+    this.startCalls.push({ when: when ?? 0, offset: offset ?? 0, dur: dur ?? 0 });
+  }
+  stop(): void {}
+}
+
+class T10BaseContext {
+  currentTime = 100.0;
+  sampleRate = 44100;
+  destination = new T10AudioNode();
+  sources: T10BufferSourceNode[] = [];
+  gains: T10GainNode[] = [];
+  createGain(): T10GainNode {
+    const g = new T10GainNode();
+    this.gains.push(g);
+    return g;
+  }
+  createBufferSource(): T10BufferSourceNode {
+    const s = new T10BufferSourceNode();
+    this.sources.push(s);
+    return s;
+  }
+  createDynamicsCompressor(): T10AudioNode & Record<string, T10AudioParam> {
+    const n = new T10AudioNode() as T10AudioNode & Record<string, T10AudioParam>;
+    n.threshold = new T10AudioParam(-24);
+    n.knee = new T10AudioParam(30);
+    n.ratio = new T10AudioParam(12);
+    n.attack = new T10AudioParam(0.003);
+    n.release = new T10AudioParam(0.25);
+    return n;
+  }
+  createStereoPanner(): T10AudioNode & { pan: T10AudioParam } {
+    const n = new T10AudioNode() as T10AudioNode & { pan: T10AudioParam };
+    n.pan = new T10AudioParam(0);
+    return n;
+  }
+  createAnalyser(): T10AudioNode & { fftSize: number; smoothingTimeConstant: number; getFloatTimeDomainData: (a: Float32Array) => void } {
+    const n = new T10AudioNode() as T10AudioNode & {
+      fftSize: number;
+      smoothingTimeConstant: number;
+      getFloatTimeDomainData: (a: Float32Array) => void;
+    };
+    n.fftSize = 256;
+    n.smoothingTimeConstant = 0.8;
+    n.getFloatTimeDomainData = (a: Float32Array) => a.fill(0.1);
+    return n;
+  }
+}
+
+function makeT10Track(id: string, overrides: Partial<AudioTrack> = {}): AudioTrack {
+  return {
+    id,
+    name: `Pista ${id}`,
+    type: 'audio',
+    color: '#06b6d4',
+    volume: 1.0,
+    pan: 0,
+    mute: false,
+    solo: false,
+    armed: false,
+    plugins: [],
+    ...overrides,
+  };
+}
+
+function makeT10Clip(trackId: string, id = `clip_${trackId}`): AudioClip {
+  return {
+    id,
+    trackId,
+    name: `Clip ${trackId}`,
+    startTime: 0,
+    duration: 4,
+    offset: 0,
+    audioBuffer: { duration: 4 } as unknown as AudioBuffer,
+    peaks: new Float32Array([0, 0]),
+    color: '#06b6d4',
+  };
+}
+
+function setupT10Engine() {
+  const engine = AudioEngine.getInstance();
+  const mockCtx = new T10BaseContext();
+  (engine as unknown as { context: unknown }).context = mockCtx;
+  (engine as unknown as { masterBus: unknown }).masterBus = new MasterBus(
+    mockCtx as unknown as BaseAudioContext
+  );
+  vi.spyOn(engine, 'ensureContext').mockResolvedValue(mockCtx as unknown as AudioContext);
+  (engine as unknown as { trackNodes: Map<string, unknown> }).trackNodes.clear();
+  (engine as unknown as { trackEffectsSig?: Map<string, string> }).trackEffectsSig?.clear();
+  (engine as unknown as { isPlaying: boolean }).isPlaying = false;
+  (engine as unknown as { isRecording: boolean }).isRecording = false;
+  (engine as unknown as { lastTake: unknown }).lastTake = null;
+  (engine as unknown as { activeLoop: unknown }).activeLoop = null;
+  return { engine, mockCtx };
+}
+
+describe('AUD-10: un plugin roto no rompe el transporte', () => {
+  it('createInstanceNode degrada a pass-through si el nodo no tiene forma válida', () => {
+    pluginHost.registerCustomPlugin(`
+      const customPlugin = {
+        id: 'aud10_shape',
+        name: 'Forma Rota',
+        category: 'utility',
+        description: 'devuelve un objeto sin nodos',
+        parameters: [],
+        createDSPNode: () => ({})
+      };
+    `);
+    const simpleCtx = { createGain: () => ({ connect(): void {}, disconnect(): void {} }) };
+    const node = pluginHost.createInstanceNode(simpleCtx as unknown as BaseAudioContext, {
+      instanceId: 'i_shape',
+      pluginId: 'aud10_shape',
+      name: 'Forma Rota',
+      enabled: true,
+      parameters: {},
+    });
+    expect(node).not.toBeNull();
+    expect(typeof (node!.inputNode as unknown as { connect?: unknown }).connect).toBe('function');
+    expect(node!.outputNode).toBeDefined();
+  });
+
+  it('createInstanceNode degrada a pass-through si createDSPNode lanza', () => {
+    pluginHost.registerCustomPlugin(`
+      const customPlugin = {
+        id: 'aud10_throw',
+        name: 'Lanza Siempre',
+        category: 'utility',
+        description: 'lanza al instanciar',
+        parameters: [],
+        createDSPNode: () => { throw new Error('boom aud10'); }
+      };
+    `);
+    const simpleCtx = { createGain: () => ({ connect(): void {}, disconnect(): void {} }) };
+    const node = pluginHost.createInstanceNode(simpleCtx as unknown as BaseAudioContext, {
+      instanceId: 'i_throw',
+      pluginId: 'aud10_throw',
+      name: 'Lanza Siempre',
+      enabled: true,
+      parameters: {},
+    });
+    expect(node).not.toBeNull();
+    expect(typeof (node!.inputNode as unknown as { connect?: unknown }).connect).toBe('function');
+    expect(node!.outputNode).toBeDefined();
+  });
+
+  it('play() no rechaza y las pistas sanas suenan con un insert roto', async () => {
+    const { engine, mockCtx } = setupT10Engine();
+    const badTrack = makeT10Track('bad', {
+      plugins: [
+        { instanceId: 'ibad', pluginId: 'aud10_shape', name: 'Forma Rota', enabled: true, parameters: {} },
+        { instanceId: 'ibad2', pluginId: 'aud10_throw', name: 'Lanza Siempre', enabled: true, parameters: {} },
+      ],
+    });
+    const goodTrack = makeT10Track('good');
+    await expect(
+      engine.play([badTrack, goodTrack], [makeT10Clip('good')], 0)
+    ).resolves.toBeUndefined();
+    // La pista sana programó su clip; la rota quedó puenteada.
+    expect(mockCtx.sources.length).toBe(1);
+    expect(engine.getTrackNodes().get('good')).toBeDefined();
+    expect(engine.getTrackNodes().get('bad')).toBeDefined();
+  });
+
+  it('un fallo al cablear degrada a pass-through sin propagar', async () => {
+    pluginHost.registerCustomPlugin(`
+      const customPlugin = {
+        id: 'aud10_wire',
+        name: 'Cable Roto',
+        category: 'utility',
+        description: 'nodo ajeno que rompe connect',
+        parameters: [],
+        createDSPNode: (ctx) => {
+          const g = ctx.createGain();
+          const foreign = { connect: () => {}, __boomPlug: true };
+          return { inputNode: foreign, outputNode: g, updateParameter: () => {} };
+        }
+      };
+    `);
+    const { engine, mockCtx } = setupT10Engine();
+    const badTrack = makeT10Track('wbad', {
+      plugins: [
+        { instanceId: 'iwire', pluginId: 'aud10_wire', name: 'Cable Roto', enabled: true, parameters: {} },
+      ],
+    });
+    const goodTrack = makeT10Track('wgood');
+    await expect(
+      engine.play([badTrack, goodTrack], [makeT10Clip('wgood')], 0)
+    ).resolves.toBeUndefined();
+    expect(mockCtx.sources.length).toBe(1);
   });
 });
