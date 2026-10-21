@@ -46,14 +46,7 @@ export class PluginHost {
     if (!def) {
       console.warn(`[PluginHost] Plugin definition not found for: ${instance.pluginId}`);
       // Fallback pass-through gain node
-      const passNode = context.createGain();
-      return {
-        instanceId: instance.instanceId,
-        pluginId: instance.pluginId,
-        inputNode: passNode,
-        outputNode: passNode,
-        updateParameter: () => {},
-      };
+      return this.makePassThrough(context, instance);
     }
 
     try {
@@ -77,17 +70,12 @@ export class PluginHost {
       if (
         !dsp ||
         typeof (inputNode as unknown as { connect?: unknown } | undefined)?.connect !== 'function' ||
-        !outputNode
+        // Fix(M1): outputNode también debe ser cableable, no solo truthy —
+        // un nodo a medio formar se caza aquí y no en el cableado.
+        typeof (outputNode as unknown as { connect?: unknown } | undefined)?.connect !== 'function'
       ) {
         console.warn(`[PluginHost] El plugin ${instance.pluginId} devolvió un nodo inválido; se usa pass-through.`);
-        const passNode = context.createGain();
-        return {
-          instanceId: instance.instanceId,
-          pluginId: instance.pluginId,
-          inputNode: passNode,
-          outputNode: passNode,
-          updateParameter: () => {},
-        };
+        return this.makePassThrough(context, instance);
       }
       const rawUpdate = typeof dsp.updateParameter === 'function' ? dsp.updateParameter : () => {};
       // Fix(waveA): aplicar clampToDef en TODOS los updateParameter.
@@ -104,15 +92,24 @@ export class PluginHost {
       };
     } catch (err) {
       console.error(`[PluginHost] Error creating DSP node for ${instance.pluginId}:`, err);
-      const passNode = context.createGain();
-      return {
-        instanceId: instance.instanceId,
-        pluginId: instance.pluginId,
-        inputNode: passNode,
-        outputNode: passNode,
-        updateParameter: () => {},
-      };
+      return this.makePassThrough(context, instance);
     }
+  }
+
+  /**
+   * Builds an owned unity-gain pass-through for degraded plugins.
+   * Fix(M2): ganancia 1 explícita (un mock con default 0 atenuaría en silencio).
+   */
+  private makePassThrough(context: BaseAudioContext, instance: PluginInstance): ActiveDSPNode {
+    const passNode = context.createGain();
+    passNode.gain.value = 1;
+    return {
+      instanceId: instance.instanceId,
+      pluginId: instance.pluginId,
+      inputNode: passNode,
+      outputNode: passNode,
+      updateParameter: () => {},
+    };
   }
 
   /**

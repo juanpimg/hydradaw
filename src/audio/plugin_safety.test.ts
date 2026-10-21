@@ -10,8 +10,10 @@ import {
   SATURATOR_DRIVE_DEBOUNCE_MS,
 } from './builtinPlugins';
 import { pluginHost, clampToDef } from './PluginHost';
+import type { ActiveDSPNode } from './PluginHost';
 import { AudioEngine } from './AudioEngine';
 import { MasterBus } from './MasterBus';
+import { TrackNode } from './TrackNode';
 import type { AudioTrack } from '../types/daw';
 import { generateDemoTrackBuffer, generateWaveformPeaks, DEMO_TARGET_PEAK } from './waveformUtils';
 import {
@@ -485,6 +487,8 @@ class T10BaseContext {
   createStereoPanner(): T10AudioNode & { pan: T10AudioParam } {
     const n = new T10AudioNode() as T10AudioNode & { pan: T10AudioParam };
     n.pan = new T10AudioParam(0);
+    // Marca el panner para el test M3 (salida que rompe solo hacia el panner).
+    (n as unknown as { __isPanner?: boolean }).__isPanner = true;
     return n;
   }
   createAnalyser(): T10AudioNode & { fftSize: number; smoothingTimeConstant: number; getFloatTimeDomainData: (a: Float32Array) => void } {
@@ -559,7 +563,9 @@ describe('AUD-10: un plugin roto no rompe el transporte', () => {
         createDSPNode: () => ({})
       };
     `);
-    const simpleCtx = { createGain: () => ({ connect(): void {}, disconnect(): void {} }) };
+    // Fix(M2/I3): el mock arranca en 0 para que solo un pass-through con
+    // ganancia unidad explícita pase la aserción (el código pre-fix no la fijaba).
+    const simpleCtx = { createGain: () => ({ connect(): void {}, disconnect(): void {}, gain: { value: 0 } }) };
     const node = pluginHost.createInstanceNode(simpleCtx as unknown as BaseAudioContext, {
       instanceId: 'i_shape',
       pluginId: 'aud10_shape',
@@ -570,6 +576,9 @@ describe('AUD-10: un plugin roto no rompe el transporte', () => {
     expect(node).not.toBeNull();
     expect(typeof (node!.inputNode as unknown as { connect?: unknown }).connect).toBe('function');
     expect(node!.outputNode).toBeDefined();
+    // El degradado es un pass-through de verdad: ganancia unidad y update noop.
+    expect((node!.inputNode as unknown as { gain: { value: number } }).gain.value).toBe(1);
+    expect(() => node!.updateParameter('cualquiera', 42)).not.toThrow();
   });
 
   it('createInstanceNode degrada a pass-through si createDSPNode lanza', () => {
@@ -583,7 +592,7 @@ describe('AUD-10: un plugin roto no rompe el transporte', () => {
         createDSPNode: () => { throw new Error('boom aud10'); }
       };
     `);
-    const simpleCtx = { createGain: () => ({ connect(): void {}, disconnect(): void {} }) };
+    const simpleCtx = { createGain: () => ({ connect(): void {}, disconnect(): void {}, gain: { value: 0 } }) };
     const node = pluginHost.createInstanceNode(simpleCtx as unknown as BaseAudioContext, {
       instanceId: 'i_throw',
       pluginId: 'aud10_throw',
@@ -594,6 +603,35 @@ describe('AUD-10: un plugin roto no rompe el transporte', () => {
     expect(node).not.toBeNull();
     expect(typeof (node!.inputNode as unknown as { connect?: unknown }).connect).toBe('function');
     expect(node!.outputNode).toBeDefined();
+    // Fix(I3): el test ya no es vacuo — exige la forma del pass-through
+    // (ganancia unidad explícita + update noop), que el pre-fix no cumplía.
+    expect((node!.inputNode as unknown as { gain: { value: number } }).gain.value).toBe(1);
+    expect(() => node!.updateParameter('cualquiera', 42)).not.toThrow();
+  });
+
+  it('createInstanceNode degrada a pass-through si outputNode no es cableable (M1)', () => {
+    pluginHost.registerCustomPlugin(`
+      const customPlugin = {
+        id: 'aud10_half',
+        name: 'Medio Formado',
+        category: 'utility',
+        description: 'input válido pero output sin connect',
+        parameters: [],
+        createDSPNode: (ctx) => ({ inputNode: ctx.createGain(), outputNode: {} })
+      };
+    `);
+    const simpleCtx = { createGain: () => ({ connect(): void {}, disconnect(): void {}, gain: { value: 0 } }) };
+    const node = pluginHost.createInstanceNode(simpleCtx as unknown as BaseAudioContext, {
+      instanceId: 'i_half',
+      pluginId: 'aud10_half',
+      name: 'Medio Formado',
+      enabled: true,
+      parameters: {},
+    });
+    expect(node).not.toBeNull();
+    expect(typeof (node!.inputNode as unknown as { connect?: unknown }).connect).toBe('function');
+    expect(typeof (node!.outputNode as unknown as { connect?: unknown }).connect).toBe('function');
+    expect((node!.inputNode as unknown as { gain: { value: number } }).gain.value).toBe(1);
   });
 
   it('play() no rechaza y las pistas sanas suenan con un insert roto', async () => {
@@ -640,5 +678,126 @@ describe('AUD-10: un plugin roto no rompe el transporte', () => {
       engine.play([badTrack, goodTrack], [makeT10Clip('wgood')], 0)
     ).resolves.toBeUndefined();
     expect(mockCtx.sources.length).toBe(1);
+  });
+
+  it('el pass-through de un cableado roto queda registrado y se limpia en dispose (I2)', () => {
+    pluginHost.registerCustomPlugin(`
+      const customPlugin = {
+        id: 'aud10_wire2',
+        name: 'Cable Roto 2',
+        category: 'utility',
+        description: 'nodo ajeno que rompe connect',
+        parameters: [],
+        createDSPNode: (ctx) => {
+          const g = ctx.createGain();
+          const foreign = { connect: () => {}, __boomPlug: true };
+          return { inputNode: foreign, outputNode: g, updateParameter: () => {} };
+        }
+      };
+    `);
+    const mockCtx = new T10BaseContext();
+    const track = makeT10Track('regtest', {
+      plugins: [
+        { instanceId: 'iwire2', pluginId: 'aud10_wire2', name: 'Cable Roto 2', enabled: true, parameters: {} },
+      ],
+    });
+    const node = new TrackNode(mockCtx as unknown as BaseAudioContext, track);
+    const dsps = (node as unknown as { activeDSPNodes: ActiveDSPNode[] }).activeDSPNodes;
+    const fallback = dsps.find((d) => d.instanceId.startsWith('passthrough:'));
+    expect(fallback).toBeDefined();
+    node.dispose();
+    expect(
+      (fallback!.outputNode as unknown as { disconnected?: boolean }).disconnected
+    ).toBe(true);
+  });
+
+  it('el cableado roto avisa con el pluginId antes de degradar (I2)', () => {
+    pluginHost.registerCustomPlugin(`
+      const customPlugin = {
+        id: 'aud10_wire3',
+        name: 'Cable Roto 3',
+        category: 'utility',
+        description: 'nodo ajeno que rompe connect',
+        parameters: [],
+        createDSPNode: (ctx) => {
+          const g = ctx.createGain();
+          const foreign = { connect: () => {}, __boomPlug: true };
+          return { inputNode: foreign, outputNode: g, updateParameter: () => {} };
+        }
+      };
+    `);
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const mockCtx = new T10BaseContext();
+      const track = makeT10Track('warntest', {
+        plugins: [
+          { instanceId: 'iwire3', pluginId: 'aud10_wire3', name: 'Cable Roto 3', enabled: true, parameters: {} },
+        ],
+      });
+      new TrackNode(mockCtx as unknown as BaseAudioContext, track);
+      expect(
+        warnSpy.mock.calls.some((c) => String(c[0]).includes('aud10_wire3'))
+      ).toBe(true);
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it('si falla la salida final, los plugins sanos se conservan (M3)', () => {
+    pluginHost.registerCustomPlugin(`
+      const customPlugin = {
+        id: 'aud10_good2',
+        name: 'Sano',
+        category: 'utility',
+        description: 'pass-through sano',
+        parameters: [],
+        createDSPNode: (ctx) => {
+          const g = ctx.createGain();
+          return { inputNode: g, outputNode: g, updateParameter: () => {} };
+        }
+      };
+    `);
+    pluginHost.registerCustomPlugin(`
+      const customPlugin = {
+        id: 'aud10_panner_break',
+        name: 'Rompe Panner',
+        category: 'utility',
+        description: 'salida que rompe solo hacia el panner',
+        parameters: [],
+        createDSPNode: (ctx) => {
+          const g = ctx.createGain();
+          const out = {
+            calls: [],
+            connect: (dest) => {
+              if (dest && dest.__isPanner) throw new Error('panner roto');
+              out.calls.push(dest);
+            },
+            disconnect: () => {},
+          };
+          return { inputNode: g, outputNode: out, updateParameter: () => {} };
+        }
+      };
+    `);
+    const mockCtx = new T10BaseContext();
+    const track = makeT10Track('m3test', {
+      plugins: [
+        { instanceId: 'igood2', pluginId: 'aud10_good2', name: 'Sano', enabled: true, parameters: {} },
+        { instanceId: 'ibreak', pluginId: 'aud10_panner_break', name: 'Rompe Panner', enabled: true, parameters: {} },
+      ],
+    });
+    const node = new TrackNode(mockCtx as unknown as BaseAudioContext, track);
+    const dsps = (node as unknown as { activeDSPNodes: ActiveDSPNode[] }).activeDSPNodes;
+    const fallback = dsps.find((d) => d.instanceId === 'passthrough:output');
+    expect(fallback).toBeDefined();
+    const passNode = fallback!.inputNode as unknown as T10AudioNode;
+    const breakerOut = dsps.find((d) => d.instanceId === 'ibreak')!.outputNode as unknown as {
+      calls: unknown[];
+    };
+    // La cadena sana alimenta el puente (no se descarta hacia la entrada).
+    expect(breakerOut.calls).toContain(passNode);
+    expect(
+      (node.inputNode as unknown as T10AudioNode).connectedTo
+    ).not.toContain(passNode);
+    expect(passNode.connectedTo).toContain(node.pannerNode as unknown as T10AudioNode);
   });
 });

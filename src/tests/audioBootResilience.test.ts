@@ -604,6 +604,17 @@ describe('M1 Audio Boot Resilience & Startup Error Handling', () => {
   // =========================================================================
   describe('Grupo 5: los nodos de pista se rehacen al cambiar de contexto', () => {
     afterEach(() => {
+      // Fix(M4): misma convención que los tests del engine — nada de play()
+      // en curso ni globales stubbeados al salir del test.
+      const engine = AudioEngine.getInstance();
+      try {
+        engine.stop();
+      } catch (_) {}
+      try {
+        engine.clear();
+      } catch (_) {}
+      engine.setLoop(false, 0, 16);
+      engine.setMetronome(false);
       vi.unstubAllGlobals();
     });
 

@@ -105,11 +105,15 @@ export class TrackNode {
           lastNode = dspNode.outputNode;
           this.activeDSPNodes.push(dspNode);
         }
-      } catch (_) {
+      } catch (err) {
+        // Fix(I2): avisa con el pluginId y registra el pass-through como
+        // nodo propio para que dispose() lo limpie.
+        console.warn(`[TrackNode] El plugin ${pluginInst.pluginId} falló al cablear; se usa pass-through.`, err);
         try {
-          const passNode = this.context.createGain();
-          lastNode.connect(passNode);
-          lastNode = passNode;
+          const fallback = this.makePassThroughDsp(pluginInst.instanceId, pluginInst.pluginId);
+          lastNode.connect(fallback.inputNode);
+          lastNode = fallback.outputNode;
+          this.activeDSPNodes.push(fallback);
         } catch (_) {}
       }
     }
@@ -118,16 +122,44 @@ export class TrackNode {
     // Fix(AUD-10): la salida final tampoco puede tumbar el transporte.
     try {
       lastNode.connect(this.pannerNode);
-    } catch (_) {
+    } catch (err) {
+      // Fix(M3): conserva los plugins sanos ya encadenados (lastNode→pass→
+      // panner); solo como último recurso puentea desde la entrada.
+      console.warn('[TrackNode] No se pudo cablear la salida de la cadena de efectos; se puentea.', err);
       try {
-        const passNode = this.context.createGain();
-        this.inputNode.connect(passNode);
-        passNode.connect(this.pannerNode);
+        const fallback = this.makePassThroughDsp('output', 'passthrough');
+        try {
+          lastNode.connect(fallback.inputNode);
+        } catch (_) {
+          this.inputNode.connect(fallback.inputNode);
+        }
+        fallback.outputNode.connect(this.pannerNode);
+        lastNode = fallback.outputNode;
+        this.activeDSPNodes.push(fallback);
       } catch (_) {}
     }
     this.pannerNode.connect(this.volumeNode);
     this.volumeNode.connect(this.muteNode);
     this.muteNode.connect(this.analyserNode);
+  }
+
+  /**
+   * Builds an owned unity-gain pass-through used when a plugin fails.
+   * Fix(I2/M2): ganancia 1 explícita y registro en activeDSPNodes para que
+   * dispose() lo limpie (sin registro, un rebuild por intento fugaba).
+   */
+  private makePassThroughDsp(instanceId: string, pluginId: string): ActiveDSPNode {
+    const passNode = this.context.createGain();
+    try {
+      passNode.gain.value = 1;
+    } catch (_) {}
+    return {
+      instanceId: `passthrough:${instanceId}`,
+      pluginId,
+      inputNode: passNode,
+      outputNode: passNode,
+      updateParameter: () => {},
+    };
   }
 
   /**
