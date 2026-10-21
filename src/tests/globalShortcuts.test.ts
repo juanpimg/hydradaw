@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { handleGlobalKeyDown } from '../hooks/useGlobalShortcuts';
-import { useDawStore } from '../store/useDawStore';
+import { useDawStore, resetHistory } from '../store/useDawStore';
 
 vi.mock('../audio/AudioEngine', () => ({
   audioEngine: {
@@ -22,6 +22,9 @@ vi.mock('../audio/AudioEngine', () => ({
 describe('handleGlobalKeyDown', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // T40: aísla la pila de undo entre tests (los atajos S/M registran
+    // historial vía updateTrack; sin reset filtran entradas al siguiente test).
+    resetHistory();
     useDawStore.setState({
       isPlaying: false,
       isRecording: false,
@@ -109,6 +112,12 @@ describe('handleGlobalKeyDown', () => {
 
     handleGlobalKeyDown(makeKeyEvent({ key: 'm' }));
     expect(useDawStore.getState().tracks[0]!.mute).toBe(true);
+  });
+
+  it('T40: el historial no filtra entre tests (S/M registran undo, el beforeEach lo aísla)', () => {
+    // Si el beforeEach no llamara a resetHistory(), los tests de S/M
+    // anteriores habrían dejado entradas y canUndo sería true aquí.
+    expect(useDawStore.getState().canUndo).toBe(false);
   });
 
   it('Home rewinds to 0:00 and stops', () => {

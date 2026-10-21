@@ -34,6 +34,12 @@ export function muxAdtsFrame(payload: Uint8Array, config: AdtsFrameConfig): Uint
   if (!Number.isInteger(ch) || ch < 1 || ch > 8) {
     throw new Error(`[aac] canales inválidos para ADTS: ${String(ch)} (1-8)`);
   }
+  // T40: MPEG-4 Audio no tiene código de 7 canales (channel_config 7
+  // significa 8 canales): un stream genuino de 7 canales se rechaza en vez
+  // de escribir un 7 que el parser releería como 8 (mezcla silenciosa).
+  if (ch === 7) {
+    throw new Error('[aac] 7 canales no muxable en ADTS: MPEG-4 Audio no tiene código de 7 canales (channel_config 7 significa 8); usa 6 u 8 canales.');
+  }
   // AAC-06: channel_configuration es un campo de 3 bits donde 7 significa
   // 8 canales (MPEG-4 Audio). Escribir 8 en crudo truncaba a 0 (reservado).
   const channelConfig = ch === 8 ? 7 : ch;

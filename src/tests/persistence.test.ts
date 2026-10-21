@@ -367,6 +367,14 @@ describe('persistence: storage + autosave (idb-keyval mockeado)', () => {
     expect(useDawStore.getState().snapMode).toBe('bar');
   });
 
+  it('P2b: snapMode 1/2 sobrevive a save→load (pin del valor que motivó la corrección del brief)', async () => {
+    useDawStore.setState({ projectName: 'Snap Half', snapMode: '1/2', tracks: [], clips: [] });
+    await saveProjectNow();
+    useDawStore.setState({ snapMode: '1/16' });
+    expect(await loadSavedProject()).toBe(true);
+    expect(useDawStore.getState().snapMode).toBe('1/2');
+  });
+
   it('P3: el snapshot de autosave excluye zoom/scroll/vista/selección e incluye snapMode', () => {
     const base = baseState();
     const a = selectAutosaveSnapshot(base);

@@ -23,6 +23,13 @@ import type { AudioClip, SnapMode } from '../types/daw';
 /** Minimum clip/trim duration in seconds. */
 export const MIN_CLIP_DURATION = 0.2;
 
+// T40: contador monotónico para los ids de split (coherente con el
+// generador `generateClipId` del store, WP9): ni dos cortes en el mismo
+// milisegundo colisionan aunque `Date.now()` no avance y `Math.random()`
+// se repita. Vive aquí (no en el store) para no crear un ciclo de imports
+// (`useDawStore` ya importa este módulo).
+let splitIdCounter = 0;
+
 export interface SplitResult {
   clip1: AudioClip;
   clip2: AudioClip;
@@ -74,7 +81,7 @@ export function splitClipOperation(
 
   const clip2: AudioClip = {
     ...clip,
-    id: `clip_split_${clip.id}_${Math.round(atTime * 1000)}_${Date.now().toString(36)}_${Math.random()
+    id: `clip_split_${clip.id}_${Math.round(atTime * 1000)}_${Date.now().toString(36)}_${(splitIdCounter++).toString(36)}_${Math.random()
       .toString(36)
       .slice(2, 6)}`,
     startTime: atTime,

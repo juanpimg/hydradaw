@@ -131,5 +131,9 @@ export function registerCustomPluginForTest(code: string): PluginDefinition {
     input: string;
     output: string;
   };
-  return pluginHost.importBridgeDefinition(cloned);
+  const def = pluginHost.importBridgeDefinition(cloned);
+  // ST-04: recuerda la fuente igual que la vía segura del navegador, para
+  // que `addPluginToTrack` y la persistencia la encuentren en tests.
+  pluginHost.rememberCustomSource(def.id, code);
+  return def;
 }

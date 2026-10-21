@@ -4,6 +4,7 @@ import { audioEngine } from '../audio/AudioEngine';
 import { splitClipOperation, trimLeftOperation, trimRightOperation, type SplitResult } from '../audio/timelineOps';
 import { generateDemoTrackBuffer, generateWaveformPeaks } from '../audio/waveformUtils';
 import { BUILTIN_PLUGINS } from '../audio/builtinPlugins';
+import { pluginHost } from '../audio/PluginHost';
 
 // Fix(waveA): la duración del proyecto deriva de los clips (mínimo 16s). Antes solo
 // crecía en addClip; borrar o encoger clips dejaba compases vacíos o clips invisibles.
@@ -799,7 +800,10 @@ export const useDawStore = create<DawState>((set, get) => ({
   },
 
   addPluginToTrack: (trackId, pluginId) => {
-    const def = BUILTIN_PLUGINS[pluginId];
+    // ST-04: builtins + customs ya registrados en el host (el rack inserta el
+    // custom por id tras `registerCustomPluginSecure`; antes solo se miraba
+    // el catálogo y el custom se descartaba en silencio).
+    const def = BUILTIN_PLUGINS[pluginId] ?? pluginHost.getPluginDefinition(pluginId);
     if (!def) return;
 
     // ST-01: añadir plugins se puede deshacer.
@@ -810,12 +814,18 @@ export const useDawStore = create<DawState>((set, get) => ({
       defaultParams[p.id] = p.defaultValue;
     });
 
+    // ST-04: el custom conserva su fuente en la instancia para el round-trip
+    // de persistencia (sin ella el plugin recargado aparece sin knobs ni DSP).
+    const customCode = BUILTIN_PLUGINS[pluginId] !== undefined
+      ? undefined
+      : pluginHost.getCustomPluginCode(pluginId);
     const instance: PluginInstance = {
       instanceId: 'inst_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
       pluginId,
       name: def.name,
       enabled: true,
       parameters: defaultParams,
+      ...(customCode !== undefined ? { customJsCode: customCode } : {}),
     };
 
     // ST-10: calcular con `get()`, luego `set(...)`, luego el efecto.

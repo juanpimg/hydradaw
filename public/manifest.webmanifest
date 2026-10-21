@@ -2,7 +2,7 @@
   "name": "HydraDAW — Digital Audio Workstation",
   "short_name": "HydraDAW",
   "description": "Estudio de audio multitrack 100% en el navegador: graba, mezcla, procesa con plugins y exporta en WAV de alta fidelidad.",
-  "start_url": "/",
+  "start_url": "./",
   "display": "standalone",
   "background_color": "#0a0d14",
   "theme_color": "#06b6d4",

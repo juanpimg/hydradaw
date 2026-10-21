@@ -231,12 +231,12 @@ auditada (`aca438b`).
 | ST-01 (historial cruza proyectos) | **Resuelto (T13).** `resetHistory()` en demo/blanco/carga/import; undo con alcance por proyecto. |
 | ST-02 (6 acciones sin `recordHistory`) | **Resuelto (T13).** Todas registran; `updatePluginParam` coalesce; arrastres registran por evento (trade-off explícito del brief, documentado). |
 | ST-03 (snapshot solo `{tracks, clips}`) | **Resuelto con desviación documentada (T13).** El snapshot incluye transporte + mixer y se restauran al deshacer. Ruling aceptado: BPM/loop/metrónomo/volumen **no** son deshacibles por sí mismos (convención DAW), pero sí se restauran con una acción registrable. |
-| ST-04 (código custom del plugin no persiste) | **Abierto, aceptado como limitación residual (sin tarea asignada).** El saneador de carga reconstruye cada plugin sin `customJsCode`/`customWamUrl`: tras recargar, el plugin custom pierde su DSP. Documentado en `PROJECT.md`. |
+| ST-04 (código custom del plugin no persiste) | **Resuelto (T40).** `customJsCode`/`customWamUrl` viajan por serializar → sanear (tope 256 KiB) → restaurar, y `applySerializedProject` re-registra cada custom en el `PluginHost` por la vía segura (escáner + iframe opaco) antes de `syncTracks`; `addPluginToTrack` adjunta la fuente recordada. Sin sandbox el re-registro avisa y degrada a pass-through. |
 | ST-05 (autosave sin flush) | **Resuelto (T14).** Flush en `beforeunload`/`pagehide`; `stop()` no descarta el pendiente. |
 | ST-06 (`snapMode` no persiste) | **Resuelto (T14).** Persistido y validado contra la unión real de 8 valores (el brief listaba `'1/1'`, que no existe; faltaban `'1/2'` y `'triplet'` — brief defectuoso, código correcto). |
 | ST-07 (atajos tras un modal) | **Resuelto (T15).** Gated por `exportModalOpen`/`pluginModalTrackId`; Escape pasa a los modales. |
 | ST-08 (import sin sanear) | **Resuelto (T16).** Topes 512 pistas / 20 000 clips, parámetros saneados por plugin, ids deduplicados, selección validada, `duration` acotada. |
-| ST-09 (fades no sobreviven al guardado) | **Abierto, aceptado como limitación residual (sin tarea asignada).** `SerializedClip` no tiene campos de fade; el engine sí los aplica en vivo y en export. Documentado en `PROJECT.md`. |
+| ST-09 (fades no sobreviven al guardado) | **Resuelto (T40).** `SerializedClip` lleva `fadeIn`/`fadeOut` (solo finitos > 0) y `restoreClips` los devuelve al `AudioClip`; pin de round-trip en `plugin_persistence.test.ts`. |
 | ST-10 (efectos dentro de updaters `set()`) | **Resuelto (T12).** Updaters puros: calcular con `get()`, `set(...)`, y el efecto después. |
 | ST-11 (mutación in-place + historial de no-ops) | **Resuelto parcial (T12/T13).** El trim sin cambios no registra (guard añadido); los `c.audioBuffer = null` in-place persisten como P3 aceptado. |
 | ST-12 (snapshot con selección/scroll + sin filtro `repeat`) | **Resuelto parcial.** `e.repeat` filtrado en atajos; el snapshot conserva selección/zoom (P3 aceptado, sin impacto medido). |
@@ -274,7 +274,7 @@ auditada (`aca438b`).
 | CFG-02 (`base` sin fijar) | **Resuelto (T36).** `base: './'` + `target: es2020` + rutas desde `import.meta.env.BASE_URL` + SW relativo al scope. |
 | TS-01 (sin `exactOptionalPropertyTypes`) | **Resuelto (T37).** Activo; fallout corregido con tipos reales, sin `!` ni `as`. |
 
-**Exportación/DSP (EXP)** — Tareas 17–19: ver `02-export-dsp.md` (todo resuelto salvo AAC-06 parcial documentado).
+**Exportación/DSP (EXP)** — Tareas 17–19, 40: ver `02-export-dsp.md` (todo resuelto; AAC-06 completado en T40 con rechazo explícito de 7 canales).
 
 **Huecos funcionales (G)**:
 

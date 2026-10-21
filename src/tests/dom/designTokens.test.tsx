@@ -109,7 +109,7 @@ describe('Fidelidad al sistema de diseño (UI-13, UI-14)', () => {
     cleanup();
 
     render(<ChannelStrip track={track} levels={{ rms: 0, peak: 0 }} />);
-    const armed = screen.getAllByTitle('Record Arm')[0] as HTMLElement;
+    const armed = screen.getAllByTitle('Armar para grabación')[0] as HTMLElement;
     expect(tokens(armed)).toContain('motion-safe:animate-pulse');
     expect(tokens(armed)).not.toContain('animate-pulse');
     cleanup();

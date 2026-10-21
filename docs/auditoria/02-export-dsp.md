@@ -26,7 +26,7 @@
   `blockAlign`/`bitsPerSample`/format codes (1 PCM, 3 float) correctos.
 - **Codificación PCM**: escala simétrica con `Math.round` (`0x7FFF`/`0x8000`, `0x7FFFFF`/`0x800000`),
   clamp antes de escalar (sin wraparound), intercalado estéreo `[L0,R0,…]`, float 32 sin clampar.
-- **ADTS** (1-7 canales): syncword `0xFFF`, MPEG-4 `0xF1`, perfil LC, tabla de índices de
+- **ADTS** (1-6 y 8 canales; 7 se rechaza explícitamente): syncword `0xFFF`, MPEG-4 `0xF1`, perfil LC, tabla de índices de
   muestreo, longitud de frame de 13 bits, VBR fullness `0x7FF`; la config del encoder coincide
   con la cabecera que se escribe. `isAacSupported` degrada a `false` sin WebCodecs y ambos
   caminos de error lanzan mensajes descriptivos voids de toast ⇒ sin ruta de crash.
@@ -68,7 +68,7 @@ Todas estas correcciones están ejecutadas en el plan maestro
 | EXP-05 | **Resuelto.** Padding RIFF (`padBytes = dataSize % 2`, RIFF size `36 + dataSize + padBytes`), verificado aritméticamente contra la spec. |
 | EXP-11 | **Resuelto.** El selector ofrece 16, 24 y **32-bit float** (`ExportModal.tsx`: `useState<16 \| 24 \| 32>`). |
 | EXP-12 | **Resuelto.** Entradas cortas conformes al estándar (cero-pad), no lectura caliente del bloque parcial. |
-| AAC-06 | **Resuelto (8→7); resto aceptado.** 8 canales escribe `channel_config` 7; un stream genuino de 7 canales sigue escribiendo 7 (sin código de 7 canales en MPEG-4 Audio): extremadamente raro, documentado en código. |
+| AAC-06 | **Resuelto completo (T19 + T40).** 8 canales escribe `channel_config` 7; un stream genuino de 7 canales se rechaza explícitamente en `muxAdtsFrame` (MPEG-4 Audio no tiene código de 7 canales): antes escribía 7 y el parser lo releía como 8. |
 | DSP-07 | **Resuelto.** Guard antes de alocar (`targetPoints <= 0` no lanza). |
 | DSP-08 | **Resuelto.** `dbToLinear(NaN)` ⇒ 1 (unity: un NaN suelto significa "sin atenuación", no "silencio"); `secondsToSamples` y `calculatePeakAndRMS` saneados. |
 | DSP-09 | **Resuelto.** `calculateConstantPowerPan(NaN)` devuelve las ganancias reales de `pan = 0` (potencia constante, no `{1,1}` que serían +3 dB). |

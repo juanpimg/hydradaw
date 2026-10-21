@@ -174,7 +174,7 @@ export function encodeWav(audioBuffer: AudioBuffer, bitDepth: 16 | 24 | 32 = 16)
  *
  * Cuándo usar cada una:
  * - `encodeWav` (síncrona): clips cortos y llamadas existentes
- *   (ExportModal/persistence siguen con la síncrona, sin cambios).
+ *   (persistence sigue con la síncrona para clips cortos; ExportModal usa la asíncrona).
  * - `encodeWavAsync`: bounces largos donde el bloqueo del hilo principal
  *   sería perceptible; `onProgress(encodedFrames, totalFrames)` permite
  *   barra de progreso. No cambia la firma de `encodeWav`.

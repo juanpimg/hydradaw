@@ -17,6 +17,19 @@ import type { BridgeDescriptor, BridgeOp } from './pluginSandbox';
 /** Marca de definición puente (datos validados del iframe, sin fábrica viva). */
 export const BRIDGE_MARKER = '__bridge';
 
+/**
+ * ST-04: tamaño máximo de código custom persistido por plugin (256 KiB).
+ * El registro en sesión lo acepta igual, pero por encima de este tope el
+ * código no se guarda en el proyecto (IndexedDB) ni se recuerda para el
+ * round-trip: un volcado de MBs no puede reventar la cuota. Definido aquí
+ * (el host es quien recuerda la fuente) para no crear un ciclo de imports
+ * con `persistence.ts`, que lo reutiliza en serializar/sanear/restaurar.
+ */
+export const MAX_CUSTOM_PLUGIN_CODE_BYTES = 256 * 1024;
+
+/** Longitud máxima de una URL WAM persistida (metadato, nunca se fetchea). */
+export const MAX_CUSTOM_PLUGIN_URL_CHARS = 2048;
+
 export interface BridgePluginDefinition extends PluginDefinition {
   __bridge: { oplog: BridgeOp[]; input: string; output: string };
 }
@@ -67,6 +80,46 @@ export class PluginHost {
   private customPlugins: Map<string, PluginDefinition> = new Map();
   private bridgeInstances: Map<string, { nodes: Map<string, AudioNode>; session: string | null }> =
     new Map();
+  /**
+   * ST-04: fuente original de cada plugin custom (por pluginId), para que
+   * `addPluginToTrack` la adjunte a la instancia y el proyecto la persista.
+   * Solo se recuerda código dentro del tope (`MAX_CUSTOM_PLUGIN_CODE_BYTES`).
+   */
+  private customSources: Map<string, string> = new Map();
+
+  /**
+   * Fuente recordada de un plugin custom, si la hay (para persistir).
+   */
+  getCustomPluginCode(pluginId: string): string | undefined {
+    return this.customSources.get(pluginId);
+  }
+
+  /**
+   * Recuerda la fuente de un plugin custom tras una importación validada
+   * (vía segura o vía de test). El código sobredimensionado se ignora: el
+   * plugin funciona en la sesión pero no se persiste.
+   */
+  rememberCustomSource(pluginId: string, code: string): void {
+    if (typeof code !== 'string' || code.length === 0) return;
+    if (code.length > MAX_CUSTOM_PLUGIN_CODE_BYTES) {
+      console.warn(
+        `[PluginHost] Código del plugin "${pluginId}" demasiado grande ` +
+        `(${code.length} > ${MAX_CUSTOM_PLUGIN_CODE_BYTES} bytes): no se persistirá.`,
+      );
+      return;
+    }
+    this.customSources.set(pluginId, code);
+  }
+
+  /**
+   * Solo tests: vacía los customs (definiciones, fuentes e instancias puente)
+   * para simular una recarga (página nueva, singleton vacío).
+   */
+  clearCustomPluginsForTest(): void {
+    this.customPlugins.clear();
+    this.customSources.clear();
+    this.bridgeInstances.clear();
+  }
 
   /**
    * Retrieves definition for any plugin (builtin or user imported)
@@ -189,12 +242,26 @@ export class PluginHost {
     if (!result.ok) {
       throw new Error(result.error);
     }
-    return this.importBridgeDefinition({
+    const def = this.importBridgeDefinition({
       descriptor: result.descriptor,
       oplog: result.oplog,
       input: result.input,
       output: result.output,
     });
+    // ST-04: recuerda la fuente para el round-trip de persistencia.
+    this.rememberCustomSource(def.id, code);
+    return def;
+  }
+
+  /**
+   * ST-04: re-registro tras restaurar un proyecto persistido. Es la VÍA
+   * SEGURA ÚNICA: delega en `registerCustomPluginSecure` (escáner +
+   * evaluación solo dentro del iframe opaco, importación validada). El hilo
+   * principal nunca ejecuta el código restaurado. Sin sandbox ⇒ rechazo
+   * explícito (el llamador degrada a pass-through con aviso, nunca lanza).
+   */
+  reregisterCustomPluginFromCode(code: string): Promise<PluginDefinition> {
+    return this.registerCustomPluginSecure(code);
   }
 
   /**

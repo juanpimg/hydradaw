@@ -5,6 +5,11 @@ import { audioEngine } from '../audio/AudioEngine';
 import { generateDemoTrackBuffer, generateWaveformPeaks } from '../audio/waveformUtils';
 import { encodeWav } from '../audio/WavExporter';
 import { BUILTIN_PLUGINS } from '../audio/builtinPlugins';
+import {
+  MAX_CUSTOM_PLUGIN_CODE_BYTES,
+  MAX_CUSTOM_PLUGIN_URL_CHARS,
+  pluginHost,
+} from '../audio/PluginHost';
 
 /**
  * Persistencia de proyecto entre sesiones (IndexedDB vía `idb-keyval`).
@@ -159,6 +164,10 @@ export interface SerializedClip {
   demoKind: DemoKind | null;
   /** Duración del buffer a regenerar para clips demo. */
   demoDurationSec?: number;
+  /** ST-09: fundido de entrada en segundos (solo si finito y > 0). */
+  fadeIn?: number;
+  /** ST-09: fundido de salida en segundos (solo si finito y > 0). */
+  fadeOut?: number;
   needsReimport: boolean;
   /** Nombre original sin el marcador ⚠️ (solo si needsReimport). */
   sourceName?: string;
@@ -270,7 +279,31 @@ export function serializeProject(state: PersistableProjectState): SerializedProj
     selectedClipIds: [...state.selectedClipIds],
     tracks: state.tracks.map((t) => ({
       ...t,
-      plugins: t.plugins.map((p) => ({ ...p, parameters: { ...p.parameters } })),
+      plugins: t.plugins.map((p) => {
+        // ST-04: construcción explícita (solo campos conocidos) con tope de
+        // tamaño para el código custom: lo sobredimensionado no se persiste
+        // (el plugin funciona en la sesión pero degrada a metadatos al guardar).
+        const out: AudioTrack['plugins'][number] = {
+          instanceId: p.instanceId,
+          pluginId: p.pluginId,
+          name: p.name,
+          enabled: p.enabled,
+          parameters: { ...p.parameters },
+        };
+        if (
+          typeof p.customJsCode === 'string' && p.customJsCode.length > 0 &&
+          p.customJsCode.length <= MAX_CUSTOM_PLUGIN_CODE_BYTES
+        ) {
+          out.customJsCode = p.customJsCode;
+        }
+        if (
+          typeof p.customWamUrl === 'string' && p.customWamUrl.length > 0 &&
+          p.customWamUrl.length <= MAX_CUSTOM_PLUGIN_URL_CHARS
+        ) {
+          out.customWamUrl = p.customWamUrl;
+        }
+        return out;
+      }),
     })),
     // Placeholder: `saveProjectNow()` lo sobrescribe con el manifiesto exacto
     // tras escribir cada WAV (aquí aún no se sabe qué escrituras tendrán éxito).
@@ -287,6 +320,9 @@ export function serializeProject(state: PersistableProjectState): SerializedProj
         offset: c.offset,
         // TS-01: `color` ausente se omite (SerializedClip no admite `undefined`).
         ...(c.color !== undefined ? { color: c.color } : {}),
+        // ST-09: solo valores finitos mayores que 0 (0/negativos/NaN se omiten).
+        ...(typeof c.fadeIn === 'number' && Number.isFinite(c.fadeIn) && c.fadeIn > 0 ? { fadeIn: c.fadeIn } : {}),
+        ...(typeof c.fadeOut === 'number' && Number.isFinite(c.fadeOut) && c.fadeOut > 0 ? { fadeOut: c.fadeOut } : {}),
         demoKind,
         needsReimport,
       };
@@ -401,6 +437,40 @@ export function sanitizePluginParameters(
 }
 
 /**
+ * ST-04: sanea el código custom de un plugin como cualquier string aportado
+ * por el usuario: debe ser string no vacío dentro del tope (256 KiB); lo
+ * sobredimensionado o no-string se descarta (el plugin degrada a
+ * pass-through con aviso en el re-registro, nunca rompe la carga).
+ * Reexporta el tope del host para los tests.
+ */
+export { MAX_CUSTOM_PLUGIN_CODE_BYTES };
+
+export function sanitizeCustomJsCode(v: unknown): string | undefined {
+  if (typeof v !== 'string' || v.length === 0) return undefined;
+  if (v.length > MAX_CUSTOM_PLUGIN_CODE_BYTES) {
+    console.warn(
+      `[persistence] Código de plugin demasiado grande (${v.length} > ${MAX_CUSTOM_PLUGIN_CODE_BYTES} bytes): se descarta.`,
+    );
+    return undefined;
+  }
+  return v;
+}
+
+/**
+ * ST-04: sanea la URL WAM como string corto (metadato: nunca se fetchea).
+ */
+export function sanitizeCustomWamUrl(v: unknown): string | undefined {
+  if (typeof v !== 'string' || v.length === 0) return undefined;
+  if (v.length > MAX_CUSTOM_PLUGIN_URL_CHARS) {
+    console.warn(
+      `[persistence] URL de plugin demasiado larga (${v.length} > ${MAX_CUSTOM_PLUGIN_URL_CHARS} caracteres): se descarta.`,
+    );
+    return undefined;
+  }
+  return v;
+}
+
+/**
  * Fix(waveA): normaliza una pista cruda; devuelve `null` si no es
  * recuperable (no-objeto o sin id) para que se descarte.
  */
@@ -415,16 +485,25 @@ export function sanitizeTrack(raw: unknown): AudioTrack | null {
   const plugins: AudioTrack['plugins'] = Array.isArray(raw['plugins'])
     ? (raw['plugins'] as unknown[])
       .filter(isRecord)
-      .map((p) => ({
-        instanceId: typeof p['instanceId'] === 'string' ? p['instanceId'] : '',
-        pluginId: typeof p['pluginId'] === 'string' ? p['pluginId'] : '',
-        name: typeof p['name'] === 'string' ? p['name'] : 'Plugin',
-        enabled: asBool(p['enabled'], true),
-        parameters: sanitizePluginParameters(
-          typeof p['pluginId'] === 'string' ? p['pluginId'] : '',
-          p['parameters'],
-        ),
-      }))
+      .map((p) => {
+        // ST-04: el código/URL custom se sanea como cualquier string de
+        // usuario (tope de tamaño); lo inválido se omite sin romper la carga.
+        const customJsCode = sanitizeCustomJsCode(p['customJsCode']);
+        const customWamUrl = sanitizeCustomWamUrl(p['customWamUrl']);
+        return {
+          instanceId: typeof p['instanceId'] === 'string' ? p['instanceId'] : '',
+          pluginId: typeof p['pluginId'] === 'string' ? p['pluginId'] : '',
+          name: typeof p['name'] === 'string' ? p['name'] : 'Plugin',
+          enabled: asBool(p['enabled'], true),
+          parameters: sanitizePluginParameters(
+            typeof p['pluginId'] === 'string' ? p['pluginId'] : '',
+            p['parameters'],
+          ),
+          // TS-01: la ausencia se representa omitiendo la clave.
+          ...(customJsCode !== undefined ? { customJsCode } : {}),
+          ...(customWamUrl !== undefined ? { customWamUrl } : {}),
+        };
+      })
       .filter((p) => p.instanceId.length > 0 && p.pluginId.length > 0)
     : [];
   return {
@@ -482,6 +561,9 @@ export function sanitizeClip(raw: unknown, validTrackIds: Set<string>): Serializ
     offset: Math.max(0, asNumber(raw['offset'], 0)),
     // TS-01: `color` ausente o no-string se omite (nunca `undefined` en el DTO).
     ...(typeof raw['color'] === 'string' ? { color: raw['color'] } : {}),
+    // ST-09: solo finitos mayores que 0 (el resto se omite, sin placeholder).
+    ...(typeof raw['fadeIn'] === 'number' && Number.isFinite(raw['fadeIn']) && raw['fadeIn'] > 0 ? { fadeIn: raw['fadeIn'] } : {}),
+    ...(typeof raw['fadeOut'] === 'number' && Number.isFinite(raw['fadeOut']) && raw['fadeOut'] > 0 ? { fadeOut: raw['fadeOut'] } : {}),
     demoKind,
     needsReimport,
   };
@@ -506,7 +588,9 @@ export function sanitizeClip(raw: unknown, validTrackIds: Set<string>): Serializ
 }
 
 // ST-06: modos de snap válidos (la unión `SnapMode`). Lo desconocido cae a '1/16'.
-const VALID_SNAP_MODES: readonly string[] = [
+// T40: tipado como `readonly SnapMode[]` (antes `readonly string[]`): un
+// cambio futuro en la unión produce error de tipo en vez de pasar en silencio.
+const VALID_SNAP_MODES: readonly SnapMode[] = [
   'bar',
   '1/2',
   '1/4',
@@ -518,7 +602,9 @@ const VALID_SNAP_MODES: readonly string[] = [
 ];
 
 function sanitizeSnapMode(v: unknown): SnapMode {
-  return typeof v === 'string' && VALID_SNAP_MODES.includes(v) ? (v as SnapMode) : '1/16';
+  return typeof v === 'string' && (VALID_SNAP_MODES as readonly string[]).includes(v)
+    ? (v as SnapMode)
+    : '1/16';
 }
 
 function buildProjectFromRaw(raw: Record<string, unknown>): SerializedProject | null {
@@ -679,6 +765,9 @@ export function restoreClips(serialized: SerializedClip[], ctx: BaseAudioContext
         audioBuffer,
         peaks: generateWaveformPeaks(audioBuffer, DEMO_PEAK_POINTS),
         color: s.color,
+        // ST-09: los fades restaurados vuelven al AudioClip.
+        ...(s.fadeIn !== undefined ? { fadeIn: s.fadeIn } : {}),
+        ...(s.fadeOut !== undefined ? { fadeOut: s.fadeOut } : {}),
         demoKind: s.demoKind,
         needsReimport: false,
       };
@@ -695,6 +784,8 @@ export function restoreClips(serialized: SerializedClip[], ctx: BaseAudioContext
         audioBuffer: null,
         peaks: new Float32Array(0),
         color: s.color,
+        ...(s.fadeIn !== undefined ? { fadeIn: s.fadeIn } : {}),
+        ...(s.fadeOut !== undefined ? { fadeOut: s.fadeOut } : {}),
         demoKind: s.demoKind,
         needsReimport: false,
       };
@@ -711,6 +802,8 @@ export function restoreClips(serialized: SerializedClip[], ctx: BaseAudioContext
       audioBuffer: null,
       peaks: new Float32Array(0),
       color: s.color,
+      ...(s.fadeIn !== undefined ? { fadeIn: s.fadeIn } : {}),
+      ...(s.fadeOut !== undefined ? { fadeOut: s.fadeOut } : {}),
       demoKind: null,
       needsReimport: true,
     };
@@ -1155,6 +1248,57 @@ export async function loadSavedProject(): Promise<boolean> {
 }
 
 /**
+ * ST-04: re-registra los plugins custom persistidos en el `PluginHost`
+ * ANTES de `syncTracks` (sin definición no hay knobs ni DSP: el engine
+ * degradaría a pass-through silencioso).
+ *
+ * - Solo ids no-builtin con `customJsCode` válido (string dentro del tope);
+ *   duplicados por pluginId se registran una sola vez.
+ * - Vía SEGURA ÚNICA por defecto (`PluginHost.reregisterCustomPluginFromCode`
+ *   → escáner + iframe opaco): el código restaurado nunca se ejecuta en el
+ *   hilo principal. El parámetro `register` solo existe para inyectar la vía
+ *   equivalente de tests (contenedor `node:vm` sobre los mismos bytes).
+ * - Nunca lanza: cada fallo avisa y degrada a pass-through.
+ */
+export async function reregisterCustomPlugins(
+  tracks: Array<{ plugins?: Array<{ pluginId: string; customJsCode?: unknown }> }>,
+  register: (code: string) => Promise<unknown> = (code) =>
+    pluginHost.reregisterCustomPluginFromCode(code),
+): Promise<{ reregistered: number; failed: number }> {
+  const result = { reregistered: 0, failed: 0 };
+  const seen = new Map<string, string>();
+  for (const t of tracks) {
+    for (const p of t.plugins ?? []) {
+      if (typeof p.pluginId !== 'string' || p.pluginId.length === 0) continue;
+      // Builtin: nada que re-registrar. Ya registrado en esta sesión: idem.
+      if (BUILTIN_PLUGINS[p.pluginId]) continue;
+      if (pluginHost.getPluginDefinition(p.pluginId)) continue;
+      if (typeof p.customJsCode !== 'string' || p.customJsCode.length === 0) continue;
+      if (p.customJsCode.length > MAX_CUSTOM_PLUGIN_CODE_BYTES) {
+        console.warn(
+          `[persistence] Código del plugin "${p.pluginId}" demasiado grande: no se re-registra.`,
+        );
+        continue;
+      }
+      if (!seen.has(p.pluginId)) seen.set(p.pluginId, p.customJsCode);
+    }
+  }
+  for (const [pluginId, code] of seen) {
+    try {
+      await register(code);
+      result.reregistered += 1;
+    } catch (err) {
+      result.failed += 1;
+      console.warn(
+        `[persistence] No se pudo re-registrar el plugin custom "${pluginId}" ` +
+        `(se conserva como pass-through sin DSP): ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+  return result;
+}
+
+/**
  * Aplica un proyecto deserializado al store + motor.
  * Extraído de `loadSavedProject` para reutilizarlo en la importación
  * de archivos (pantalla de inicio): nunca lanza, devuelve éxito.
@@ -1167,6 +1311,9 @@ export async function applySerializedProject(
     // ST-03: el proyecto aplicado es nuevo ⇒ las pilas no pueden contener
     // snapshots del proyecto anterior.
     resetHistory();
+    // ST-04: los customs deben existir en el host antes de sincronizar las
+    // pistas (si no, el engine los materializa como pass-through sin DSP).
+    await reregisterCustomPlugins(data.tracks);
     useDawStore.setState({
       projectName: data.projectName,
       bpm: data.bpm,

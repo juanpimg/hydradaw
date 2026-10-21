@@ -106,7 +106,9 @@ const ChannelStripInner: React.FC<ChannelStripProps> = ({ track, levels }) => {
               ? 'bg-amber-500 text-slate-950 shadow-sm shadow-amber-500/30'
               : 'bg-dark-surfaceLight text-slate-400 hover:text-slate-200 border border-dark-border'
           }`}
-          title="Mute"
+          title="Silenciar"
+          aria-label={`Silenciar pista ${track.name}`}
+          aria-pressed={track.mute}
         >
           M
         </button>
@@ -119,6 +121,8 @@ const ChannelStripInner: React.FC<ChannelStripProps> = ({ track, levels }) => {
               : 'bg-dark-surfaceLight text-slate-400 hover:text-slate-200 border border-dark-border'
           }`}
           title="Solo"
+          aria-label={`Pista ${track.name} en solo`}
+          aria-pressed={track.solo}
         >
           S
         </button>
@@ -130,7 +134,9 @@ const ChannelStripInner: React.FC<ChannelStripProps> = ({ track, levels }) => {
               ? 'bg-red-500 text-white shadow-sm shadow-red-500/40 ring-1 ring-red-400 motion-safe:animate-pulse'
               : 'bg-dark-surfaceLight text-slate-400 hover:text-red-400 border border-dark-border'
           }`}
-          title="Record Arm"
+          title="Armar para grabación"
+          aria-label={`Armar pista ${track.name} para grabación`}
+          aria-pressed={track.armed}
         >
           R
         </button>

@@ -333,9 +333,9 @@ async function main() {
       );
       const mixerBad = await page.evaluate(() => {
         const need = [
-          'button[title="Mute"]',
+          'button[title="Silenciar"]',
           'button[title="Solo"]',
-          'button[title="Record Arm"]',
+          'button[title="Armar para grabación"]',
           'button[aria-label="Añadir efecto"]',
         ];
         const bad = [];

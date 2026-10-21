@@ -109,12 +109,11 @@ time-stretch / conversión de sample-rate · sin WAM 2.0 / WebCLAP / WASM /
 AudioWorklet · React 18 / Vite 5 / Vitest 2 se conservan deliberadamente (no se
 migra a React 19 / Vite 7 / Vitest 3).
 
-Limitaciones residuales conocidas (no ocultas): el código JS custom de un plugin
-no sobrevive a la recarga (se pierde su DSP); los fades por clip no sobreviven
-al round-trip de guardado; importar audio durante la reproducción suena tras
-parar/reanudar; la mezcla a 7 canales AAC escribe `channel_config` 7 (raro,
-documentado en código); el merge de `_headers` por ruta debe comprobarse una vez
-en Cloudflare Pages tras el primer despliegue.
+Limitaciones residuales conocidas (no ocultas): importar audio durante la
+reproducción suena tras parar/reanudar; la mezcla a 7 canales AAC se rechaza
+explícitamente (MPEG-4 Audio no tiene código de 7 canales); el merge de
+`_headers` por ruta debe comprobarse una vez en Cloudflare Pages tras el primer
+despliegue.
 
 ## Desviaciones deliberadas registradas
 

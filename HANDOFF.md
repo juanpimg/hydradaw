@@ -41,10 +41,9 @@ barrido de documentación. Toda cifra lleva su comando.
    plugins custom usan el proxy allowlisted: sin IR de convolver ni curvas de
    shaper).
 6. **Sin migración a React 19 / Vite 7 / Vitest 3** (decisión deliberada).
-7. Residuales aceptados: el JS custom de un plugin no sobrevive a la recarga; los
-   fades por clip no sobreviven al guardado; importar durante la reproducción
-   suena tras parar/reanudar; AAC de 7 canales escribe `channel_config` 7
-   (documentado en código, extremadamente raro).
+7. Residuales aceptados: importar durante la reproducción suena tras
+   parar/reanudar; AAC de 7 canales se rechaza explícitamente (sin código de
+   7 canales en MPEG-4 Audio).
 
 ## Decisiones deliberadas que hay que respetar
 
