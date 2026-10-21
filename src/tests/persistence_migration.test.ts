@@ -102,6 +102,7 @@ function baseState(): PersistableProjectState {
     metronome: false,
     masterVolume: 1.0,
     masterMute: false,
+    snapMode: '1/16',
     zoom: 50,
     scrollLeft: 0,
     activeView: 'timeline',
@@ -238,6 +239,17 @@ describe('persistence_migration: claves y metadatos', () => {
     expect(back!.clips[0]).toMatchObject({ sampleRate: 48000, sourceFileName: 'toma3.wav' });
     const restored = restoreClips(back!.clips, ctx);
     expect(restored[0]!.name).toContain('toma3.wav');
+  });
+
+  it('snapMode persiste y lo inválido cae a 1/16', () => {
+    const out = serializeProject({ ...baseState(), snapMode: 'triplet' });
+    expect(out.snapMode).toBe('triplet');
+    const back = deserializeProject(JSON.parse(JSON.stringify(out)));
+    expect(back!.snapMode).toBe('triplet');
+    const bad = deserializeProject({ ...JSON.parse(JSON.stringify(out)), snapMode: 'cuantizado-x' });
+    expect(bad!.snapMode).toBe('1/16');
+    const missing = deserializeProject({ ...JSON.parse(JSON.stringify(out)), snapMode: undefined });
+    expect(missing!.snapMode).toBe('1/16');
   });
 });
 

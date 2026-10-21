@@ -1,5 +1,5 @@
 import { get, set, del, keys, delMany } from 'idb-keyval';
-import type { AudioClip, AudioTrack } from '../types/daw';
+import type { AudioClip, AudioTrack, SnapMode } from '../types/daw';
 import { useDawStore, resetHistory } from './useDawStore';
 import { audioEngine } from '../audio/AudioEngine';
 import { generateDemoTrackBuffer, generateWaveformPeaks } from '../audio/waveformUtils';
@@ -119,6 +119,7 @@ export interface PersistableProjectState {
   metronome: boolean;
   masterVolume: number;
   masterMute: boolean;
+  snapMode: SnapMode;
   zoom: number;
   scrollLeft: number;
   activeView: 'timeline' | 'mixer';
@@ -164,6 +165,7 @@ export interface SerializedProject {
   metronome: boolean;
   masterVolume: number;
   masterMute: boolean;
+  snapMode: SnapMode;
   zoom: number;
   scrollLeft: number;
   activeView: 'timeline' | 'mixer';
@@ -241,6 +243,7 @@ export function serializeProject(state: PersistableProjectState): SerializedProj
     metronome: state.metronome,
     masterVolume: state.masterVolume,
     masterMute: state.masterMute,
+    snapMode: state.snapMode,
     zoom: state.zoom,
     scrollLeft: state.scrollLeft,
     activeView: state.activeView,
@@ -437,6 +440,22 @@ export function sanitizeClip(raw: unknown, validTrackIds: Set<string>): Serializ
   return out;
 }
 
+// ST-06: modos de snap válidos (la unión `SnapMode`). Lo desconocido cae a '1/16'.
+const VALID_SNAP_MODES: readonly string[] = [
+  'bar',
+  '1/2',
+  '1/4',
+  '1/8',
+  '1/16',
+  '1/32',
+  'triplet',
+  'off',
+];
+
+function sanitizeSnapMode(v: unknown): SnapMode {
+  return typeof v === 'string' && VALID_SNAP_MODES.includes(v) ? (v as SnapMode) : '1/16';
+}
+
 function buildProjectFromRaw(raw: Record<string, unknown>): SerializedProject | null {
   const tracksRaw = Array.isArray(raw['tracks']) ? (raw['tracks'] as unknown[]) : null;
   const clipsRaw = Array.isArray(raw['clips']) ? (raw['clips'] as unknown[]) : null;
@@ -474,6 +493,7 @@ function buildProjectFromRaw(raw: Record<string, unknown>): SerializedProject | 
     metronome: asBool(raw['metronome'], false),
     masterVolume: asNumber(raw['masterVolume'], 1.0),
     masterMute: asBool(raw['masterMute'], false),
+    snapMode: sanitizeSnapMode(raw['snapMode']),
     zoom: asNumber(raw['zoom'], 50),
     scrollLeft: asNumber(raw['scrollLeft'], 0),
     activeView,
@@ -1038,6 +1058,7 @@ export async function applySerializedProject(
       metronome: data.metronome,
       masterVolume: data.masterVolume,
       masterMute: data.masterMute,
+      snapMode: data.snapMode,
       zoom: data.zoom,
       scrollLeft: data.scrollLeft,
       activeView: data.activeView,
@@ -1155,11 +1176,14 @@ export async function clearSavedProject(): Promise<void> {
 }
 
 /**
- * Fix(waveA): snapshot de autosave. Incluye todo lo persistible EXCEPTO
+ * Fix(waveA): snapshot de autosave. Incluye lo persistible EXCEPTO
  * `currentTime` (y el transporte `isPlaying`/`isRecording`, que ni siquiera
  * se persiste): así cada frame de reproducción no rearma el debounce ni
  * escribe cada 2 s. `tracks`/`clips` se comparan por referencia (el store
  * actualiza de forma inmutable, así que un tick del reloj las conserva).
+ * ST-12: tampoco incluye `zoom`/`scrollLeft`/`activeView`/selección —cada pan,
+ * zoom o cambio de selección rearmaba el debounce y programaba un guardado
+ * completo (con escrituras PCM) sin cambiar nada del proyecto.
  */
 export interface AutosaveSnapshot {
   projectName: string;
@@ -1172,11 +1196,7 @@ export interface AutosaveSnapshot {
   metronome: boolean;
   masterVolume: number;
   masterMute: boolean;
-  zoom: number;
-  scrollLeft: number;
-  activeView: 'timeline' | 'mixer';
-  selectedTrackId: string | null;
-  selectedClipId: string | null;
+  snapMode: SnapMode;
   tracks: unknown;
   clips: unknown;
 }
@@ -1192,17 +1212,20 @@ export function selectAutosaveSnapshot(s: {
   metronome: boolean;
   masterVolume: number;
   masterMute: boolean;
-  zoom: number;
-  scrollLeft: number;
-  activeView: 'timeline' | 'mixer';
-  selectedTrackId: string | null;
-  selectedClipId: string | null;
+  snapMode: SnapMode;
   tracks: unknown;
   clips: unknown;
   // Fix(waveA): el transporte existe en el store pero se ignora a propósito.
   currentTime?: unknown;
   isPlaying?: unknown;
   isRecording?: unknown;
+  // ST-12: la vista/navegación/selección existen en el store pero se ignoran
+  // a propósito (ver comentario en `AutosaveSnapshot`).
+  zoom?: unknown;
+  scrollLeft?: unknown;
+  activeView?: unknown;
+  selectedTrackId?: unknown;
+  selectedClipId?: unknown;
 }): AutosaveSnapshot {
   return {
     projectName: s.projectName,
@@ -1215,11 +1238,7 @@ export function selectAutosaveSnapshot(s: {
     metronome: s.metronome,
     masterVolume: s.masterVolume,
     masterMute: s.masterMute,
-    zoom: s.zoom,
-    scrollLeft: s.scrollLeft,
-    activeView: s.activeView,
-    selectedTrackId: s.selectedTrackId,
-    selectedClipId: s.selectedClipId,
+    snapMode: s.snapMode,
     tracks: s.tracks,
     clips: s.clips,
   };
@@ -1297,10 +1316,26 @@ export function startAutosave(
     }
     schedule();
   });
+  // ST-05: el debounce solo no basta —cerrar la pestaña antes de ~2 s perdía
+  // la última edición. Guardado best-effort al descargar u ocultar la página.
+  const flush = (): void => {
+    void saveProjectNow();
+  };
+  const win = typeof window !== 'undefined' ? window : undefined;
+  if (win) {
+    win.addEventListener('beforeunload', flush);
+    win.addEventListener('pagehide', flush);
+  }
   return () => {
     if (timer) {
       clearTimeout(timer);
       timer = null;
+      // ST-05: la parada vuelca el timer pendiente en vez de descartarlo.
+      flush();
+    }
+    if (win) {
+      win.removeEventListener('beforeunload', flush);
+      win.removeEventListener('pagehide', flush);
     }
     unsubscribe();
   };

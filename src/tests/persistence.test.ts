@@ -34,6 +34,7 @@ import {
   loadSavedProject,
   clearSavedProject,
   startAutosave,
+  selectAutosaveSnapshot,
   inferDemoKind,
   stripReimportMarker,
   audioKeyForClip,
@@ -109,6 +110,7 @@ function baseState(): PersistableProjectState {
     metronome: true,
     masterVolume: 0.8,
     masterMute: false,
+    snapMode: '1/16',
     zoom: 60,
     scrollLeft: 10,
     activeView: 'mixer',
@@ -338,6 +340,76 @@ describe('persistence: storage + autosave (idb-keyval mockeado)', () => {
       stop();
     } finally {
       vi.useRealTimers();
+    }
+  });
+
+  it('P1: stop() con un cambio pendiente vuelca el guardado en vez de descartarlo', async () => {
+    const listeners: Array<() => void> = [];
+    const subscribeFn = vi.fn((listener: () => void) => {
+      listeners.push(listener);
+      return vi.fn();
+    });
+    useDawStore.setState({ projectName: 'P1 pendiente', tracks: [], clips: [] });
+    const stop = startAutosave(subscribeFn);
+    listeners[0]!();
+    expect(set).not.toHaveBeenCalled();
+    stop();
+    await vi.waitFor(() => {
+      expect(set).toHaveBeenCalledWith(PERSISTENCE_KEY, expect.objectContaining({ projectName: 'P1 pendiente' }));
+    });
+  });
+
+  it('P2: snapMode sobrevive a save→load', async () => {
+    useDawStore.setState({ projectName: 'Snap', snapMode: 'bar', tracks: [], clips: [] });
+    await saveProjectNow();
+    useDawStore.setState({ snapMode: '1/16' });
+    expect(await loadSavedProject()).toBe(true);
+    expect(useDawStore.getState().snapMode).toBe('bar');
+  });
+
+  it('P3: el snapshot de autosave excluye zoom/scroll/vista/selección e incluye snapMode', () => {
+    const base = baseState();
+    const a = selectAutosaveSnapshot(base);
+    expect(a).not.toHaveProperty('zoom');
+    expect(a).not.toHaveProperty('scrollLeft');
+    expect(a).not.toHaveProperty('activeView');
+    expect(a).not.toHaveProperty('selectedTrackId');
+    expect(a).not.toHaveProperty('selectedClipId');
+    expect(a.snapMode).toBe('1/16');
+    // Pan/zoom/vista/selección no rearmar el debounce…
+    expect(
+      selectAutosaveSnapshot({ ...base, zoom: 999, scrollLeft: 42, activeView: 'timeline', selectedTrackId: 'x', selectedClipId: 'y', currentTime: 123 }),
+    ).toEqual(a);
+    // …pero un cambio real sí.
+    expect(selectAutosaveSnapshot({ ...base, snapMode: 'bar' })).not.toEqual(a);
+  });
+
+  it('P4: beforeunload/pagehide disparan un guardado y stop() retira los listeners', async () => {
+    const added: Array<{ ev: string; fn: () => void }> = [];
+    const removed: Array<{ ev: string; fn: () => void }> = [];
+    const stubWindow = {
+      addEventListener: vi.fn((ev: string, fn: () => void) => {
+        added.push({ ev, fn });
+      }),
+      removeEventListener: vi.fn((ev: string, fn: () => void) => {
+        removed.push({ ev, fn });
+      }),
+    };
+    (globalThis as unknown as { window: unknown }).window = stubWindow;
+    try {
+      useDawStore.setState({ projectName: 'P4 cierre', tracks: [], clips: [] });
+      const stop = startAutosave();
+      expect(added.map((a) => a.ev).sort()).toEqual(['beforeunload', 'pagehide']);
+
+      added.find((a) => a.ev === 'beforeunload')!.fn();
+      await vi.waitFor(() => {
+        expect(set).toHaveBeenCalledWith(PERSISTENCE_KEY, expect.objectContaining({ projectName: 'P4 cierre' }));
+      });
+
+      stop();
+      expect(removed.map((r) => r.ev).sort()).toEqual(['beforeunload', 'pagehide']);
+    } finally {
+      delete (globalThis as unknown as { window?: unknown }).window;
     }
   });
 });
