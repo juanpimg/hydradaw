@@ -48,6 +48,7 @@ const ChannelStripInner: React.FC<ChannelStripProps> = ({ track, levels }) => {
           <span>Inserts</span>
           <button
             onClick={() => setPluginModal(track.id, null)}
+            aria-label="Añadir efecto"
             className="text-cyan-400 hover:text-cyan-300"
             title="Añadir Efecto VST"
           >

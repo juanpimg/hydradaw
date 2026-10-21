@@ -150,6 +150,7 @@ export const Timeline: React.FC = () => {
       <div className="absolute bottom-4 right-6 z-30 flex items-center space-x-1.5 bg-dark-surface/90 border border-dark-border/80 backdrop-blur-md px-2.5 py-1.5 rounded-xl shadow-xl">
         <button
           onClick={() => setZoom(zoom - 10)}
+          aria-label="Alejar zoom"
           className="p-1 rounded text-slate-300 hover:text-white hover:bg-dark-surfaceLight"
           title="Alejar Zoom (-)"
         >
@@ -158,6 +159,7 @@ export const Timeline: React.FC = () => {
         <span className="text-[11px] font-mono text-slate-400 w-12 text-center">{Math.round(zoom)} px/s</span>
         <button
           onClick={() => setZoom(zoom + 10)}
+          aria-label="Acercar zoom"
           className="p-1 rounded text-slate-300 hover:text-white hover:bg-dark-surfaceLight"
           title="Acercar Zoom (+)"
         >
@@ -177,6 +179,7 @@ export const Timeline: React.FC = () => {
             }
           }}
           disabled={!canSplit}
+          aria-label="Cortar clip"
           className="flex items-center space-x-1 px-2 py-1 rounded text-xs font-semibold bg-dark-surfaceLight hover:bg-dark-border disabled:opacity-40 text-cyan-400"
           title={!selectedClip ? 'Selecciona un clip para cortar' : "Cortar clip seleccionado en el cursor ('S')"}
         >

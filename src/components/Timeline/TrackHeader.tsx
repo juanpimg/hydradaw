@@ -88,6 +88,7 @@ export const TrackHeader: React.FC<TrackHeaderProps> = ({ track, isSelected }) =
             }}
             className="p-1 rounded text-slate-500 hover:text-red-400 hover:bg-red-950/20 transition-colors"
             title="Eliminar Pista"
+            aria-label={`Eliminar pista ${track.name}`}
           >
             <Trash2 className="w-3 h-3" />
           </button>
