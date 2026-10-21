@@ -94,6 +94,7 @@ beforeEach(() => {
   mockedEngine.play.mockImplementation(async () => {
     const s = useDawStore.getState();
     seen.push({ method: 'play', tracks: s.tracks, clips: s.clips });
+    return true;
   });
   mockedEngine.rebuildTrackEffects.mockImplementation(() => {
     const s = useDawStore.getState();

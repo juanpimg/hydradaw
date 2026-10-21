@@ -477,8 +477,11 @@ export class AudioEngine {
    * Fix(wave3): 4º arg opcional opts {loop, loopStart, loopEnd, metronome, timeSignature}.
    * Sin opts usa el estado interno (setLoop/setMetronome) para que el store actual
    * (play(tracks, clips, time) sin opts) obtenga loop/metrónomo reales sin cambios.
+   * I2: devuelve si la reproducción SOBREVIVIÓ a su ventana asíncrona (false si
+   * un stop()/seek()/otro play() la invalidó por generación): el store fija
+   * `isPlaying` con este resultado observado, no por asunción.
    */
-  async play(tracks?: AudioTrack[], clips?: AudioClip[], fromPosition: number = 0, opts?: PlayOptions) {
+  async play(tracks?: AudioTrack[], clips?: AudioClip[], fromPosition: number = 0, opts?: PlayOptions): Promise<boolean> {
     // Fix(AUD-01/AUD-02): solo la última llamada solapada sobrevive. `let` (no
     // const) porque el stop interno de reinicio hace bump y se absorbe con
     // gen = this.playGen tras él; sin esto el reinicio se invalidaría a sí mismo.
@@ -488,9 +491,9 @@ export class AudioEngine {
       ctx = await this.ensureContext();
     } catch (err) {
       console.warn('[AudioEngine] play: AudioContext is not available, playback aborted safely.', err);
-      return;
+      return false;
     }
-    if (gen !== this.playGen) return;
+    if (gen !== this.playGen) return false;
     // Fix(waveA): el stop interno preserva la toma en curso (punch-in/seek no la matan).
     if (this.isPlaying) {
       this.stop(true);
@@ -504,7 +507,7 @@ export class AudioEngine {
     const activeClips = clips ?? this.cachedClips;
 
     await this.syncTracks(activeTracks);
-    if (gen !== this.playGen) return;
+    if (gen !== this.playGen) return false;
 
     // Fix(wave3): resuelve loop/metrónomo efectivo (opts > estado interno).
     const effLoop = opts?.loop ?? this.loopEnabled;
@@ -543,6 +546,7 @@ export class AudioEngine {
     if (this.activeLoop) {
       this.armLoopTimer();
     }
+    return true;
   }
 
   /**

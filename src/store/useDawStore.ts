@@ -443,8 +443,10 @@ export const useDawStore = create<DawState>((set, get) => ({
 
   play: async () => {
     const { tracks, clips, currentTime } = get();
-    await audioEngine.play(tracks, clips, currentTime);
-    set({ isPlaying: true });
+    // I2: fija el resultado OBSERVADO (false si un stop/pause cayó dentro de
+    // la ventana asíncrona), no una asunción: gemelo de AUD-02 a nivel store.
+    const started = await audioEngine.play(tracks, clips, currentTime);
+    set({ isPlaying: started });
   },
 
   // Fix(waveA): si se está grabando, delegan en toggleRecord() para no perder la toma

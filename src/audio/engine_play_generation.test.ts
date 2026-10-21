@@ -194,4 +194,15 @@ describe('AUD-01/AUD-02: token de generación de play()', () => {
     expect((engine as unknown as { isPlaying: boolean }).isPlaying).toBe(false);
     expect(mockCtx.sources.length).toBe(0);
   });
+
+  it('I2: play() informa la supervivencia (false tras stop intercalado, true en arranque limpio)', async () => {
+    const { engine, release } = setupDeferredEngine();
+    const p = engine.play([makeTrack()], [makeClip()], 0);
+    engine.stop();
+    release();
+    await expect(p).resolves.toBe(false);
+    const q = engine.play([makeTrack()], [makeClip()], 0);
+    await expect(q).resolves.toBe(true);
+    expect((engine as unknown as { isPlaying: boolean }).isPlaying).toBe(true);
+  });
 });
