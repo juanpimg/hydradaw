@@ -34,6 +34,9 @@ export function muxAdtsFrame(payload: Uint8Array, config: AdtsFrameConfig): Uint
   if (!Number.isInteger(ch) || ch < 1 || ch > 8) {
     throw new Error(`[aac] canales inválidos para ADTS: ${String(ch)} (1-8)`);
   }
+  // AAC-06: channel_configuration es un campo de 3 bits donde 7 significa
+  // 8 canales (MPEG-4 Audio). Escribir 8 en crudo truncaba a 0 (reservado).
+  const channelConfig = ch === 8 ? 7 : ch;
   const frameLength = 7 + payload.length;
   if (frameLength > 0x1fff) {
     throw new Error(`[aac] frame ADTS demasiado grande (${frameLength} > 8191 bytes)`);
@@ -43,9 +46,9 @@ export function muxAdtsFrame(payload: Uint8Array, config: AdtsFrameConfig): Uint
   out[0] = 0xff;
   out[1] = 0xf1;
   // Byte 2: perfil LC (1) + índice de tasa + private 0 + bit alto de canales.
-  out[2] = (1 << 6) | (idx << 2) | ((ch >> 2) & 0x01);
+  out[2] = (1 << 6) | (idx << 2) | ((channelConfig >> 2) & 0x01);
   // Byte 3: 2 bits bajos de canales + 2 bits altos de frame_length.
-  out[3] = ((ch & 0x03) << 6) | ((frameLength >> 11) & 0x03);
+  out[3] = ((channelConfig & 0x03) << 6) | ((frameLength >> 11) & 0x03);
   // Byte 4: 8 bits medios de frame_length.
   out[4] = (frameLength >> 3) & 0xff;
   // Byte 5-6: 3 bits bajos de frame_length + fullness VBR 0x7FF + 0 bloques extra.
@@ -76,7 +79,9 @@ export function parseAdtsHeader(frame: Uint8Array): ParsedAdtsHeader {
   const syncword = (b0 << 4) | ((b1 >> 4) & 0x0f);
   const profile = (b2 >> 6) & 0x03;
   const sampleRateIndex = (b2 >> 2) & 0x0f;
-  const channels = (((b2 & 0x01) << 2) | ((b3 >> 6) & 0x03)) as number;
+  const rawChannels = (((b2 & 0x01) << 2) | ((b3 >> 6) & 0x03)) as number;
+  // AAC-06: channel_configuration 7 significa 8 canales (ver muxAdtsFrame).
+  const channels = rawChannels === 7 ? 8 : rawChannels;
   const frameLength = (((b3 & 0x03) << 11) | (b4 << 3) | ((b5 >> 5) & 0x07)) as number;
   const sampleRate = (AAC_SAMPLE_RATES as readonly number[])[sampleRateIndex] ?? 0;
   return { syncword, profile, sampleRateIndex, sampleRate, channels, frameLength };

@@ -31,7 +31,13 @@ export const DEMO_NOISE_SEED = 0x2f6e2b1;
  * pero no para medición de pico real.
  */
 export function generateWaveformPeaks(buffer: AudioBuffer, targetPoints: number = 800): Float32Array {
-  const peaks = new Float32Array(targetPoints * 2);
+  // DSP-07: la guarda va ANTES de asignar — `new Float32Array(n * 2)` con
+  // n negativo lanzaba RangeError y un solo número malo tumbaba el proyecto.
+  if (!Number.isFinite(targetPoints) || targetPoints <= 0) {
+    return new Float32Array(0);
+  }
+  const points = Math.floor(targetPoints);
+  const peaks = new Float32Array(points * 2);
   const channels = buffer.numberOfChannels;
   const channelData: Float32Array[] = [];
 
@@ -40,15 +46,15 @@ export function generateWaveformPeaks(buffer: AudioBuffer, targetPoints: number 
   }
 
   const length = buffer.length;
-  if (length <= 0 || targetPoints <= 0) {
+  if (length <= 0) {
     return peaks;
   }
 
   // Fix(waveA): blockSize = max(1, ...) para que los clips cortos (length < targetPoints)
   // no devuelvan ceros por el early-return anterior.
-  const blockSize = Math.max(1, Math.floor(length / targetPoints));
+  const blockSize = Math.max(1, Math.floor(length / points));
 
-  for (let i = 0; i < targetPoints; i++) {
+  for (let i = 0; i < points; i++) {
     let start = i * blockSize;
     // Fix(waveA): saturar los bins que caen más allá del buffer al último sample
     // para no dejar ceros en la cola de clips cortos.
@@ -57,7 +63,7 @@ export function generateWaveformPeaks(buffer: AudioBuffer, targetPoints: number 
     }
     // Fix(waveA): el último bin absorbe el resto parcial final (length no múltiplo de blockSize).
     let end = Math.min(start + blockSize, length);
-    if (i === targetPoints - 1) {
+    if (i === points - 1) {
       end = length;
     }
 

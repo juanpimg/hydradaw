@@ -38,6 +38,10 @@ export function splitClipOperation(
   atTime: number,
   minDuration: number = MIN_CLIP_DURATION
 ): SplitResult | null {
+  // AUD-12: un punto de corte no-finito producía clips con geometría NaN.
+  if (!Number.isFinite(atTime)) {
+    return null;
+  }
   // Must be strictly within bounds and respect minimum duration for both resulting slices
   if (atTime <= clip.startTime + minDuration || atTime >= clip.startTime + clip.duration - minDuration) {
     return null;
@@ -91,6 +95,11 @@ export function trimLeftOperation(
   deltaSeconds: number,
   minDuration: number = MIN_CLIP_DURATION
 ): AudioClip {
+  // AUD-12: delta no-finito ⇒ el clip vuelve intacto (NaN contaminaba
+  // startTime/duration/offset vía los clamps).
+  if (!Number.isFinite(deltaSeconds)) {
+    return { ...clip };
+  }
   // Fix(waveA): clampedDelta = clamp(delta, max(-startTime, -offset), duration - minDuration).
   const maxDelta = clip.duration - minDuration;
   const lowerBound = Math.max(-clip.startTime, -clip.offset);
@@ -118,6 +127,10 @@ export function trimRightOperation(
   deltaSeconds: number,
   minDuration: number = MIN_CLIP_DURATION
 ): AudioClip {
+  // AUD-12: delta no-finito ⇒ el clip vuelve intacto.
+  if (!Number.isFinite(deltaSeconds)) {
+    return { ...clip };
+  }
   // Fix(waveB): tolerancia legacy en runtime — datos viejos pueden traer `buffer`
   // en lugar de `audioBuffer` (el tipo ya solo declara `audioBuffer`).
   const sourceDuration = clip.audioBuffer?.duration ?? (clip as unknown as { buffer?: AudioBuffer | null }).buffer?.duration;
