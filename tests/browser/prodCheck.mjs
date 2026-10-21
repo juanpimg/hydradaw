@@ -238,6 +238,44 @@ async function main() {
         if (hits.length > 0) throw new Error(`peticiones de exfiltración: ${hits.join(', ')}`);
       });
 
+      await check('P9 la plantilla REAL del editor compila bajo la CSP real', async () => {
+        // I1: P5 compila una muestra benigna propia; este check compila lo
+        // primero que ve un usuario: el valor por defecto del textarea tal
+        // como lo entrega el bundle construido. Recarga para partir del
+        // editor prístino (tras P5-P6 el textarea trae otro código) y con la
+        // región de toasts limpia (los toasts viven 4 s y un 'importado' viejo
+        // haría pasar la espera sin compilar nada).
+        await page.goto(base, { waitUntil: 'domcontentloaded', timeout: 60000 });
+        await page.waitForSelector('[aria-label="Pantalla de inicio de HydraDAW"]', {
+          visible: true,
+          timeout: 30000,
+        });
+        await clickButtonByText(page, 'Empezar con la demo', 'Seguir editando');
+        await page.waitForFunction(
+          () => document.querySelectorAll('[role="option"]').length === 4,
+          { timeout: 30000 }
+        );
+        await page.click('button[aria-label="Ver mixer"]');
+        await page.waitForFunction(
+          () => !!document.querySelector('button[aria-label="Añadir efecto"]'),
+          { timeout: 15000 }
+        );
+        const addButtons = await page.$$('button[aria-label="Añadir efecto"]');
+        if (addButtons.length === 0) throw new Error('sin botón Añadir efecto');
+        await addButtons[0].click();
+        await page.waitForSelector('[role="dialog"]', { visible: true, timeout: 15000 });
+        await ensureEditorOpen(page);
+        const shipped = await page.evaluate(() => document.querySelector('textarea')?.value ?? '');
+        if (!shipped.includes('custom_filter_')) {
+          throw new Error('el textarea no trae la plantilla del producto');
+        }
+        if (shipped.includes('currentTime')) {
+          throw new Error('la plantilla usa currentTime (inexistente en el proxy)');
+        }
+        // Se compila tal cual, sin rellenar: es la cadena exacta del producto.
+        await compileAndWaitToast(page, 'importado', 30000);
+      });
+
       await check('P8 cero errores de consola/pageerror', async () => {
         const problems = [
           ...errors.pageErrors.map((e) => `pageerror: ${e}`),

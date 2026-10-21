@@ -3,6 +3,7 @@ import { useDawStore } from '../../store/useDawStore';
 import { useShallow } from 'zustand/react/shallow';
 import { trapTabKey, useModalBackgroundInert } from '../../hooks/useModalFocus';
 import { pluginHost } from '../../audio/PluginHost';
+import { CUSTOM_PLUGIN_TEMPLATE } from '../../audio/customPluginTemplate';
 import { Knob } from './Knob';
 import { 
   X, 
@@ -39,31 +40,9 @@ export const PluginRackModal: React.FC = () => {
 
   const [selectedCatalogPlugin, setSelectedCatalogPlugin] = useState<string>('eq3');
   const [importingCustom, setImportingCustom] = useState<boolean>(false);
-  const [customCode, setCustomCode] = useState<string>(`// Plantilla de Plugin Local VST / WAM en JavaScript
-const customPlugin = {
-  id: 'custom_filter_' + Date.now(),
-  name: 'Filtro Resonante Personalizado',
-  category: 'custom',
-  description: 'Filtro paso bajo analógico con resonancia Q',
-  parameters: [
-    { id: 'cutoff', name: 'Cutoff', min: 100, max: 12000, step: 50, defaultValue: 2500, unit: 'Hz' },
-    { id: 'resonance', name: 'Q', min: 0.5, max: 12, step: 0.2, defaultValue: 3.0 }
-  ],
-  createDSPNode: (context, params) => {
-    const filter = context.createBiquadFilter();
-    filter.type = 'lowpass';
-    filter.frequency.value = params.cutoff ?? 2500;
-    filter.Q.value = params.resonance ?? 3.0;
-    return {
-      inputNode: filter,
-      outputNode: filter,
-      updateParameter: (id, val) => {
-        if (id === 'cutoff') filter.frequency.setTargetAtTime(val, context.currentTime, 0.02);
-        if (id === 'resonance') filter.Q.setTargetAtTime(val, context.currentTime, 0.02);
-      }
-    };
-  }
-};`);
+  // I1: la plantilla vive en `src/audio/customPluginTemplate.ts` (misma cadena
+  // que registran los tests y compila el check P9 de producción).
+  const [customCode, setCustomCode] = useState<string>(CUSTOM_PLUGIN_TEMPLATE);
 
   // Fix(waveA): foco inicial al abrir + devolver foco al cerrar + cierre con ESC.
   const panelRef = useRef<HTMLDivElement>(null);
