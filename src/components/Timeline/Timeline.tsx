@@ -30,8 +30,58 @@ export const Timeline: React.FC = () => {
   const selectedClip = clips.find((c) => c.id === selectedClipId) ?? null;
   const canSplit = Boolean(selectedClip);
 
-  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const lanesScrollRef = useRef<HTMLDivElement>(null);
+  const headersScrollRef = useRef<HTMLDivElement>(null);
+  const headerColRef = useRef<HTMLDivElement>(null);
   const playheadRef = useRef<HTMLDivElement>(null);
+  // Banderas de reentrada: programar el scrollTop del otro contenedor no debe
+  // rebotar de vuelta (ping-pong entre los dos onScroll).
+  const isSyncingFromHeaders = useRef(false);
+  const isSyncingFromLanes = useRef(false);
+  // Ancho REAL medido de la columna de headers: el ancho de lanes y regla se
+  // deriva de él, no de la constante w-60, para no desincronizar en responsive.
+  const [headerWidth, setHeaderWidth] = useState(240);
+
+  useEffect(() => {
+    const el = headerColRef.current;
+    if (!el) return;
+    const update = () => {
+      const w = el.getBoundingClientRect().width || el.offsetWidth;
+      if (w > 0) setHeaderWidth((prev) => (Math.abs(prev - w) > 0.5 ? w : prev));
+    };
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  const handleHeadersScroll = () => {
+    const headers = headersScrollRef.current;
+    const lanes = lanesScrollRef.current;
+    if (!headers || !lanes) return;
+    if (isSyncingFromHeaders.current) {
+      isSyncingFromHeaders.current = false;
+      return;
+    }
+    if (Math.abs(lanes.scrollTop - headers.scrollTop) > 0.5) {
+      isSyncingFromLanes.current = true;
+      lanes.scrollTop = headers.scrollTop;
+    }
+  };
+
+  const handleLanesScroll = () => {
+    const headers = headersScrollRef.current;
+    const lanes = lanesScrollRef.current;
+    if (!headers || !lanes) return;
+    if (isSyncingFromLanes.current) {
+      isSyncingFromLanes.current = false;
+      return;
+    }
+    if (Math.abs(headers.scrollTop - lanes.scrollTop) > 0.5) {
+      isSyncingFromHeaders.current = true;
+      headers.scrollTop = lanes.scrollTop;
+    }
+  };
 
   // Fix: viewport reactivo con listener de resize + cleanup en lugar de leer window.innerWidth en render.
   const [viewportWidth, setViewportWidth] = useState(() =>
@@ -119,9 +169,9 @@ export const Timeline: React.FC = () => {
     }
   };
 
-  // Fix(waveA): ancho de lanes = viewport menos columna de headers (w-60 = 240px),
-  // misma fórmula que Ruler para alinear rejilla y clips.
-  const totalWidth = Math.max(viewportWidth - 240, duration * zoom);
+  // Fix(waveA): ancho de lanes = viewport menos la columna de headers MEDIDA
+  // (ResizeObserver), misma fórmula que Ruler para alinear rejilla y clips.
+  const totalWidth = Math.max(viewportWidth - headerWidth, duration * zoom);
 
   return (
     <div className="flex-1 flex flex-col bg-dark-bg overflow-hidden relative select-none">
@@ -188,7 +238,7 @@ export const Timeline: React.FC = () => {
       {/* Timeline Main Layout: Headers on left, Scrollable Lanes on right */}
       <div className="flex-1 flex overflow-hidden">
         {/* Left: Track Headers Column */}
-        <div className="w-60 flex-shrink-0 flex flex-col bg-dark-surface border-r border-dark-border z-20">
+        <div ref={headerColRef} data-testid="headers-col" className="w-60 flex-shrink-0 flex flex-col bg-dark-surface border-r border-dark-border z-20">
           {/* Header Placeholder above tracks aligning with Ruler */}
           <div className="h-7 bg-dark-surfaceLight/80 border-b border-dark-border px-3 flex items-center justify-between">
             <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Pistas ({tracks.length})</span>
@@ -202,7 +252,12 @@ export const Timeline: React.FC = () => {
           </div>
 
           {/* Track Headers List */}
-          <div className="flex-1 overflow-y-auto">
+          <div
+            ref={headersScrollRef}
+            data-testid="headers-scroll"
+            onScroll={handleHeadersScroll}
+            className="flex-1 overflow-y-auto"
+          >
             {tracks.map((track) => (
               <TrackHeader
                 key={track.id}
@@ -221,16 +276,18 @@ export const Timeline: React.FC = () => {
 
         {/* Right: Horizontally Scrollable Lanes + Ruler */}
         <div
-          ref={scrollContainerRef}
+          ref={lanesScrollRef}
+          data-testid="lanes-scroll"
+          onScroll={handleLanesScroll}
           onDragOver={(e) => e.preventDefault()}
           onDrop={(e) => handleDrop(e)}
           className="flex-1 overflow-x-auto overflow-y-auto relative bg-[#07090e]"
         >
           {/* Timeline Ruler */}
-          <Ruler />
+          <Ruler lanesWidth={totalWidth} />
 
           {/* Track Lanes */}
-          <div className="relative" style={{ width: `${totalWidth}px` }}>
+          <div data-testid="lanes-inner" className="relative" style={{ width: `${totalWidth}px` }}>
             {/* Smooth 60 FPS Playhead Vertical Line */}
             <div
               ref={playheadRef}

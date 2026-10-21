@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useDawStore } from '../../store/useDawStore';
 import { audioEngine } from '../../audio/AudioEngine';
 
-export const Ruler: React.FC = () => {
+export const Ruler: React.FC<{ lanesWidth?: number }> = ({ lanesWidth }) => {
   const duration = useDawStore((s) => s.duration);
   const zoom = useDawStore((s) => s.zoom);
   const bpm = useDawStore((s) => s.bpm);
@@ -99,9 +99,12 @@ export const Ruler: React.FC = () => {
   return (
     <div
       ref={rulerRef}
+      data-testid="ruler"
       onClick={handleSeek}
-      className="h-7 bg-dark-surfaceLight/50 border-b border-dark-border relative cursor-pointer select-none overflow-hidden"
-      style={{ width: `${Math.max(viewportWidth, totalWidth)}px` }}
+      // Sticky: la regla (números de compás + superficie de seek) no se va con
+      // el scroll vertical. Fondo OPACO para que las lanes no se transparenten.
+      className="sticky top-0 z-20 h-7 bg-dark-surface border-b border-dark-border relative cursor-pointer select-none overflow-hidden"
+      style={{ width: `${lanesWidth ?? Math.max(viewportWidth, totalWidth)}px` }}
     >
       {bars}
 
