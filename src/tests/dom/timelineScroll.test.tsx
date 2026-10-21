@@ -62,23 +62,58 @@ describe('Timeline con scroll sincronizado y regla sticky (UI-01, UI-02, F10, F1
     expect(headers.scrollTop).toBe(200);
   });
 
-  it('T3: el scroll sincronizado no entra en bucle', () => {
+  it('T3: el sync absorbe el eco asíncrono sin escrituras extra', () => {
     const { getByTestId } = render(<Timeline />);
     const headers = getByTestId('headers-scroll');
     const lanes = getByTestId('lanes-scroll');
-    let events = 0;
-    headers.addEventListener('scroll', () => { events += 1; });
-    lanes.addEventListener('scroll', () => { events += 1; });
-    // Ida y vuelta alternada: cada scroll manual debe sincronizar sin
-    // amplificarse (programar scrollTop no dispara scroll en el DOM real ni aquí).
-    for (let i = 0; i < 10; i++) {
-      headers.scrollTop = 10 * (i + 1);
-      fireEvent.scroll(headers);
-      lanes.scrollTop = headers.scrollTop;
-      fireEvent.scroll(lanes);
-    }
-    expect(headers.scrollTop).toBe(lanes.scrollTop);
-    expect(events).toBe(20);
+    // Contadores de escrituras programadas: el navegador real emite `scroll`
+    // también por `scrollTop = x` (eco asíncrono); aquí se dispara a mano para
+    // simularlo. La asignación directa al respaldo simula el scroll físico del
+    // usuario (ningún código nuestro escribe).
+    let headersTop = 0;
+    let lanesTop = 0;
+    let headersWrites = 0;
+    let lanesWrites = 0;
+    Object.defineProperty(headers, 'scrollTop', {
+      get: () => headersTop,
+      set: (v: number) => { headersWrites += 1; headersTop = v; },
+      configurable: true,
+    });
+    Object.defineProperty(lanes, 'scrollTop', {
+      get: () => lanesTop,
+      set: (v: number) => { lanesWrites += 1; lanesTop = v; },
+      configurable: true,
+    });
+
+    // Gesto: el usuario baja los headers a 100 ⇒ una sola escritura en lanes.
+    headersTop = 100;
+    fireEvent.scroll(headers);
+    expect(lanesTop).toBe(100);
+    expect(lanesWrites).toBe(1);
+
+    // Eco rancio entrelazado con un gesto: antes de que llegue el eco de la
+    // escritura programada (lanes:=100), el usuario mueve las lanes a 60.
+    lanesTop = 60;
+    fireEvent.scroll(lanes);
+    // La bandera absorbe el eco: los headers siguen en 100, sin escrituras.
+    expect(headersTop).toBe(100);
+    expect(headersWrites).toBe(0);
+
+    // El evento propio del gesto del usuario sí sincroniza (bandera consumida).
+    fireEvent.scroll(lanes);
+    expect(headersTop).toBe(60);
+    expect(headersWrites).toBe(1);
+
+    // Eco de esa escritura en los headers: se absorbe sin reescribir lanes.
+    fireEvent.scroll(headers);
+    expect(lanesTop).toBe(60);
+    expect(lanesWrites).toBe(1);
+
+    // Umbral sub-píxel: una diferencia de 0.3 no escribe nada.
+    headersTop = 60.3;
+    fireEvent.scroll(headers);
+    expect(lanesWrites).toBe(1);
+    expect(lanesTop).toBe(60);
   });
 
   it('T4: la raíz de la Ruler contiene sticky', () => {
