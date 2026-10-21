@@ -122,7 +122,7 @@ export const MixerConsole: React.FC = () => {
         {/* Master Fader & Stereo VU Meter */}
         <div className="flex items-center justify-center space-x-2 my-2 h-44">
           {/* Fix(waveA): escala oculta en pantallas pequeñas para ahorrar ancho. */}
-          <div className="hidden sm:flex flex-col justify-between h-40 text-[8px] font-mono text-slate-500 text-right pr-0.5">
+          <div className="hidden sm:flex flex-col justify-between h-40 text-[8px] font-mono tabular-nums text-slate-500 text-right pr-0.5">
             <span>+6</span>
             <span>0</span>
             <span>-6</span>
@@ -159,7 +159,7 @@ export const MixerConsole: React.FC = () => {
             onClick={() => setMasterVolume(1.0)}
             aria-label={`Volumen master: ${masterDb === -Infinity ? '-∞ dB' : `${masterDb.toFixed(1)} dB`}, restablecer a 0 dB`}
             title="Clic para restablecer el master a 0 dB"
-            className="text-[11px] font-mono font-bold text-cyan-400 hover:text-cyan-300 cursor-pointer"
+            className="text-[11px] font-mono tabular-nums font-bold text-cyan-400 hover:text-cyan-300 cursor-pointer"
           >
             {masterDb === -Infinity ? '-∞ dB' : `${masterDb.toFixed(1)} dB`}
           </button>

@@ -156,7 +156,7 @@ export const Timeline: React.FC = () => {
         >
           <ZoomOut className="w-4 h-4" />
         </button>
-        <span className="text-[11px] font-mono text-slate-400 w-12 text-center">{Math.round(zoom)} px/s</span>
+        <span className="text-[11px] font-mono tabular-nums text-slate-400 w-12 text-center">{Math.round(zoom)} px/s</span>
         <button
           onClick={() => setZoom(zoom + 10)}
           aria-label="Acercar zoom"

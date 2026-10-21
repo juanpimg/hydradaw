@@ -66,7 +66,7 @@ const LoopRangeInputs: React.FC<{
   };
 
   const inputClass =
-    'w-10 bg-transparent text-slate-200 font-mono text-xs font-semibold focus:outline-none';
+    'w-10 bg-transparent text-slate-200 font-mono tabular-nums text-xs font-semibold focus:outline-none';
 
   return (
     <div
@@ -169,7 +169,7 @@ const BpmInput: React.FC<{ bpm: number; setBpm: (bpm: number) => void }> = React
           inputRef.current?.blur();
         }
       }}
-      className="w-12 bg-transparent text-slate-200 font-mono text-xs font-semibold focus:outline-none"
+      className="w-12 bg-transparent text-slate-200 font-mono tabular-nums text-xs font-semibold focus:outline-none"
     />
   );
 });
@@ -235,7 +235,7 @@ const TransportTimeDisplay: React.FC<TimeDisplayProps> = React.memo(({ bpm, time
 
   return (
     <div
-      className="flex items-center space-x-3 bg-dark-bg px-3.5 py-1.5 rounded-xl border border-dark-border font-mono text-sm shadow-inner flex-shrink-0"
+      className="flex items-center space-x-3 bg-dark-bg px-3.5 py-1.5 rounded-xl border border-dark-border font-mono tabular-nums text-sm shadow-inner flex-shrink-0"
       title="Rejilla (no estira el audio)"
     >
       <div className="flex items-baseline space-x-1">
@@ -332,7 +332,7 @@ export const TransportBar: React.FC = () => {
           aria-label="Grabar"
           className={`p-2.5 rounded-xl transition-all min-w-[44px] min-h-[44px] inline-flex items-center justify-center ${
             isRecording
-              ? 'bg-red-600 text-white animate-pulse shadow-lg shadow-red-600/40 ring-2 ring-red-400'
+              ? 'bg-red-600 text-white motion-safe:animate-pulse shadow-lg shadow-red-600/40 ring-2 ring-red-400'
               : 'bg-dark-surfaceLight hover:bg-red-500/20 text-red-500 border border-red-500/30'
           }`}
           title="Grabar pista armada (Micrófono local)"
@@ -386,7 +386,7 @@ export const TransportBar: React.FC = () => {
             // Fix(waveB-ts): destructuring de number[] da number|undefined en tipo.
             if (n !== undefined && d !== undefined && Number.isFinite(n) && Number.isFinite(d) && n > 0 && d > 0) setTimeSignature([n, d]);
           }}
-          className="bg-dark-surfaceLight px-1 py-1 rounded-lg border border-dark-border text-xs text-slate-300 font-mono focus:outline-none cursor-pointer"
+          className="bg-dark-surfaceLight px-1 py-1 rounded-lg border border-dark-border text-xs text-slate-300 font-mono tabular-nums focus:outline-none cursor-pointer"
         >
           {['2/4', '3/4', '4/4', '5/4', '6/8', '7/8'].map((sig) => (
             <option key={sig} value={sig}>
@@ -438,7 +438,7 @@ export const TransportBar: React.FC = () => {
             className="w-20 accent-cyan-400 h-1.5 bg-dark-border rounded-lg cursor-pointer"
             title={`Volumen Master: ${Math.round(masterVolume * 100)}%`}
           />
-          <span className="text-[11px] font-mono text-slate-400 w-8">
+          <span className="text-[11px] font-mono tabular-nums text-slate-400 w-8">
             {masterVolume === 0 ? '-∞' : `${Math.round(20 * Math.log10(masterVolume))}dB`}
           </span>
         </div>

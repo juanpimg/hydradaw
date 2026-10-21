@@ -51,7 +51,7 @@ export const VUMeter: React.FC<VUMeterProps> = ({ peak, rms, height = 180 }) => 
       {/* Clip LED Indicator */}
       <div
         className={`w-2 h-2 rounded-full mb-1 transition-colors ${
-          isClipping ? 'bg-red-500 shadow-md shadow-red-500/80 animate-ping' : 'bg-red-950/40 border border-red-900/40'
+          isClipping ? 'bg-red-500 shadow-md shadow-red-500/80 motion-safe:animate-ping' : 'bg-red-950/40 border border-red-900/40'
         }`}
         title="Clip Warning (>= 0 dBFS)"
       />

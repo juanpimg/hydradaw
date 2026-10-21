@@ -51,3 +51,15 @@
   background: #334155;
 }
 
+/* UI-14: respeta prefers-reduced-motion — congela animaciones y transiciones
+   infinitas (los prefijos motion-safe: cubren lo decorativo caso por caso). */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+

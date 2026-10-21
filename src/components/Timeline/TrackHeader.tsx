@@ -159,7 +159,7 @@ export const TrackHeader: React.FC<TrackHeaderProps> = ({ track, isSelected }) =
           aria-label={`Armar pista ${track.name} para grabación`}
           className={`w-9 h-9 min-w-[44px] min-h-[44px] rounded text-xs font-bold transition-all ${
             track.armed
-              ? 'bg-red-500 text-white shadow-sm shadow-red-500/40 ring-1 ring-red-400 animate-pulse'
+              ? 'bg-red-500 text-white shadow-sm shadow-red-500/40 ring-1 ring-red-400 motion-safe:animate-pulse'
               : 'bg-dark-surfaceLight text-slate-400 hover:text-red-400 border border-dark-border'
           }`}
           title="Armar para Grabación (Record Arm)"
@@ -198,7 +198,7 @@ export const TrackHeader: React.FC<TrackHeaderProps> = ({ track, isSelected }) =
           className="flex-1 h-1.5 accent-cyan-400 bg-dark-border rounded cursor-pointer"
           title={`Volumen: ${Math.round(track.volume * 100)}%`}
         />
-        <span className="text-[10px] font-mono text-slate-400 w-8 text-right">
+        <span className="text-[10px] font-mono tabular-nums text-slate-400 w-8 text-right">
           {track.volume === 0 ? '-∞' : `${Math.round(20 * Math.log10(track.volume))}dB`}
         </span>
       </div>

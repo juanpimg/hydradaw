@@ -200,7 +200,7 @@ export const Knob: React.FC<KnobProps> = ({
               setEditing(false);
             }
           }}
-          className="w-12 text-[10px] font-mono text-center bg-dark-bg text-cyan-300 border border-cyan-500 rounded px-0.5 mt-1 outline-none"
+          className="w-12 text-[10px] font-mono tabular-nums text-center bg-dark-bg text-cyan-300 border border-cyan-500 rounded px-0.5 mt-1 outline-none"
         />
       ) : (
         <button
@@ -210,7 +210,7 @@ export const Knob: React.FC<KnobProps> = ({
             setEditing(true);
           }}
           aria-label={`Editar ${label}`}
-          className="text-[10px] font-mono text-slate-300 mt-1 cursor-pointer hover:text-cyan-400 hover:underline bg-transparent border-0 p-0"
+          className="text-[10px] font-mono tabular-nums text-slate-300 mt-1 cursor-pointer hover:text-cyan-400 hover:underline bg-transparent border-0 p-0"
           title="Clic para editar valor numérico"
         >
           {Math.round(value * 10) / 10}{unit}

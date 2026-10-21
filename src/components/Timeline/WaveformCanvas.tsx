@@ -312,7 +312,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
       role="option"
       aria-selected={isSelected}
       aria-label={`Clip ${clip.name}`}
-      className={`absolute top-1 bottom-1 rounded-lg overflow-hidden cursor-move border transition-shadow select-none touch-none ${
+      className={`absolute top-1 bottom-1 rounded-[3px] overflow-hidden cursor-move border transition-shadow select-none touch-none ${
         isSelected
           ? 'border-white ring-2 ring-cyan-400 shadow-lg shadow-cyan-500/30 z-10'
           : 'border-white/20 hover:border-white/50'
@@ -339,7 +339,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
         >
           {clip.name}
         </span>
-        <span className="text-[9px] font-mono text-slate-300 bg-black/40 px-1 py-0.2 rounded">
+        <span className="text-[9px] font-mono tabular-nums text-slate-300 bg-black/40 px-1 py-0.2 rounded">
           {clip.duration.toFixed(1)}s
         </span>
       </div>

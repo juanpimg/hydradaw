@@ -127,7 +127,7 @@ const ChannelStripInner: React.FC<ChannelStripProps> = ({ track, levels }) => {
           onClick={() => updateTrack(track.id, { armed: !track.armed })}
           className={`w-6 h-6 min-w-[44px] min-h-[44px] inline-flex items-center justify-center rounded text-xs font-bold transition-all ${
             track.armed
-              ? 'bg-red-500 text-white shadow-sm shadow-red-500/40 ring-1 ring-red-400 animate-pulse'
+              ? 'bg-red-500 text-white shadow-sm shadow-red-500/40 ring-1 ring-red-400 motion-safe:animate-pulse'
               : 'bg-dark-surfaceLight text-slate-400 hover:text-red-400 border border-dark-border'
           }`}
           title="Record Arm"
@@ -139,7 +139,7 @@ const ChannelStripInner: React.FC<ChannelStripProps> = ({ track, levels }) => {
       {/* Fader & VU Meter Section */}
       <div className="flex items-center justify-center space-x-2 my-2 h-44">
         {/* dB Scale Markings */}
-        <div className="flex flex-col justify-between h-40 text-[8px] font-mono text-slate-500 text-right pr-0.5">
+        <div className="flex flex-col justify-between h-40 text-[8px] font-mono tabular-nums text-slate-500 text-right pr-0.5">
           <span>+6</span>
           <span>0</span>
           <span>-6</span>
@@ -181,7 +181,7 @@ const ChannelStripInner: React.FC<ChannelStripProps> = ({ track, levels }) => {
           onClick={() => updateTrack(track.id, { volume: 1.0 })}
           aria-label={`${track.name}: ${volumeDb === -Infinity ? '-∞ dB' : `${volumeDb.toFixed(1)} dB`}, restablecer a 0 dB`}
           title="Clic para restablecer a 0 dB"
-          className="text-[10px] font-mono font-bold text-slate-300 hover:text-cyan-400 cursor-pointer"
+          className="text-[10px] font-mono tabular-nums font-bold text-slate-300 hover:text-cyan-400 cursor-pointer"
         >
           {volumeDb === -Infinity ? '-∞ dB' : `${volumeDb.toFixed(1)} dB`}
         </button>
