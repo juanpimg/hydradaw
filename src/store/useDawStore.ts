@@ -276,8 +276,8 @@ export const useDawStore = create<DawState>((set, get) => ({
       void get().toggleRecord();
       return;
     }
-    audioEngine.stop();
-    set({ isPlaying: false, isRecording: false, currentTime: 0 });
+    const time = audioEngine.stop();
+    set({ isPlaying: false, isRecording: false, currentTime: time });
   },
 
   toggleRecord: async () => {

@@ -516,6 +516,9 @@ export class AudioEngine {
     // Fix(AUD-02): invalida los play() en vuelo (zombis post-stop).
     this.playGen++;
     const currentPos = this.getCurrentTime();
+    // Fix(Task-20): persiste la posición para que getCurrentTime() la devuelva
+    // tras parar (el split con S en pausa y la reanudación la necesitan).
+    this.playheadOffset = currentPos;
     this.isPlaying = false;
     // Fix(wave3): cancela timers de loop/metrónomo y suelta osciladores del click.
     this.clearLoopTimers();
