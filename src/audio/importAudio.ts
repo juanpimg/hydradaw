@@ -44,7 +44,7 @@ export async function importAudioFiles(
     return { imported: 0, failed: files.length };
   }
 
-  let resolvedTrackId = targetTrackId ?? null;
+  let resolvedTrackId: string | null = targetTrackId ?? null;
   if (resolvedTrackId !== null) {
     const exists = useDawStore.getState().tracks.some((t) => t.id === resolvedTrackId);
     if (!exists) {
@@ -54,9 +54,7 @@ export async function importAudioFiles(
       }
       resolvedTrackId = useDawStore.getState().addTrack(baseNameOf(files[0]?.name ?? ''));
     }
-  } else if (createTrackIfMissing) {
-    resolvedTrackId = useDawStore.getState().addTrack(baseNameOf(files[0]?.name ?? ''));
-  } else {
+  } else if (!createTrackIfMissing) {
     const first = useDawStore.getState().tracks[0];
     if (!first) {
       useDawStore.getState().pushToast('No hay pista donde importar el audio.');
@@ -72,6 +70,18 @@ export async function importAudioFiles(
   for (let i = 0; i < files.length; i++) {
     const file = files[i];
     if (!file) continue;
+    // Sin pista destino se crea UNA pista por archivo, como hacía el
+    // drag-and-drop original (`addTrack` dentro del bucle). Con pista destino
+    // todos los clips comparten ese carril.
+    const laneId = resolvedTrackId
+      ?? (createTrackIfMissing
+        ? useDawStore.getState().addTrack(baseNameOf(file.name))
+        : (useDawStore.getState().tracks[0]?.id ?? null));
+    if (laneId === null) {
+      failed++;
+      useDawStore.getState().pushToast('No hay pista donde importar el audio.');
+      continue;
+    }
     try {
       const audioBuffer = await decodeAudioFile(file, ctx);
       const peaks = generateWaveformPeaks(audioBuffer, 800);
@@ -88,7 +98,7 @@ export async function importAudioFiles(
       );
       state.addClip({
         id: 'clip_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
-        trackId: resolvedTrackId,
+        trackId: laneId,
         name: file.name,
         startTime: snappedTime,
         duration: dur,

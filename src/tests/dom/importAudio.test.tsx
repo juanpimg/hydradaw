@@ -134,4 +134,27 @@ describe('Importar audio sin arrastrar (G1)', () => {
     expect(input).not.toBeNull();
     expect(input!.getAttribute('accept')).toContain('audio/*');
   });
+
+  it('A6: sin pista destino, 2 ficheros ⇒ 2 pistas (una por archivo)', async () => {
+    vi.mocked(decodeAudioFile).mockResolvedValue(fakeBuffer(1));
+    const result = await importAudioFiles([audioFile('a.wav'), audioFile('b.wav')], {});
+    expect(result.imported).toBe(2);
+    const st = useDawStore.getState();
+    expect(st.tracks).toHaveLength(2);
+    expect(st.clips).toHaveLength(2);
+    // Un clip por pista: se conserva el reparto del drag-and-drop original.
+    for (const track of st.tracks) {
+      expect(st.clips.filter((c) => c.trackId === track.id)).toHaveLength(1);
+    }
+  });
+
+  it('A8: la importación es un solo paso de historial (un undo la revierte entera)', async () => {
+    vi.mocked(decodeAudioFile).mockResolvedValue(fakeBuffer(1));
+    await importAudioFiles([audioFile('a.wav'), audioFile('b.wav')], {});
+    expect(useDawStore.getState().clips).toHaveLength(2);
+    expect(useDawStore.getState().tracks).toHaveLength(2);
+    useDawStore.getState().undo();
+    expect(useDawStore.getState().clips).toHaveLength(0);
+    expect(useDawStore.getState().tracks).toHaveLength(0);
+  });
 });
