@@ -165,9 +165,11 @@ function setupEngine() {
 
 function mockRecorderEnv() {
   const stream = { getTracks: () => [] as Array<{ stop: () => void }> };
-  (globalThis as unknown as { navigator?: unknown }).navigator = {
+  // Fix(polución): stubGlobal + unstubAllGlobals en afterEach — una asignación
+  // directa a globalThis sobreviviría a un test que falle a mitad.
+  vi.stubGlobal('navigator', {
     mediaDevices: { getUserMedia: vi.fn().mockResolvedValue(stream) },
-  };
+  });
   class MockMediaRecorder {
     static isTypeSupported = () => false;
     state = 'inactive';
@@ -183,7 +185,7 @@ function mockRecorderEnv() {
       this.onstop?.();
     }
   }
-  (globalThis as unknown as { MediaRecorder?: unknown }).MediaRecorder = MockMediaRecorder;
+  vi.stubGlobal('MediaRecorder', MockMediaRecorder);
 }
 
 afterEach(() => {
@@ -198,8 +200,7 @@ afterEach(() => {
   engine.setLoop(false, 0, 16);
   engine.setMetronome(false);
   vi.restoreAllMocks();
-  delete (globalThis as unknown as { navigator?: unknown }).navigator;
-  delete (globalThis as unknown as { MediaRecorder?: unknown }).MediaRecorder;
+  vi.unstubAllGlobals();
 });
 
 /* -------------------------------- tests ------------------------------ */
@@ -234,14 +235,14 @@ describe('waveA: fixes del engine', () => {
     const { engine, mockCtx } = setupEngine();
     // getUserMedia que tarda 5 s en resolverse (prompt del navegador).
     const stream = { getTracks: () => [] as Array<{ stop: () => void }> };
-    (globalThis as unknown as { navigator?: unknown }).navigator = {
+    vi.stubGlobal('navigator', {
       mediaDevices: {
         getUserMedia: vi.fn().mockImplementation(async () => {
           mockCtx.currentTime += 5;
           return stream;
         }),
       },
-    };
+    });
     class MockMediaRecorder {
       static isTypeSupported = () => false;
       state = 'inactive';
@@ -250,6 +251,10 @@ describe('waveA: fixes del engine', () => {
       mimeType = '';
       constructor(public s: unknown, public o?: unknown) {}
       start(): void {
+        // El arranque del recorder también consume reloj: el sello debe ser
+        // posterior a start(), no solo a getUserMedia(). Si el sello estuviera
+        // entre ambos, la diferencia sería 5, no 7.
+        mockCtx.currentTime += 2;
         this.state = 'recording';
       }
       stop(): void {
@@ -257,14 +262,14 @@ describe('waveA: fixes del engine', () => {
         this.onstop?.();
       }
     }
-    (globalThis as unknown as { MediaRecorder?: unknown }).MediaRecorder = MockMediaRecorder;
+    vi.stubGlobal('MediaRecorder', MockMediaRecorder);
     // Punch-in en caliente: ya sonaba al pedir el micro.
     await engine.play([makeTrack()], [makeClip()], 10);
     const prePrompt = engine.getCurrentTime();
     await engine.startRecording('track_1', [makeTrack()], [makeClip()]);
     const stamp = (engine as unknown as { recordingStartTime: number }).recordingStartTime;
-    // El sello debe reflejar los 5 s del prompt, no el instante previo.
-    expect(stamp - prePrompt).toBeCloseTo(5, 1);
+    // El sello debe reflejar los 5 s del prompt + los 2 s del arranque.
+    expect(stamp - prePrompt).toBeCloseTo(7, 1);
   });
 
   it('stop() preserva la toma en lastTake (getter) en vez de perderla', async () => {
@@ -396,11 +401,12 @@ describe('waveA: fixes del engine', () => {
   it('telemetría: reutiliza scratch y emite solo si playing o cambió el nivel', async () => {
     const { engine } = setupEngine();
     const frames: Array<() => void> = [];
-    // Fix(waveA): rAF no existe en Node — se define el global en vez de espiar.
-    (globalThis as unknown as { requestAnimationFrame?: unknown }).requestAnimationFrame = ((cb: () => void) => {
+    // Fix(waveA): rAF no existe en Node — stubGlobal (afterEach lo restaura
+    // vía unstubAllGlobals aunque un expect intermedio falle).
+    vi.stubGlobal('requestAnimationFrame', ((cb: () => void) => {
       frames.push(cb);
       return 1;
-    }) as unknown as typeof requestAnimationFrame;
+    }) as unknown as typeof requestAnimationFrame);
     (engine as unknown as { startTelemetryLoop: () => void }).startTelemetryLoop();
     expect(frames.length).toBe(1);
     const scratchBefore = (engine as unknown as { telemetryScratch: Float32Array }).telemetryScratch;
@@ -416,6 +422,5 @@ describe('waveA: fixes del engine', () => {
     // El scratch se reutiliza cuando el fftSize cabe (256 < 2048).
     expect(scratchAfterFirst).toBe(scratchBefore);
     unsub();
-    delete (globalThis as unknown as { requestAnimationFrame?: unknown }).requestAnimationFrame;
   });
 });
