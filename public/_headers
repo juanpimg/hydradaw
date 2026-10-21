@@ -10,8 +10,8 @@
 # a nivel plataforma. Si vuelve a hacer falta eval en el hilo principal, esta
 # línea debe cambiar a la vez que el sandbox.
 # X-Frame-Options + frame-ancestors 'none': la app nunca se incrusta (ni
-# siquiera a sí misma; el iframe del sandbox de plugins es srcdoc y no le
-# afecta frame-ancestors).
+# siquiera a sí misma; el iframe del sandbox de plugins se carga por `src`
+# como documento separado y no le afecta frame-ancestors).
 /*
   Cross-Origin-Opener-Policy: same-origin
   Cross-Origin-Embedder-Policy: credentialless
