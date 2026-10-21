@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useDawStore } from '../../store/useDawStore';
 import { useShallow } from 'zustand/react/shallow';
 import { trapTabKey, useModalBackgroundInert } from '../../hooks/useModalFocus';
-import { pluginHost } from '../../audio/PluginHost';
+import { pluginHost, MAX_CUSTOM_PLUGIN_CODE_BYTES } from '../../audio/PluginHost';
 import { CUSTOM_PLUGIN_TEMPLATE } from '../../audio/customPluginTemplate';
 import { Knob } from './Knob';
 import { 
@@ -93,9 +93,26 @@ export const PluginRackModal: React.FC = () => {
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    // M4: presupuesto de carga (patrón de App.tsx MAX_IMPORT_FILE_BYTES): el
+    // código custom por encima de lo que el host persiste (256 KiB) se
+    // rechaza con toast ANTES de leerlo (FileReader sin cota cargaría todo el
+    // archivo en memoria). Doble puerta: tamaño declarado y texto real.
+    if (typeof file.size === 'number' && file.size > MAX_CUSTOM_PLUGIN_CODE_BYTES) {
+      pushToast(
+        `El archivo es demasiado grande (límite ${MAX_CUSTOM_PLUGIN_CODE_BYTES / 1024} KiB).`
+      );
+      e.target.value = '';
+      return;
+    }
     const reader = new FileReader();
     reader.onload = (evt) => {
       const text = evt.target?.result as string;
+      if (typeof text === 'string' && text.length > MAX_CUSTOM_PLUGIN_CODE_BYTES) {
+        pushToast(
+          `El archivo es demasiado grande (límite ${MAX_CUSTOM_PLUGIN_CODE_BYTES / 1024} KiB).`
+        );
+        return;
+      }
       setCustomCode(text);
       setImportingCustom(true);
     };

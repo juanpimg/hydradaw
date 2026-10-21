@@ -2,6 +2,15 @@
  * High-performance audio waveform utilities
  */
 
+/**
+ * M4: presupuesto de importación de audio (mismo patrón que
+ * `MAX_IMPORT_FILE_BYTES` en `App.tsx`): `decodeAudioFile` rechaza blobs por
+ * encima de 25 MB ANTES de `arrayBuffer()` (leerlos enteros a memoria y
+ * decodificarlos congelaría la pestaña). `importAudioFiles` ya convierte el
+ * rechazo en clip fallido con toast, sin interrumpir el lote.
+ */
+export const MAX_AUDIO_FILE_BYTES = 25 * 1024 * 1024;
+
 // Fix(waveA): PRNG determinista para el ruido de la demo (demo reproducible).
 function mulberry32(seed: number): () => number {
   let a = seed >>> 0;
@@ -95,6 +104,12 @@ export function generateWaveformPeaks(buffer: AudioBuffer, targetPoints: number 
  * Decodes an audio File / Blob into an AudioBuffer
  */
 export async function decodeAudioFile(file: Blob, audioContext: BaseAudioContext): Promise<AudioBuffer> {
+  // M4: puerta de tamaño antes de leer nada a memoria.
+  if (typeof file.size === 'number' && file.size > MAX_AUDIO_FILE_BYTES) {
+    throw new Error(
+      `El archivo de audio es demasiado grande (límite ${MAX_AUDIO_FILE_BYTES / 1048576} MB).`,
+    );
+  }
   const arrayBuffer = await file.arrayBuffer();
   return await audioContext.decodeAudioData(arrayBuffer);
 }
