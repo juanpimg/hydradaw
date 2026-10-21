@@ -151,6 +151,10 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     e.stopPropagation();
     selectClip();
 
+    // Un solo gesto activo: un segundo puntero (multitáctil) no secuestra
+    // ni reinicia el arrastre en curso.
+    if (dragRef.current) return;
+
     const el = e.currentTarget as HTMLElement;
     if (el.setPointerCapture) {
       try {
@@ -193,10 +197,15 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
 
   const handlePointerMove = (e: React.PointerEvent) => {
     const drag = dragRef.current;
-    if (!drag) return;
+    // Solo el puntero dueño de la sesión mueve; los demás se ignoran.
+    if (!drag || e.pointerId !== drag.pointerId) return;
     const deltaX = e.clientX - drag.startX;
     if (Math.abs(deltaX) > 2) drag.hasMoved = true;
-    const deltaTime = deltaX / zoom;
+    // Zoom vivo del store, no el del render: si el zoom cambia a mitad de
+    // gesto, el delta sigue calculado con el valor vigente. El MODO de
+    // arrastre (move/trim) queda fijado en el pointerdown por diseño.
+    const liveZoom = useDawStore.getState().zoom;
+    const deltaTime = deltaX / liveZoom;
 
     if (drag.mode === 'trimLeft') {
       // Fix: clamp del delta y actualización visual inmediata
@@ -206,14 +215,14 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
       const newDuration = Math.max(0.2, drag.initialDuration - clampedDelta);
       const newOffset = Math.max(0, drag.initialOffset + clampedDelta);
       drag.pendingUpdates = { startTime: newStart, duration: newDuration, offset: newOffset };
-      drag.el.style.transform = `translateX(${clampedDelta * zoom}px)`;
-      drag.el.style.width = `${newDuration * zoom}px`;
+      drag.el.style.transform = `translateX(${clampedDelta * liveZoom}px)`;
+      drag.el.style.width = `${newDuration * liveZoom}px`;
     } else if (drag.mode === 'trimRight') {
       // Fix: clamp contra buffer.duration para no extender más allá del audio disponible.
       const maxDuration = Math.max(0.2, drag.bufferDuration - drag.initialOffset);
       const newDuration = Math.min(Math.max(0.2, drag.initialDuration + deltaTime), maxDuration);
       drag.pendingUpdates = { duration: newDuration };
-      drag.el.style.width = `${newDuration * zoom}px`;
+      drag.el.style.width = `${newDuration * liveZoom}px`;
     } else {
       // Move clip con transformación suave en tiempo real sin reiniciar audio a cada pixel
       const st = useDawStore.getState();
@@ -223,7 +232,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
       const maxStart = Math.max(0, st.duration - drag.initialDuration);
       const newStart = Math.min(Math.max(0, snappedTime), maxStart);
       drag.pendingUpdates = { startTime: newStart };
-      drag.el.style.transform = `translateX(${(newStart - drag.initialStartTime) * zoom}px)`;
+      drag.el.style.transform = `translateX(${(newStart - drag.initialStartTime) * liveZoom}px)`;
     }
   };
 
@@ -253,18 +262,28 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     }
   };
 
-  const handlePointerUp = () => {
+  const handlePointerUp = (e: React.PointerEvent) => {
+    // El up de otro puntero no cierra la sesión ajena.
+    if (dragRef.current && e.pointerId !== dragRef.current.pointerId) return;
     endDrag(true);
   };
 
-  const handlePointerCancel = () => {
+  const handlePointerCancel = (e: React.PointerEvent) => {
     // El gesto se abortó (llamada, alerta del SO…): se descarta lo pendiente
-    // y se restaura el visual a medio gesto.
+    // y se restaura el visual a medio gesto. Solo el puntero dueño cancela.
     const drag = dragRef.current;
+    if (!drag || e.pointerId !== drag.pointerId) return;
     dragRef.current = null;
-    if (!drag) return;
     clearDragVisual(drag.el);
   };
+
+  // Limpieza al desmontar: un arrastre en vuelo no deja referencia rancia
+  // (el store ya no se toca desde un componente desmontado).
+  useEffect(() => {
+    return () => {
+      dragRef.current = null;
+    };
+  }, []);
 
   // Fix(waveA): clip focuseable con borrado/corte por teclado.
   const handleKeyDown = (e: React.KeyboardEvent) => {

@@ -46,12 +46,14 @@ export const Knob: React.FC<KnobProps> = ({
 
   // Fix(waveA): eventos pointer (táctil/lápiz/ratón) en vez de solo mouse,
   // con captura SOBRE EL ELEMENTO para que el gesto no se pierda fuera de él.
+  // Un solo gesto activo: los punteros que no son dueños se ignoran.
   const handlePointerDown = (e: React.PointerEvent) => {
     if (e.altKey) {
       e.preventDefault();
       onChange(defaultValue);
       return;
     }
+    if (dragRef.current) return;
     e.preventDefault();
     const el = e.currentTarget as HTMLElement;
     if (el.setPointerCapture) {
@@ -66,7 +68,7 @@ export const Knob: React.FC<KnobProps> = ({
 
   const handlePointerMove = (e: React.PointerEvent) => {
     const drag = dragRef.current;
-    if (!drag) return;
+    if (!drag || e.pointerId !== drag.pointerId) return;
     const deltaY = drag.startY - e.clientY;
     const range = max - min;
     const stepChange = (deltaY / 150) * range;
@@ -75,8 +77,8 @@ export const Knob: React.FC<KnobProps> = ({
 
   const endPointerDrag = (e: React.PointerEvent) => {
     const drag = dragRef.current;
+    if (!drag || e.pointerId !== drag.pointerId) return;
     dragRef.current = null;
-    if (!drag) return;
     const el = e.currentTarget as HTMLElement;
     if (el.releasePointerCapture) {
       try {
@@ -117,20 +119,25 @@ export const Knob: React.FC<KnobProps> = ({
   // Fix: rueda con listener NATIVO no pasivo. El `onWheel` sintético de React
   // se registra como pasivo y su `preventDefault()` es un no-op: la página
   // hacía scroll al girar el knob. El nativo con `{ passive: false }` sí frena.
+  // El listener se registra UNA vez: los params vivos viajan en un ref para
+  // no des/suscribir en cada tick de valor (cada paso re-renderiza).
+  const wheelLiveRef = useRef({ value, step, onChange, clampToStep });
+  wheelLiveRef.current = { value, step, onChange, clampToStep };
   useEffect(() => {
     const el = dialRef.current;
     if (!el) return;
     const onWheelNative = (e: WheelEvent) => {
       e.preventDefault();
+      const live = wheelLiveRef.current;
       const fine = e.shiftKey ? 0.1 : 1;
-      const delta = e.deltaY < 0 ? step * fine : -step * fine;
-      onChange(clampToStep(value + delta));
+      const delta = e.deltaY < 0 ? live.step * fine : -live.step * fine;
+      live.onChange(live.clampToStep(live.value + delta));
     };
     el.addEventListener('wheel', onWheelNative, { passive: false });
     return () => {
       el.removeEventListener('wheel', onWheelNative);
     };
-  }, [value, min, max, step, onChange]);
+  }, []);
 
   const handleDoubleClick = () => {
     onChange(defaultValue);

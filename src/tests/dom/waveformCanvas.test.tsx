@@ -129,4 +129,39 @@ describe('WaveformCanvas con Pointer Events (UI-03, F4, F5, F6)', () => {
     const clip = useDawStore.getState().clips.find((c) => c.id === 'c1');
     expect(clip?.duration).toBeCloseTo(4, 5);
   });
+
+  it('W7: un segundo puntero no puede secuestrar el arrastre', () => {
+    const { el } = renderClip();
+    // Dedo 1 empieza un trim-right táctil.
+    el.dispatchEvent(pointerEvent('pointerdown', { pointerId: 1, pointerType: 'touch', clientX: 295 }));
+    // Dedo 2 apoya en zona de movimiento e intenta mover: se ignora.
+    el.dispatchEvent(pointerEvent('pointerdown', { pointerId: 2, pointerType: 'touch', clientX: 250 }));
+    el.dispatchEvent(pointerEvent('pointermove', { pointerId: 2, pointerType: 'touch', clientX: 270 }));
+    el.dispatchEvent(pointerEvent('pointerup', { pointerId: 1, pointerType: 'touch', clientX: 295 }));
+    const clip = useDawStore.getState().clips.find((c) => c.id === 'c1');
+    expect(clip?.duration).toBeCloseTo(4, 5);
+    expect(clip?.startTime).toBeCloseTo(2, 5);
+  });
+
+  it('W8: el pointerup de otro puntero no mata la sesión activa', () => {
+    const { el } = renderClip();
+    el.dispatchEvent(pointerEvent('pointerdown', { pointerId: 1, pointerType: 'mouse', clientX: 288 }));
+    // Up ajeno: no compromete nada ni cierra la sesión del puntero 1.
+    el.dispatchEvent(pointerEvent('pointerup', { pointerId: 2, pointerType: 'mouse', clientX: 288 }));
+    el.dispatchEvent(pointerEvent('pointermove', { pointerId: 1, pointerType: 'mouse', clientX: 298 }));
+    el.dispatchEvent(pointerEvent('pointerup', { pointerId: 1, pointerType: 'mouse', clientX: 298 }));
+    const clip = useDawStore.getState().clips.find((c) => c.id === 'c1');
+    expect(clip?.duration).toBeCloseTo(4, 5);
+    expect(clip?.startTime).toBeCloseTo(2.2, 5);
+  });
+
+  it('W9: desmontar a mitad de arrastre no revienta y no compromete nada', () => {
+    const { el, unmount } = renderClip();
+    el.dispatchEvent(pointerEvent('pointerdown', { pointerId: 3, pointerType: 'touch', clientX: 295 }));
+    el.dispatchEvent(pointerEvent('pointermove', { pointerId: 3, pointerType: 'touch', clientX: 315 }));
+    expect(() => unmount()).not.toThrow();
+    const clip = useDawStore.getState().clips.find((c) => c.id === 'c1');
+    expect(clip?.duration).toBeCloseTo(4, 5);
+    expect(clip?.startTime).toBeCloseTo(2, 5);
+  });
 });

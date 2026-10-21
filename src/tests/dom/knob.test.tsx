@@ -66,4 +66,31 @@ describe('Knob con captura de puntero y rueda no pasiva (UI-04, F7)', () => {
     expect(onChange).toHaveBeenCalledWith(6);
     unmount();
   });
+
+  it('K6: el listener de rueda se registra una sola vez aunque cambie el valor', () => {
+    const spy = vi.spyOn(HTMLElement.prototype, 'addEventListener');
+    const { unmount, rerender, onChange } = renderKnob();
+    rerender(
+      <Knob label="Volumen" value={6} min={0} max={10} step={1} defaultValue={10} onChange={onChange} />,
+    );
+    rerender(
+      <Knob label="Volumen" value={7} min={0} max={10} step={1} defaultValue={10} onChange={onChange} />,
+    );
+    const wheelAdds = spy.mock.calls.filter((c) => c[0] === 'wheel');
+    expect(wheelAdds.length).toBeGreaterThan(0);
+    // Solo el registro del dial es no-pasivo (los otros dos son los listeners
+    // raíz de React, pasivos): el efecto no re-suscribe al cambiar el valor.
+    const nonPassive = wheelAdds.filter((c) => (c[2] as AddEventListenerOptions)?.passive === false);
+    expect(nonPassive).toHaveLength(1);
+    unmount();
+  });
+
+  it('K7: un segundo puntero no dirige el arrastre ajeno', () => {
+    const { dial, onChange } = renderKnob();
+    dial.dispatchEvent(pointerEvent('pointerdown', { pointerId: 1, clientY: 100 }));
+    dial.dispatchEvent(pointerEvent('pointerdown', { pointerId: 2, clientY: 200 }));
+    dial.dispatchEvent(pointerEvent('pointermove', { pointerId: 2, clientY: 190 }));
+    dial.dispatchEvent(pointerEvent('pointerup', { pointerId: 1, clientY: 100 }));
+    expect(onChange).not.toHaveBeenCalled();
+  });
 });
