@@ -55,9 +55,10 @@ export class AudioEngine {
 
   // Fix(wave3): estado persistente de loop / metrónomo. El store aún NO los propaga
   // (placebos) — play() los respeta automáticamente para que el cableado futuro sea
-  // trivial. Técnica de loop: stop + replanificación programada con setTimeout
-  // alineado a loopEnd (NO BufferSource.loop=true, que repetiría el contenido del
-  // buffer en lugar del arreglo del timeline con clips arbitrarios).
+  // trivial. Técnica de loop: stop + replanificación vigilada por un intervalo
+  // de 25 ms en el reloj de audio (AUD-05; NO BufferSource.loop=true, que
+  // repetiría el contenido del buffer en lugar del arreglo del timeline con
+  // clips arbitrarios).
   // NOTE(wave3): el store aún no llama a setLoop/setMetronome — cablearlo es un cambio de 3 líneas en useDawStore
   private loopEnabled: boolean = false;
   private loopStart: number = 0;
@@ -89,8 +90,6 @@ export class AudioEngine {
   private lastTake: (AudioClip & { audioBuffer: AudioBuffer }) | null = null;
   // Fix(waveA): firma de efectos por track para reconstruir solo cuando cambian plugins.
   private trackEffectsSig: Map<string, string> = new Map();
-  // Fix(waveA): vencimiento wall-clock esperado del wrap (para compensar jitter).
-  private loopDueWallMs: number = 0;
   // Fix(waveA): telemetría con buffers pre-alojados (sin alloc por frame).
   private telemetryScratch: Float32Array = new Float32Array(2048);
   private telemetryPayload: { master: { rms: number; peak: number }; tracks: Record<string, { rms: number; peak: number }> } = {
@@ -502,11 +501,9 @@ export class AudioEngine {
       if (!this.activeLoop) this.armMetroExtender(ctx);
     }
 
-    // Fix(wave3): arma replanificación del loop alineada a loopEnd.
+    // Fix(wave3 + AUD-05): arma la vigilancia del loop en el reloj de audio.
     if (this.activeLoop) {
-      const delaySec = this.activeLoop.end - this.playheadOffset;
-      if (delaySec > 0) this.armLoopTimer(delaySec);
-      else this.armLoopTimer(this.activeLoop.end - this.activeLoop.start);
+      this.armLoopTimer();
     }
   }
 
@@ -1005,16 +1002,16 @@ export class AudioEngine {
     }, 1000);
   }
 
-  // Fix(wave3): replanificación del loop (stop + replan). Se ejecuta vía setTimeout
-  // alineado a loopEnd; reusa caché tracks/clips y respeta el tempo vigente.
-  // Fix(waveA): compensa el jitter midiendo lateness contra el vencimiento esperado.
+  // Fix(wave3 + AUD-05): replanificación del loop (stop + replan), decidida en
+  // el reloj de audio por el watchdog (checkLoopWrap). Reusa caché tracks/clips
+  // y respeta el tempo vigente. El anclaje en currentTime + 0.02 rellena el hueco
+  // cuando el watchdog detecta el cruce tarde; en hora es el empalme natural.
   private handleLoopWrap(): void {
     if (!this.isPlaying || !this.activeLoop || !this.context) return;
     const ctx = this.context;
     const { start, end } = this.activeLoop;
     const len = end - start;
     if (!(len > 0)) return;
-    const latenessSec = Math.max(0, (Date.now() - this.loopDueWallMs) / 1000);
     for (const node of this.trackNodes.values()) {
       node.stopAllSources();
     }
@@ -1025,20 +1022,30 @@ export class AudioEngine {
     if (this.activeMetronome) {
       this.scheduleMetronomeRange(ctx, start, end, this.startTime);
     }
-    this.armLoopTimer(Math.max(0, len - latenessSec));
+    // Sin re-arme: el intervalo de vigilancia sigue corriendo y recalcula el
+    // loopEnd proyectado desde el nuevo startTime/playheadOffset.
   }
 
-  private armLoopTimer(delaySec: number): void {
-    if (this.loopTimer) clearTimeout(this.loopTimer);
-    // Fix(waveA): suma el lookahead 0.02s para no disparar 20ms pronto.
-    const delayMs = Math.max(0, (delaySec + 0.02) * 1000);
-    this.loopDueWallMs = Date.now() + delayMs;
-    this.loopTimer = setTimeout(() => this.handleLoopWrap(), delayMs);
+  // Fix(AUD-05): vigilancia del loop cada 25 ms contra el loopEnd proyectado en
+  // tiempo de audio (startTime + (end - playheadOffset)). Dispara solo cuando el
+  // audio cruza el fin — nunca antes — para no truncar formas de onda en vuelo.
+  private checkLoopWrap(): void {
+    if (!this.isPlaying || !this.activeLoop || !this.context) return;
+    const { end } = this.activeLoop;
+    const projectedEnd = this.startTime + (end - this.playheadOffset);
+    if (this.context.currentTime >= projectedEnd) {
+      this.handleLoopWrap();
+    }
+  }
+
+  private armLoopTimer(): void {
+    if (this.loopTimer) clearInterval(this.loopTimer);
+    this.loopTimer = setInterval(() => this.checkLoopWrap(), 25);
   }
 
   private clearLoopTimers(): void {
     if (this.loopTimer) {
-      clearTimeout(this.loopTimer);
+      clearInterval(this.loopTimer);
       this.loopTimer = null;
     }
     if (this.metroTimer) {

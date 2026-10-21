@@ -338,20 +338,32 @@ describe('waveA: fixes del engine', () => {
     expect(muteVal).toBe(0);
   });
 
-  it('loop timer suma lookahead 0.02 y handleLoopWrap compensa jitter', async () => {
-    const { engine } = setupEngine();
-    const toSpy = vi.spyOn(globalThis, 'setTimeout');
-    await engine.play([makeTrack()], [makeClip()], 0, { loop: true, loopStart: 0, loopEnd: 4 });
-    const firstDelay = toSpy.mock.calls[toSpy.mock.calls.length - 1]![1] as number;
-    // (4 + 0.02) * 1000 = 4020
-    expect(firstDelay).toBeCloseTo(4020, 0);
-    // Simula wrap tardío (100ms late): el re-schedule debe acortarse.
-    (engine as unknown as { loopDueWallMs: number }).loopDueWallMs = Date.now() - 100;
-    toSpy.mockClear();
-    (engine as unknown as { handleLoopWrap: () => void }).handleLoopWrap();
-    const secondDelay = toSpy.mock.calls[toSpy.mock.calls.length - 1]![1] as number;
-    expect(secondDelay).toBeLessThan(firstDelay);
-    expect(secondDelay).toBeCloseTo(4020 - 100, -1);
+  // AUD-05: sustituye al test wall-clock 'loop timer suma lookahead 0.02…'.
+  // El setTimeout de pared + compensación por Date.now() ya no existen: el wrap
+  // lo decide un intervalo de 25 ms contra el reloj de audio. No es un
+  // debilitamiento — la nueva expectativa (intervalo de 25 ms + gap-fill en
+  // currentTime + 0.02) es el comportamiento que exige el brief.
+  it('loop watchdog: intervalo de 25 ms en el reloj de audio y gap-fill al detectar tarde', async () => {
+    vi.useFakeTimers();
+    try {
+      const { engine, mockCtx } = setupEngine();
+      const intSpy = vi.spyOn(globalThis, 'setInterval');
+      await engine.play([makeTrack()], [makeClip()], 0, { loop: true, loopStart: 0, loopEnd: 4 });
+      const intervalDelay = intSpy.mock.calls[intSpy.mock.calls.length - 1]![1] as number;
+      expect(intervalDelay).toBe(25);
+      // Wrap tardío: el audio ya pasó loopEnd → la siguiente iteración se ancla
+      // en currentTime + 0.02 (relleno del hueco), no en loopEnd.
+      mockCtx.currentTime += 10;
+      const before = mockCtx.sources.length;
+      await vi.advanceTimersByTimeAsync(50);
+      expect(mockCtx.sources.length).toBeGreaterThan(before);
+      expect((engine as unknown as { startTime: number }).startTime).toBeCloseTo(
+        mockCtx.currentTime + 0.02,
+        9
+      );
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('compat de firmas usadas por el store (+ nuevos getters)', async () => {

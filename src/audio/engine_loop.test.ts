@@ -256,6 +256,29 @@ describe('wave3: loop real en el engine', () => {
     expect(mockCtx.sources.length).toBeGreaterThan(scheduledBefore);
   });
 
+  it('wrap tardío en el reloj de audio rellena el hueco (AUD-05)', async () => {
+    vi.useFakeTimers();
+    try {
+      const { engine, mockCtx } = setupEngine();
+      await engine.play([makeTrack()], [makeClip()], 0, { loop: true, loopStart: 0, loopEnd: 4 });
+      const scheduledBefore = mockCtx.sources.length;
+      expect(scheduledBefore).toBeGreaterThan(0);
+      // El watchdog se dispara tarde: el audio ya pasó loopEnd (100.02 + 4).
+      mockCtx.currentTime += 10;
+      await vi.advanceTimersByTimeAsync(50);
+      expect(mockCtx.sources.length).toBeGreaterThan(scheduledBefore);
+      expect((engine as unknown as { playheadOffset: number }).playheadOffset).toBeCloseTo(0, 9);
+      // Gap fill: la siguiente iteración se ancla en currentTime + 0.02,
+      // no en el loopEnd obsoleto.
+      expect((engine as unknown as { startTime: number }).startTime).toBeCloseTo(
+        mockCtx.currentTime + 0.02,
+        9
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('sin loop reproduce lineal: programa más allá de loopEnd y no arma timer', async () => {
     const { engine, mockCtx } = setupEngine();
     engine.setLoop(true, 0, 4); // configurado pero desactivado por opts
