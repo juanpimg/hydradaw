@@ -4,6 +4,7 @@ import { useDawStore, resetHistory } from './useDawStore';
 import { audioEngine } from '../audio/AudioEngine';
 import { generateDemoTrackBuffer, generateWaveformPeaks } from '../audio/waveformUtils';
 import { encodeWav } from '../audio/WavExporter';
+import { BUILTIN_PLUGINS } from '../audio/builtinPlugins';
 
 /**
  * Persistencia de proyecto entre sesiones (IndexedDB vía `idb-keyval`).
@@ -79,6 +80,21 @@ export const MAX_AUDIO_BYTES_PER_CLIP = 64 * 1024 * 1024;
 export const MAX_TOTAL_AUDIO_BYTES = 300 * 1024 * 1024;
 /** Puntos min/max regenerados para clips de usuario restaurados desde IDB. */
 export const RESTORED_AUDIO_PEAK_POINTS = 800;
+
+/**
+ * ST-08/SEC-02: presupuesto de importación de proyectos ajenos.
+ * - `tracks` se capan a 512 y `clips` a 20 000 (truncando con aviso): un
+ *   archivo hostil con 100k clips no puede congelar la pestaña.
+ * - `duration` se acota a [1, 86400] s (24 h): `1e18` generaría una regla
+ *   de 5×10¹⁹ píxeles.
+ */
+export const MAX_IMPORT_TRACKS = 512;
+export const MAX_IMPORT_CLIPS = 20_000;
+export const IMPORT_DURATION_MIN = 1;
+export const IMPORT_DURATION_MAX = 86400;
+
+/** Claves que nunca se copian de un payload ajeno (contaminación de prototipo). */
+const FORBIDDEN_KEYS: ReadonlySet<string> = new Set(['__proto__', 'constructor', 'prototype']);
 
 /** Clave de IndexedDB donde vive el WAV de un clip de usuario. */
 export function audioKeyForClip(clipId: string): string {
@@ -340,6 +356,47 @@ function sanitizeTimeSignature(ts: unknown): [number, number] {
 const TRACK_TYPES = ['audio', 'vocal', 'instrument', 'master'] as const;
 
 /**
+ * ST-08/SEC-02: sanea los parámetros de un plugin contra su propia definición.
+ * - Plugin conocido: solo los ids declarados; no-finito (`"evil"`, NaN,
+ *   Infinity) ⇒ `defaultValue`; finito fuera de rango ⇒ clamp a [min, max].
+ * - Plugin desconocido: se conservan solo valores `Number.isFinite`.
+ * - Las claves `__proto__`/`constructor`/`prototype` se descartan siempre.
+ */
+export function sanitizePluginParameters(
+  pluginId: string,
+  rawParams: unknown,
+): Record<string, number> {
+  const out: Record<string, number> = {};
+  if (!isRecord(rawParams)) return out;
+  const src = rawParams as Record<string, unknown>;
+  const def = BUILTIN_PLUGINS[pluginId];
+  if (def) {
+    // Solo los ids declarados; el resto (incl. extras hostiles) se descarta.
+    // Se conservan las claves aportadas (sin rellenar ausentes) para que el
+    // round-trip serialize→deserialize no cambie de forma: el DSP ya aplica
+    // `defaultValue` a lo ausente en creación/update.
+    for (const k of Object.keys(src)) {
+      if (FORBIDDEN_KEYS.has(k)) continue;
+      const p = def.parameters.find((d) => d.id === k);
+      if (!p) continue;
+      const v = src[k];
+      if (typeof v === 'number' && Number.isFinite(v)) {
+        out[k] = Math.min(p.max, Math.max(p.min, v));
+      } else {
+        out[k] = p.defaultValue;
+      }
+    }
+    return out;
+  }
+  for (const k of Object.keys(src)) {
+    if (FORBIDDEN_KEYS.has(k)) continue;
+    const v = src[k];
+    if (typeof v === 'number' && Number.isFinite(v)) out[k] = v;
+  }
+  return out;
+}
+
+/**
  * Fix(waveA): normaliza una pista cruda; devuelve `null` si no es
  * recuperable (no-objeto o sin id) para que se descarte.
  */
@@ -359,7 +416,10 @@ export function sanitizeTrack(raw: unknown): AudioTrack | null {
         pluginId: typeof p['pluginId'] === 'string' ? p['pluginId'] : '',
         name: typeof p['name'] === 'string' ? p['name'] : 'Plugin',
         enabled: asBool(p['enabled'], true),
-        parameters: isRecord(p['parameters']) ? { ...(p['parameters'] as Record<string, number>) } : {},
+        parameters: sanitizePluginParameters(
+          typeof p['pluginId'] === 'string' ? p['pluginId'] : '',
+          p['parameters'],
+        ),
       }))
       .filter((p) => p.instanceId.length > 0 && p.pluginId.length > 0)
     : [];
@@ -461,16 +521,55 @@ function buildProjectFromRaw(raw: Record<string, unknown>): SerializedProject | 
   const clipsRaw = Array.isArray(raw['clips']) ? (raw['clips'] as unknown[]) : null;
   if (tracksRaw === null || clipsRaw === null) return null;
 
+  // ST-08: tope de pistas con aviso (un archivo hostil no puede pedir miles).
+  if (tracksRaw.length > MAX_IMPORT_TRACKS) {
+    console.warn(
+      `[persistence] Proyecto con ${tracksRaw.length} pistas (límite ${MAX_IMPORT_TRACKS}): se importan las ${MAX_IMPORT_TRACKS} primeras.`,
+    );
+  }
   const tracks: AudioTrack[] = [];
-  for (const t of tracksRaw) {
+  const seenTrackIds = new Set<string>();
+  for (const t of tracksRaw.slice(0, MAX_IMPORT_TRACKS)) {
     const clean = sanitizeTrack(t);
-    if (clean) tracks.push(clean);
+    if (!clean) continue;
+    // SEC-02: ids duplicados ⇒ se renombran para que queden únicos.
+    if (seenTrackIds.has(clean.id)) {
+      let n = 1;
+      let candidate = `${clean.id}__dup${n}`;
+      while (seenTrackIds.has(candidate)) {
+        n++;
+        candidate = `${clean.id}__dup${n}`;
+      }
+      console.warn(`[persistence] Id de pista duplicado "${clean.id}": se renombra a "${candidate}".`);
+      clean.id = candidate;
+    }
+    seenTrackIds.add(clean.id);
+    tracks.push(clean);
   }
   const validTrackIds = new Set(tracks.map((t) => t.id));
+  // ST-08: tope de clips con aviso (100k clips congelaban la pestaña).
+  if (clipsRaw.length > MAX_IMPORT_CLIPS) {
+    console.warn(
+      `[persistence] Proyecto con ${clipsRaw.length} clips (límite ${MAX_IMPORT_CLIPS}): se importan los ${MAX_IMPORT_CLIPS} primeros.`,
+    );
+  }
   const clips: SerializedClip[] = [];
-  for (const c of clipsRaw) {
+  const seenClipIds = new Set<string>();
+  for (const c of clipsRaw.slice(0, MAX_IMPORT_CLIPS)) {
     const clean = sanitizeClip(c, validTrackIds);
-    if (clean) clips.push(clean);
+    if (!clean) continue;
+    if (seenClipIds.has(clean.id)) {
+      let n = 1;
+      let candidate = `${clean.id}__dup${n}`;
+      while (seenClipIds.has(candidate)) {
+        n++;
+        candidate = `${clean.id}__dup${n}`;
+      }
+      console.warn(`[persistence] Id de clip duplicado "${clean.id}": se renombra a "${candidate}".`);
+      clean.id = candidate;
+    }
+    seenClipIds.add(clean.id);
+    clips.push(clean);
   }
 
   const activeView = raw['activeView'] === 'mixer' ? 'mixer' : 'timeline';
@@ -479,6 +578,21 @@ function buildProjectFromRaw(raw: Record<string, unknown>): SerializedProject | 
     ? (raw['audioClipIds'] as unknown[]).filter((x): x is string => typeof x === 'string')
     : [];
 
+  // SEC-02: la selección colgando (apunta a nada) se anula en vez de
+  // aceptarse a ciegas.
+  const rawSelectedTrackId =
+    typeof raw['selectedTrackId'] === 'string' ? (raw['selectedTrackId'] as string) : null;
+  const rawSelectedClipId =
+    typeof raw['selectedClipId'] === 'string' ? raw['selectedClipId'] : null;
+  const selectedTrackId =
+    rawSelectedTrackId !== null && validTrackIds.has(rawSelectedTrackId) ? rawSelectedTrackId : null;
+  const clipIdSet = new Set(clips.map((c) => c.id));
+  const selectedClipId =
+    rawSelectedClipId !== null && clipIdSet.has(rawSelectedClipId) ? rawSelectedClipId : null;
+
+  // ST-08: duration 1e18 ⇒ regla de 5×10¹⁹ píxeles; se acota a [1, 86400].
+  const duration = clampFinite(raw['duration'], 32, IMPORT_DURATION_MIN, IMPORT_DURATION_MAX);
+
   return {
     version: PERSISTENCE_VERSION,
     savedAt: asNumber(raw['savedAt'], Date.now()),
@@ -486,7 +600,7 @@ function buildProjectFromRaw(raw: Record<string, unknown>): SerializedProject | 
     bpm: sanitizeBpm(raw['bpm']),
     timeSignature: sanitizeTimeSignature(raw['timeSignature']),
     currentTime: asNumber(raw['currentTime'], 0),
-    duration: asNumber(raw['duration'], 32),
+    duration,
     isLooping: asBool(raw['isLooping'], false),
     loopStart: asNumber(raw['loopStart'], 0),
     loopEnd: asNumber(raw['loopEnd'], 16),
@@ -497,8 +611,8 @@ function buildProjectFromRaw(raw: Record<string, unknown>): SerializedProject | 
     zoom: asNumber(raw['zoom'], 50),
     scrollLeft: asNumber(raw['scrollLeft'], 0),
     activeView,
-    selectedTrackId: typeof raw['selectedTrackId'] === 'string' ? (raw['selectedTrackId'] as string) : null,
-    selectedClipId: typeof raw['selectedClipId'] === 'string' ? raw['selectedClipId'] : null,
+    selectedTrackId,
+    selectedClipId,
     tracks,
     audioClipIds,
     clips,

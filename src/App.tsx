@@ -93,6 +93,13 @@ export interface BootPickFileOptions {
   pushToast: (msg: string) => void;
 }
 
+/**
+ * ST-08/SEC-02: presupuesto de importación. Los archivos por encima de 25 MB
+ * se rechazan con un toast ANTES de leerlos (`file.text()` cargaría todo el
+ * archivo en memoria y el `JSON.parse` sin cota congelaría la pestaña).
+ */
+export const MAX_IMPORT_FILE_BYTES = 25 * 1024 * 1024;
+
 export async function runHandlePickFile({
   file,
   setBusy,
@@ -102,9 +109,18 @@ export async function runHandlePickFile({
 }: BootPickFileOptions): Promise<void> {
   setBusy('import');
   try {
+    if (typeof file.size === 'number' && file.size > MAX_IMPORT_FILE_BYTES) {
+      pushToast('El archivo es demasiado grande (límite 25 MB).');
+      return;
+    }
     let raw: unknown;
     try {
-      raw = JSON.parse(await file.text());
+      const text = await file.text();
+      if (text.length > MAX_IMPORT_FILE_BYTES) {
+        pushToast('El archivo es demasiado grande (límite 25 MB).');
+        return;
+      }
+      raw = JSON.parse(text);
     } catch {
       pushToast('No se pudo leer el archivo.');
       return;
