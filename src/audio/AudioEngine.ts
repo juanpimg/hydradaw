@@ -49,6 +49,9 @@ export class AudioEngine {
   private cachedTracks: AudioTrack[] = [];
   private cachedClips: AudioClip[] = [];
   private tempoBpm: number = 120;
+  // Fix(AUD-01/AUD-02): token de generación de play(). Solo la última llamada
+  // solapada sobrevive; stop()/seek() invalidan los play() en vuelo.
+  private playGen = 0;
 
   // Fix(wave3): estado persistente de loop / metrónomo. El store aún NO los propaga
   // (placebos) — play() los respeta automáticamente para que el cableado futuro sea
@@ -307,6 +310,8 @@ export class AudioEngine {
   }
 
   seek(time: number): void {
+    // Fix(AUD-01): invalida los play() en vuelo antes del reinicio.
+    this.playGen++;
     const target = Math.max(0, time);
     const wasPlaying = this.isPlaying;
     // Fix(waveA): stop() síncrono ANTES de cualquier await para evitar doble sonido/race.
@@ -432,6 +437,10 @@ export class AudioEngine {
    * (play(tracks, clips, time) sin opts) obtenga loop/metrónomo reales sin cambios.
    */
   async play(tracks?: AudioTrack[], clips?: AudioClip[], fromPosition: number = 0, opts?: PlayOptions) {
+    // Fix(AUD-01/AUD-02): solo la última llamada solapada sobrevive. `let` (no
+    // const) porque el stop interno de reinicio hace bump y se absorbe con
+    // gen = this.playGen tras él; sin esto el reinicio se invalidaría a sí mismo.
+    let gen = ++this.playGen;
     let ctx: AudioContext;
     try {
       ctx = await this.ensureContext();
@@ -439,8 +448,12 @@ export class AudioEngine {
       console.warn('[AudioEngine] play: AudioContext is not available, playback aborted safely.', err);
       return;
     }
+    if (gen !== this.playGen) return;
     // Fix(waveA): el stop interno preserva la toma en curso (punch-in/seek no la matan).
-    if (this.isPlaying) this.stop(true);
+    if (this.isPlaying) {
+      this.stop(true);
+      gen = this.playGen;
+    }
 
     if (tracks) this.cachedTracks = tracks;
     if (clips) this.cachedClips = clips;
@@ -449,6 +462,7 @@ export class AudioEngine {
     const activeClips = clips ?? this.cachedClips;
 
     await this.syncTracks(activeTracks);
+    if (gen !== this.playGen) return;
 
     // Fix(wave3): resuelve loop/metrónomo efectivo (opts > estado interno).
     const effLoop = opts?.loop ?? this.loopEnabled;
@@ -494,6 +508,8 @@ export class AudioEngine {
    * perderla; toggleRecord sigue funcionando igual vía la promesa deduplicada.
    */
   stop(preserveRecording: boolean = false): number {
+    // Fix(AUD-02): invalida los play() en vuelo (zombis post-stop).
+    this.playGen++;
     const currentPos = this.getCurrentTime();
     this.isPlaying = false;
     // Fix(wave3): cancela timers de loop/metrónomo y suelta osciladores del click.
