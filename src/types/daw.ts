@@ -7,7 +7,7 @@ export interface PluginParameter {
   max: number;
   step: number;
   defaultValue: number;
-  unit?: string;
+  unit?: string | undefined;
 }
 
 export interface PluginDefinition {
@@ -20,7 +20,7 @@ export interface PluginDefinition {
     inputNode: AudioNode;
     outputNode: AudioNode;
     updateParameter: (paramId: string, value: number) => void;
-    cleanup?: () => void;
+    cleanup?: (() => void) | undefined;
   };
 }
 
@@ -30,8 +30,8 @@ export interface PluginInstance {
   name: string;
   enabled: boolean;
   parameters: Record<string, number>;
-  customWamUrl?: string;
-  customJsCode?: string;
+  customWamUrl?: string | undefined;
+  customJsCode?: string | undefined;
 }
 
 export type WavBitDepth = 16 | 24 | 32;
@@ -52,8 +52,8 @@ export interface AudioClip {
   // TS-01 (exactOptionalPropertyTypes): un clip sin color asigna `undefined`
   // explícito; se declara para que la ausencia sea un valor válido.
   color?: string | undefined;
-  fadeIn?: number;       // Fade-in duration in seconds (optional)
-  fadeOut?: number;      // Fade-out duration in seconds (optional)
+  fadeIn?: number | undefined;       // Fade-in duration in seconds (optional)
+  fadeOut?: number | undefined;      // Fade-out duration in seconds (optional)
 }
 
 export interface AudioTrack {

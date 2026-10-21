@@ -146,6 +146,9 @@ export interface PersistableProjectState {
 }
 
 export interface SerializedClip {
+  // TS-01: DTO deliberadamente ESTRICTO (sin `| undefined`): `undefined` no
+  // puede colarse en lo serializado; la ausencia se representa omitiendo la
+  // clave (ver sitios de construcción con spread condicional).
   id: string;
   trackId: string;
   name: string;
@@ -199,8 +202,8 @@ export interface SerializedProject {
 
 /** Clip restaurado en memoria (admite flags extra no presentes en `AudioClip`). */
 export type RestoredAudioClip = AudioClip & {
-  needsReimport?: boolean;
-  demoKind?: DemoKind | null;
+  needsReimport?: boolean | undefined;
+  demoKind?: DemoKind | null | undefined;
 };
 
 /** Especificación de los 4 stems demo (ids/nombres fijados por `loadDemoProject`). */
