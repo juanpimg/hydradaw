@@ -11,6 +11,10 @@ export default defineConfig({
       'Cross-Origin-Embedder-Policy': 'require-corp',
     },
   },
+  test: {
+    setupFiles: ['./src/tests/dom/setup.ts'],
+    environment: 'node',
+  },
   build: {
     rollupOptions: {
       output: {
