@@ -101,9 +101,10 @@ export const TrackHeader: React.FC<TrackHeaderProps> = ({ track, isSelected }) =
           <button
             onClick={(e) => {
               e.stopPropagation();
-              // Fix(waveB-shell): borrado directo + toast (sin confirm bloqueante; sin undo).
+              // Fix(waveB-shell): borrado directo + toast. M2: removeTrack SÍ
+              // registra historial (sin el paréntesis obsoleto).
               removeTrack(track.id);
-              pushToast(`Pista "${track.name}" eliminada (deshecho no disponible).`);
+              pushToast(`Pista "${track.name}" eliminada.`);
             }}
             className="p-1 rounded text-slate-500 hover:text-red-400 hover:bg-red-950/20 transition-colors min-w-[44px] min-h-[44px] inline-flex items-center justify-center"
             title="Eliminar Pista"
