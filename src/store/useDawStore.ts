@@ -174,7 +174,11 @@ export const useDawStore = create<DawState>((set, get) => ({
 
   // Fix(waveB-shell): push añade con id monótono; dismiss filtra por id.
   toasts: [],
-  pushToast: (message) => set((state) => ({ toasts: [...state.toasts, { id: nextToastId++, message }] })),
+  pushToast: (message) => {
+    // ST-10: el contador vive fuera del updater (el updater es puro).
+    const id = nextToastId++;
+    set((state) => ({ toasts: [...state.toasts, { id, message }] }));
+  },
   dismissToast: (id) => set((state) => ({ toasts: state.toasts.filter((t) => t.id !== id) })),
 
   canUndo: false,
@@ -360,11 +364,10 @@ export const useDawStore = create<DawState>((set, get) => ({
       ],
     };
 
-    set((state) => {
-      const updated = [...state.tracks, newTrack];
-      audioEngine.syncTracks(updated);
-      return { tracks: updated, selectedTrackId: newId };
-    });
+    // ST-10: calcular con `get()`, luego `set(...)`, luego el efecto.
+    const updated = [...get().tracks, newTrack];
+    set({ tracks: updated, selectedTrackId: newId });
+    void audioEngine.syncTracks(updated);
 
     return newId;
   },
@@ -376,29 +379,28 @@ export const useDawStore = create<DawState>((set, get) => ({
     get().clips.filter((c) => c.trackId === id).forEach((c) => {
       c.audioBuffer = null;
     });
-    set((state) => {
-      const updatedTracks = state.tracks.filter((t) => t.id !== id);
-      const updatedClips = state.clips.filter((c) => c.trackId !== id);
-      audioEngine.syncTracks(updatedTracks);
-      if (state.isPlaying) {
-        audioEngine.play(updatedTracks, updatedClips, audioEngine.getCurrentTime());
-      }
+    // ST-10: calcular con `get()`, luego `set(...)`, luego los efectos.
+    const { tracks, clips, isPlaying, selectedTrackId } = get();
+    const updatedTracks = tracks.filter((t) => t.id !== id);
+    const updatedClips = clips.filter((c) => c.trackId !== id);
+    set({
+      tracks: updatedTracks,
+      clips: updatedClips,
       // Fix(waveA): recalcular duración al borrar pista (antes solo crecía).
-      return {
-        tracks: updatedTracks,
-        clips: updatedClips,
-        duration: recalcDuration(updatedClips),
-        selectedTrackId: state.selectedTrackId === id ? null : state.selectedTrackId,
-      };
+      duration: recalcDuration(updatedClips),
+      selectedTrackId: selectedTrackId === id ? null : selectedTrackId,
     });
+    void audioEngine.syncTracks(updatedTracks);
+    if (isPlaying) {
+      void audioEngine.play(updatedTracks, updatedClips, audioEngine.getCurrentTime());
+    }
   },
 
   updateTrack: (id, updates) => {
-    set((state) => {
-      const updated = state.tracks.map((t) => (t.id === id ? { ...t, ...updates } : t));
-      audioEngine.syncTracks(updated);
-      return { tracks: updated };
-    });
+    // ST-10: calcular con `get()`, luego `set(...)`, luego el efecto.
+    const updated = get().tracks.map((t) => (t.id === id ? { ...t, ...updates } : t));
+    set({ tracks: updated });
+    void audioEngine.syncTracks(updated);
   },
 
   addClip: (clip) => {
@@ -417,13 +419,13 @@ export const useDawStore = create<DawState>((set, get) => ({
     // Fix(waveA): resincroniza audio en play (mismo patrón que removeClip/removeTrack;
     // antes mover un clip durante la reproducción no sonaba hasta reiniciar) y recalcula
     // duración para que arrastrar fuera no deje clips invisibles.
-    set((state) => {
-      const updatedClips = state.clips.map((c) => (c.id === id ? { ...c, ...updates } : c));
-      if (state.isPlaying) {
-        audioEngine.play(state.tracks, updatedClips, audioEngine.getCurrentTime());
-      }
-      return { clips: updatedClips, duration: recalcDuration(updatedClips) };
-    });
+    // ST-10: calcular con `get()`, luego `set(...)`, luego el efecto.
+    const { tracks, clips, isPlaying } = get();
+    const updatedClips = clips.map((c) => (c.id === id ? { ...c, ...updates } : c));
+    set({ clips: updatedClips, duration: recalcDuration(updatedClips) });
+    if (isPlaying) {
+      void audioEngine.play(tracks, updatedClips, audioEngine.getCurrentTime());
+    }
   },
 
   removeClip: (id) => {
@@ -433,18 +435,18 @@ export const useDawStore = create<DawState>((set, get) => ({
     if (clip) {
       clip.audioBuffer = null;
     }
-    set((state) => {
-      const remainingClips = state.clips.filter((c) => c.id !== id);
-      if (state.isPlaying) {
-        audioEngine.play(state.tracks, remainingClips, audioEngine.getCurrentTime());
-      }
+    // ST-10: calcular con `get()`, luego `set(...)`, luego el efecto.
+    const { tracks, clips, isPlaying, selectedClipId } = get();
+    const remainingClips = clips.filter((c) => c.id !== id);
+    set({
       // Fix(waveA): recalcular duración al borrar clip (borrar todo vuelve a 16s).
-      return {
-        clips: remainingClips,
-        duration: recalcDuration(remainingClips),
-        selectedClipId: state.selectedClipId === id ? null : state.selectedClipId,
-      };
+      clips: remainingClips,
+      duration: recalcDuration(remainingClips),
+      selectedClipId: selectedClipId === id ? null : selectedClipId,
     });
+    if (isPlaying) {
+      void audioEngine.play(tracks, remainingClips, audioEngine.getCurrentTime());
+    }
   },
 
   splitClip: (clipId, atTime) => {
@@ -502,48 +504,45 @@ export const useDawStore = create<DawState>((set, get) => ({
       parameters: defaultParams,
     };
 
-    set((state) => {
-      const tracks = state.tracks.map((t) => {
-        if (t.id === trackId) {
-          return { ...t, plugins: [...t.plugins, instance] };
-        }
-        return t;
-      });
-      const targetTrack = tracks.find((t) => t.id === trackId);
-      if (targetTrack) audioEngine.rebuildTrackEffects(targetTrack);
-      return { tracks };
+    // ST-10: calcular con `get()`, luego `set(...)`, luego el efecto.
+    const tracks = get().tracks.map((t) => {
+      if (t.id === trackId) {
+        return { ...t, plugins: [...t.plugins, instance] };
+      }
+      return t;
     });
+    set({ tracks });
+    const targetTrack = tracks.find((t) => t.id === trackId);
+    if (targetTrack) audioEngine.rebuildTrackEffects(targetTrack);
   },
 
   removePluginFromTrack: (trackId, instanceId) => {
-    set((state) => {
-      const tracks = state.tracks.map((t) => {
-        if (t.id === trackId) {
-          return { ...t, plugins: t.plugins.filter((p) => p.instanceId !== instanceId) };
-        }
-        return t;
-      });
-      const targetTrack = tracks.find((t) => t.id === trackId);
-      if (targetTrack) audioEngine.rebuildTrackEffects(targetTrack);
-      return { tracks };
+    // ST-10: calcular con `get()`, luego `set(...)`, luego el efecto.
+    const tracks = get().tracks.map((t) => {
+      if (t.id === trackId) {
+        return { ...t, plugins: t.plugins.filter((p) => p.instanceId !== instanceId) };
+      }
+      return t;
     });
+    set({ tracks });
+    const targetTrack = tracks.find((t) => t.id === trackId);
+    if (targetTrack) audioEngine.rebuildTrackEffects(targetTrack);
   },
 
   togglePlugin: (trackId, instanceId) => {
-    set((state) => {
-      const tracks = state.tracks.map((t) => {
-        if (t.id === trackId) {
-          return {
-            ...t,
-            plugins: t.plugins.map((p) => (p.instanceId === instanceId ? { ...p, enabled: !p.enabled } : p)),
-          };
-        }
-        return t;
-      });
-      const targetTrack = tracks.find((t) => t.id === trackId);
-      if (targetTrack) audioEngine.rebuildTrackEffects(targetTrack);
-      return { tracks };
+    // ST-10: calcular con `get()`, luego `set(...)`, luego el efecto.
+    const tracks = get().tracks.map((t) => {
+      if (t.id === trackId) {
+        return {
+          ...t,
+          plugins: t.plugins.map((p) => (p.instanceId === instanceId ? { ...p, enabled: !p.enabled } : p)),
+        };
+      }
+      return t;
     });
+    set({ tracks });
+    const targetTrack = tracks.find((t) => t.id === trackId);
+    if (targetTrack) audioEngine.rebuildTrackEffects(targetTrack);
   },
 
   updatePluginParam: (trackId, instanceId, paramId, value) => {
