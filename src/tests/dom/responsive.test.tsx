@@ -23,7 +23,7 @@ function seed() {
     bpm: 120,
     timeSignature: [4, 4] as [number, number],
     snapMode: 'off',
-    selectedClipId: null,
+    selectedClipIds: [],
     selectedTrackId: null,
     isPlaying: false,
     isRecording: false,

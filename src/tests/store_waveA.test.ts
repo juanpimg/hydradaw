@@ -81,7 +81,7 @@ beforeEach(() => {
     loopStart: 0,
     loopEnd: 16,
     metronome: false,
-    selectedClipId: null,
+    selectedClipIds: [],
     selectedTrackId: null,
   });
 });

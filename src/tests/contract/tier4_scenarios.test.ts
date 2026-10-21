@@ -78,12 +78,12 @@ describe('Tier 4: Real-World Scenarios (End-to-End Application Workflows)', () =
     expect(useDawStore.getState().clips[0]!.duration).toBe(7.0);
 
     // 8. Selects clip and removes via dedicated UI Delete Clip button (F9)
-    useDawStore.getState().setSelectedClip('take_1');
-    expect(useDawStore.getState().selectedClipId).toBe('take_1');
+    useDawStore.getState().selectClip('take_1', 'single');
+    expect(useDawStore.getState().selectedClipIds).toEqual(['take_1']);
 
     useDawStore.getState().removeClip('take_1');
     expect(useDawStore.getState().clips).toHaveLength(0);
-    expect(useDawStore.getState().selectedClipId).toBeNull();
+    expect(useDawStore.getState().selectedClipIds).toEqual([]);
   });
 
   // =========================================================================
@@ -271,9 +271,9 @@ describe('Tier 4: Real-World Scenarios (End-to-End Application Workflows)', () =
     expect([30, 120]).toContain(useDawStore.getState().zoom);
 
     // 5. Final UI clip deletion (F9)
-    useDawStore.setState({ clips: [shrunk], selectedClipId: 'edge_clip' });
+    useDawStore.setState({ clips: [shrunk], selectedClipIds: ['edge_clip'] });
     useDawStore.getState().removeClip('edge_clip');
     expect(useDawStore.getState().clips).toHaveLength(0);
-    expect(useDawStore.getState().selectedClipId).toBeNull();
+    expect(useDawStore.getState().selectedClipIds).toEqual([]);
   });
 });

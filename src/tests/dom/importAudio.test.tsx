@@ -44,7 +44,7 @@ function resetStore() {
     tracks: [],
     clips: [],
     selectedTrackId: null,
-    selectedClipId: null,
+    selectedClipIds: [],
     zoom: 50,
     scrollLeft: 0,
     activeView: 'timeline',

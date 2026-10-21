@@ -15,15 +15,15 @@ export const Timeline: React.FC = () => {
   const setZoom = useDawStore((s) => s.setZoom);
   const duration = useDawStore((s) => s.duration);
   const selectedTrackId = useDawStore((s) => s.selectedTrackId);
-  const selectedClipId = useDawStore((s) => s.selectedClipId);
-  const setSelectedClip = useDawStore((s) => s.setSelectedClip);
+  const selectedClipIds = useDawStore((s) => s.selectedClipIds);
+  const selectClip = useDawStore((s) => s.selectClip);
   const splitClip = useDawStore((s) => s.splitClip);
   const addTrack = useDawStore((s) => s.addTrack);
   const pushToast = useDawStore((s) => s.pushToast);
   const snapMode = useDawStore((s) => s.snapMode);
   const setSnapMode = useDawStore((s) => s.setSnapMode);
 
-  const selectedClip = clips.find((c) => c.id === selectedClipId) ?? null;
+  const selectedClip = clips.find((c) => c.id === selectedClipIds[0]) ?? null;
   const canSplit = Boolean(selectedClip);
 
   const lanesScrollRef = useRef<HTMLDivElement>(null);
@@ -251,7 +251,7 @@ export const Timeline: React.FC = () => {
                     e.stopPropagation();
                     handleDrop(e, track.id);
                   }}
-                  onClick={() => setSelectedClip(null)}
+                  onClick={() => selectClip(null, 'single')}
                   className={`h-24 border-b border-dark-border/60 relative transition-colors ${
                     selectedTrackId === track.id ? 'bg-dark-surfaceLight/20' : 'hover:bg-dark-surfaceLight/10'
                   }`}
@@ -268,7 +268,7 @@ export const Timeline: React.FC = () => {
                       clip={clip}
                       width={clip.duration * zoom}
                       height={88}
-                      isSelected={selectedClipId === clip.id}
+                      isSelected={selectedClipIds.includes(clip.id)}
                     />
                   ))}
                 </div>

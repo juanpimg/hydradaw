@@ -107,7 +107,7 @@ function baseState(): PersistableProjectState {
     scrollLeft: 0,
     activeView: 'timeline',
     selectedTrackId: null,
-    selectedClipId: null,
+    selectedClipIds: [],
     tracks: [demoTrack('track_1')],
     clips: [demoClip('clip_1', 'track_1', 'Voz.wav')],
   };

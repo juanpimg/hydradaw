@@ -20,14 +20,18 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const zoom = useDawStore((s) => s.zoom);
   const updateClip = useDawStore((s) => s.updateClip);
-  const setSelectedClip = useDawStore((s) => s.setSelectedClip);
+  const selectClipAction = useDawStore((s) => s.selectClip);
   const setSelectedTrack = useDawStore((s) => s.setSelectedTrack);
   const removeClip = useDawStore((s) => s.removeClip);
+  const removeSelectedClips = useDawStore((s) => s.removeSelectedClips);
   const splitClip = useDawStore((s) => s.splitClip);
 
   // Fix(waveA): al seleccionar el clip, sincronizar también la pista seleccionada.
-  const selectClip = () => {
-    setSelectedClip(clip.id);
+  // Click = simple; Ctrl/Cmd+click = toggle; Shift+click = rango (G5).
+  const selectClip = (e?: { shiftKey?: boolean; ctrlKey?: boolean; metaKey?: boolean }) => {
+    if (e && (e.ctrlKey || e.metaKey)) selectClipAction(clip.id, 'toggle');
+    else if (e && e.shiftKey) selectClipAction(clip.id, 'range');
+    else selectClipAction(clip.id, 'single');
     setSelectedTrack(clip.trackId);
   };
 
@@ -149,7 +153,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
 
   const handlePointerDown = (e: React.PointerEvent) => {
     e.stopPropagation();
-    selectClip();
+    selectClip(e);
 
     // Un solo gesto activo: un segundo puntero (multitáctil) no secuestra
     // ni reinicia el arrastre en curso.
@@ -289,7 +293,11 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Delete' || e.key === 'Backspace') {
       e.stopPropagation();
-      removeClip(clip.id);
+      // G5: con varios seleccionados (incluido este) se borra la selección
+      // entera, igual que el atajo global; si no, solo este clip.
+      const ids = useDawStore.getState().selectedClipIds;
+      if (ids.includes(clip.id) && ids.length > 1) removeSelectedClips();
+      else removeClip(clip.id);
     } else if (e.key === 's' || e.key === 'S') {
       e.stopPropagation();
       const currTime = audioEngine.getCurrentTime();
@@ -306,7 +314,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
       // Fix: el lane deselecciona en onClick; sin esto el click posterior al
       // pointerdown borraba la selección y ningún clip quedaba seleccionable con ratón.
       onClick={(e) => e.stopPropagation()}
-      onFocus={selectClip}
+      onFocus={() => selectClip()}
       onKeyDown={handleKeyDown}
       tabIndex={0}
       role="option"

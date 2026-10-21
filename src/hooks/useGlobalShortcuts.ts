@@ -75,10 +75,11 @@ export function handleGlobalKeyDown(e: KeyboardEvent) {
     // ST-12: una sola pulsación.
     if (e.repeat) return;
     const st = useDawStore.getState();
-    if (st.selectedClipId) {
+    const firstSelected = st.selectedClipIds[0];
+    if (firstSelected) {
       e.preventDefault();
       const currTime = audioEngine.getCurrentTime();
-      st.splitClip(st.selectedClipId, currTime);
+      st.splitClip(firstSelected, currTime);
     } else if (st.selectedTrackId) {
       e.preventDefault();
       const track = st.tracks.find((tr) => tr.id === st.selectedTrackId);
@@ -104,12 +105,23 @@ export function handleGlobalKeyDown(e: KeyboardEvent) {
     return;
   }
 
-  // Delete / Backspace removes selected clip
+  // Delete / Backspace removes all selected clips (G5)
   if (e.key === 'Delete' || e.key === 'Backspace') {
     const st = useDawStore.getState();
-    if (st.selectedClipId) {
+    if (st.selectedClipIds.length > 0) {
       e.preventDefault();
-      st.removeClip(st.selectedClipId);
+      st.removeSelectedClips();
+    }
+    return;
+  }
+
+  // Escape clears the clip selection (G5). Con un modal abierto no hace nada:
+  // el modal lo usa en su propio listener para cerrarse.
+  if (e.key === 'Escape') {
+    const st = useDawStore.getState();
+    if (st.exportModalOpen || st.pluginModalTrackId !== null) return;
+    if (st.selectedClipIds.length > 0) {
+      st.selectClip(null, 'single');
     }
     return;
   }
@@ -120,9 +132,9 @@ export function handleGlobalKeyDown(e: KeyboardEvent) {
   if ((e.ctrlKey || e.metaKey) && (e.key === 'c' || e.key === 'C') && !e.altKey) {
     if (e.repeat) return;
     const st = useDawStore.getState();
-    if (st.selectedClipId) {
+    if (st.selectedClipIds.length > 0) {
       e.preventDefault();
-      st.copyClips([st.selectedClipId]);
+      st.copyClips([...st.selectedClipIds]);
     }
     return;
   }
@@ -144,10 +156,10 @@ export function handleGlobalKeyDown(e: KeyboardEvent) {
   if ((e.ctrlKey || e.metaKey) && (e.key === 'x' || e.key === 'X') && !e.altKey) {
     if (e.repeat) return;
     const st = useDawStore.getState();
-    if (st.selectedClipId) {
+    if (st.selectedClipIds.length > 0) {
       e.preventDefault();
-      st.copyClips([st.selectedClipId]);
-      st.removeClip(st.selectedClipId);
+      st.copyClips([...st.selectedClipIds]);
+      st.removeSelectedClips();
     }
     return;
   }

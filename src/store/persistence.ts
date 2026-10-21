@@ -140,7 +140,7 @@ export interface PersistableProjectState {
   scrollLeft: number;
   activeView: 'timeline' | 'mixer';
   selectedTrackId: string | null;
-  selectedClipId: string | null;
+  selectedClipIds: string[];
   tracks: AudioTrack[];
   clips: AudioClip[];
 }
@@ -186,7 +186,7 @@ export interface SerializedProject {
   scrollLeft: number;
   activeView: 'timeline' | 'mixer';
   selectedTrackId: string | null;
-  selectedClipId: string | null;
+  selectedClipIds: string[];
   tracks: AudioTrack[];
   clips: SerializedClip[];
   /**
@@ -264,7 +264,7 @@ export function serializeProject(state: PersistableProjectState): SerializedProj
     scrollLeft: state.scrollLeft,
     activeView: state.activeView,
     selectedTrackId: state.selectedTrackId,
-    selectedClipId: state.selectedClipId,
+    selectedClipIds: [...state.selectedClipIds],
     tracks: state.tracks.map((t) => ({
       ...t,
       plugins: t.plugins.map((p) => ({ ...p, parameters: { ...p.parameters } })),
@@ -579,16 +579,20 @@ function buildProjectFromRaw(raw: Record<string, unknown>): SerializedProject | 
     : [];
 
   // SEC-02: la selección colgando (apunta a nada) se anula en vez de
-  // aceptarse a ciegas.
+  // aceptarse a ciegas. G5: la selección es un array; se conserva el orden y
+  // se filtra lo colgando. Formato legacy (v0): `selectedClipId` suelto migra
+  // a array de un elemento.
   const rawSelectedTrackId =
     typeof raw['selectedTrackId'] === 'string' ? (raw['selectedTrackId'] as string) : null;
-  const rawSelectedClipId =
-    typeof raw['selectedClipId'] === 'string' ? raw['selectedClipId'] : null;
+  const rawSelectedClipIds: string[] = Array.isArray(raw['selectedClipIds'])
+    ? (raw['selectedClipIds'] as unknown[]).filter((x): x is string => typeof x === 'string')
+    : typeof raw['selectedClipId'] === 'string'
+      ? [raw['selectedClipId'] as string]
+      : [];
   const selectedTrackId =
     rawSelectedTrackId !== null && validTrackIds.has(rawSelectedTrackId) ? rawSelectedTrackId : null;
   const clipIdSet = new Set(clips.map((c) => c.id));
-  const selectedClipId =
-    rawSelectedClipId !== null && clipIdSet.has(rawSelectedClipId) ? rawSelectedClipId : null;
+  const selectedClipIds = [...new Set(rawSelectedClipIds.filter((id) => clipIdSet.has(id)))];
 
   // ST-08: duration 1e18 ⇒ regla de 5×10¹⁹ píxeles; se acota a [1, 86400].
   const duration = clampFinite(raw['duration'], 32, IMPORT_DURATION_MIN, IMPORT_DURATION_MAX);
@@ -612,7 +616,7 @@ function buildProjectFromRaw(raw: Record<string, unknown>): SerializedProject | 
     scrollLeft: asNumber(raw['scrollLeft'], 0),
     activeView,
     selectedTrackId,
-    selectedClipId,
+    selectedClipIds,
     tracks,
     audioClipIds,
     clips,
@@ -1177,7 +1181,7 @@ export async function applySerializedProject(
       scrollLeft: data.scrollLeft,
       activeView: data.activeView,
       selectedTrackId: data.selectedTrackId,
-      selectedClipId: data.selectedClipId,
+      selectedClipIds: data.selectedClipIds,
       tracks: data.tracks,
       clips,
     });
@@ -1339,7 +1343,7 @@ export function selectAutosaveSnapshot(s: {
   scrollLeft?: unknown;
   activeView?: unknown;
   selectedTrackId?: unknown;
-  selectedClipId?: unknown;
+  selectedClipIds?: unknown;
 }): AutosaveSnapshot {
   return {
     projectName: s.projectName,

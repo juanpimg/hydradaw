@@ -57,7 +57,7 @@ beforeEach(() => {
     zoom: 50,
     duration: 32,
     snapMode: 'off',
-    selectedClipId: null,
+    selectedClipIds: [],
     selectedTrackId: null,
     isPlaying: false,
     currentTime: 0,

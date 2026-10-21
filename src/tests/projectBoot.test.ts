@@ -104,7 +104,7 @@ function minimalEnvelope(name: string): Record<string, unknown> {
     scrollLeft: 0,
     activeView: 'timeline',
     selectedTrackId: null,
-    selectedClipId: null,
+    selectedClipIds: [],
     tracks: [{ id: 't9', name: 'Importada' }],
     clips: [],
     audioClipIds: [],
@@ -136,7 +136,7 @@ describe('arranque por pantalla de inicio', () => {
     expect(s.bpm).toBe(120);
     expect(s.duration).toBe(16);
     expect(s.selectedTrackId).toBeNull();
-    expect(s.selectedClipId).toBeNull();
+    expect(s.selectedClipIds).toEqual([]);
     expect(mockedEngine.stop).toHaveBeenCalled();
     expect(mockedEngine.syncTracks).toHaveBeenCalledWith([]);
   });

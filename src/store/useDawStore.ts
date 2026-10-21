@@ -32,7 +32,7 @@ export interface HistorySnapshot {
   projectName: string;
   snapMode: SnapMode;
   selectedTrackId: string | null;
-  selectedClipId: string | null;
+  selectedClipIds: string[];
 }
 
 const MAX_HISTORY = 30;
@@ -53,6 +53,11 @@ let clipClipboard: AudioClip[] = [];
 const newClipId = (): string =>
   'clip_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6);
 
+// Ancla de la multi-selección (G5): el último clip seleccionado en simple o
+// añadido con toggle; el rango se calcula desde aquí. Se limpia con el
+// historial (proyecto nuevo / aislamiento entre tests).
+let selectionAnchorId: string | null = null;
+
 export function cloneHistoryState(state: {
   tracks: AudioTrack[];
   clips: AudioClip[];
@@ -67,7 +72,7 @@ export function cloneHistoryState(state: {
   projectName: string;
   snapMode: SnapMode;
   selectedTrackId: string | null;
-  selectedClipId: string | null;
+  selectedClipIds: string[];
 }): HistorySnapshot {
   return {
     tracks: state.tracks.map((t) => ({
@@ -86,7 +91,7 @@ export function cloneHistoryState(state: {
     projectName: state.projectName,
     snapMode: state.snapMode,
     selectedTrackId: state.selectedTrackId,
-    selectedClipId: state.selectedClipId,
+    selectedClipIds: [...state.selectedClipIds],
   };
 }
 
@@ -94,6 +99,7 @@ export function resetHistory(): void {
   undoStack = [];
   redoStack = [];
   lastPluginParamHistoryAt = 0;
+  selectionAnchorId = null;
   useDawStore?.setState?.({ canUndo: false, canRedo: false });
 }
 
@@ -127,7 +133,7 @@ interface DawState {
   scrollLeft: number;
   activeView: 'timeline' | 'mixer';
   selectedTrackId: string | null;
-  selectedClipId: string | null;
+  selectedClipIds: string[];
   exportModalOpen: boolean;
   pluginModalTrackId: string | null;
   pluginModalInstanceId: string | null;
@@ -156,7 +162,7 @@ interface DawState {
   setScrollLeft: (scroll: number) => void;
   setActiveView: (view: 'timeline' | 'mixer') => void;
   setSelectedTrack: (id: string | null) => void;
-  setSelectedClip: (id: string | null) => void;
+  selectClip: (id: string | null, mode: 'single' | 'toggle' | 'range') => void;
   setExportModalOpen: (open: boolean) => void;
   setPluginModal: (trackId: string | null, instanceId: string | null) => void;
   setSnapMode: (mode: SnapMode) => void;
@@ -190,6 +196,7 @@ interface DawState {
   copyClips: (ids: string[]) => void;
   pasteClips: (atTime?: number) => void;
   duplicateSelectedClips: () => void;
+  removeSelectedClips: () => void;
 
   // Plugins
   addPluginToTrack: (trackId: string, pluginId: string) => void;
@@ -222,7 +229,7 @@ export const useDawStore = create<DawState>((set, get) => ({
   scrollLeft: 0,
   activeView: 'timeline',
   selectedTrackId: null,
-  selectedClipId: null,
+  selectedClipIds: [],
   exportModalOpen: false,
   pluginModalTrackId: null,
   pluginModalInstanceId: null,
@@ -264,7 +271,7 @@ export const useDawStore = create<DawState>((set, get) => ({
       projectName: prev.projectName,
       snapMode: prev.snapMode,
       selectedTrackId: prev.selectedTrackId,
-      selectedClipId: prev.selectedClipId,
+      selectedClipIds: [...prev.selectedClipIds],
       canUndo: undoStack.length > 0,
       canRedo: true,
     });
@@ -302,7 +309,7 @@ export const useDawStore = create<DawState>((set, get) => ({
       projectName: next.projectName,
       snapMode: next.snapMode,
       selectedTrackId: next.selectedTrackId,
-      selectedClipId: next.selectedClipId,
+      selectedClipIds: [...next.selectedClipIds],
       canUndo: true,
       canRedo: redoStack.length > 0,
     });
@@ -343,7 +350,48 @@ export const useDawStore = create<DawState>((set, get) => ({
   setScrollLeft: (scrollLeft) => set({ scrollLeft }),
   setActiveView: (activeView) => set({ activeView }),
   setSelectedTrack: (selectedTrackId) => set({ selectedTrackId }),
-  setSelectedClip: (selectedClipId) => set({ selectedClipId }),
+  selectClip: (id, mode) => {
+    if (id === null) {
+      selectionAnchorId = null;
+      set({ selectedClipIds: [] });
+      return;
+    }
+    if (mode === 'single') {
+      selectionAnchorId = id;
+      set({ selectedClipIds: [id] });
+      return;
+    }
+    if (mode === 'toggle') {
+      const current = get().selectedClipIds;
+      if (current.includes(id)) {
+        set({ selectedClipIds: current.filter((x) => x !== id) });
+      } else {
+        selectionAnchorId = id;
+        set({ selectedClipIds: [...current, id] });
+      }
+      return;
+    }
+    // Rango: todos los clips entre el ancla y el destino, ordenados por
+    // pista y tiempo. Sin ancla válida se comporta como selección simple.
+    const anchor = selectionAnchorId ?? get().selectedClipIds[0] ?? id;
+    const trackIndex = new Map(get().tracks.map((t, i) => [t.id, i]));
+    const ordered = [...get().clips].sort((a, b) => {
+      const ta = trackIndex.get(a.trackId) ?? Number.MAX_SAFE_INTEGER;
+      const tb = trackIndex.get(b.trackId) ?? Number.MAX_SAFE_INTEGER;
+      if (ta !== tb) return ta - tb;
+      return a.startTime - b.startTime;
+    });
+    const anchorIdx = ordered.findIndex((c) => c.id === anchor);
+    const targetIdx = ordered.findIndex((c) => c.id === id);
+    if (anchorIdx === -1 || targetIdx === -1) {
+      selectionAnchorId = id;
+      set({ selectedClipIds: [id] });
+      return;
+    }
+    const lo = Math.min(anchorIdx, targetIdx);
+    const hi = Math.max(anchorIdx, targetIdx);
+    set({ selectedClipIds: ordered.slice(lo, hi + 1).map((c) => c.id) });
+  },
   setExportModalOpen: (exportModalOpen) => set({ exportModalOpen }),
   setPluginModal: (pluginModalTrackId, pluginModalInstanceId) => set({ pluginModalTrackId, pluginModalInstanceId }),
   setSnapMode: (snapMode) => set({ snapMode }),
@@ -511,7 +559,7 @@ export const useDawStore = create<DawState>((set, get) => ({
       return {
         clips: [...state.clips, clip],
         duration: maxEnd,
-        selectedClipId: clip.id,
+        selectedClipIds: [clip.id],
       };
     });
   },
@@ -539,13 +587,13 @@ export const useDawStore = create<DawState>((set, get) => ({
       clip.audioBuffer = null;
     }
     // ST-10: calcular con `get()`, luego `set(...)`, luego el efecto.
-    const { tracks, clips, isPlaying, selectedClipId } = get();
+    const { tracks, clips, isPlaying, selectedClipIds } = get();
     const remainingClips = clips.filter((c) => c.id !== id);
     set({
       // Fix(waveA): recalcular duración al borrar clip (borrar todo vuelve a 16s).
       clips: remainingClips,
       duration: recalcDuration(remainingClips),
-      selectedClipId: selectedClipId === id ? null : selectedClipId,
+      selectedClipIds: selectedClipIds.filter((x) => x !== id),
     });
     if (isPlaying) {
       void audioEngine.play(tracks, remainingClips, audioEngine.getCurrentTime());
@@ -569,7 +617,7 @@ export const useDawStore = create<DawState>((set, get) => ({
 
     set((state) => ({
       clips: state.clips.map((c) => (c.id === clipId ? clip1 : c)).concat(clip2),
-      selectedClipId: clip2.id,
+      selectedClipIds: [clip2.id],
     }));
   },
 
@@ -629,7 +677,7 @@ export const useDawStore = create<DawState>((set, get) => ({
     set({
       clips: updatedClips,
       duration: recalcDuration(updatedClips),
-      selectedClipId: pasted[0]?.id ?? null,
+      selectedClipIds: pasted.map((p) => p.id),
     });
     if (isPlaying) {
       void audioEngine.play(tracks, updatedClips, audioEngine.getCurrentTime());
@@ -637,26 +685,49 @@ export const useDawStore = create<DawState>((set, get) => ({
   },
 
   duplicateSelectedClips: () => {
-    const selected = get().selectedClipId;
-    if (!selected) return;
-    const clip = get().clips.find((c) => c.id === selected);
-    if (!clip) return;
+    const ids = get().selectedClipIds;
+    if (ids.length === 0) return;
+    const targets = get().clips.filter((c) => ids.includes(c.id));
+    if (targets.length === 0) return;
     recordHistory(cloneHistoryState(get()));
-    const dup: AudioClip = {
+    // Cada duplicado va justo después de su original.
+    const dups: AudioClip[] = targets.map((clip) => ({
       ...clip,
       id: newClipId(),
       startTime: clip.startTime + clip.duration,
-    };
+    }));
     // ST-10: calcular con `get()`, luego `set(...)`, luego el efecto.
     const { tracks, clips, isPlaying } = get();
-    const updatedClips = [...clips, dup];
+    const updatedClips = [...clips, ...dups];
     set({
       clips: updatedClips,
       duration: recalcDuration(updatedClips),
-      selectedClipId: dup.id,
+      selectedClipIds: dups.map((d) => d.id),
     });
     if (isPlaying) {
       void audioEngine.play(tracks, updatedClips, audioEngine.getCurrentTime());
+    }
+  },
+
+  removeSelectedClips: () => {
+    const ids = get().selectedClipIds;
+    if (ids.length === 0) return;
+    // Un solo snapshot para que un `undo` restaure toda la selección (G5).
+    recordHistory(cloneHistoryState(get()));
+    const idSet = new Set(ids);
+    get().clips.filter((c) => idSet.has(c.id)).forEach((c) => {
+      c.audioBuffer = null;
+    });
+    // ST-10: calcular con `get()`, luego `set(...)`, luego el efecto.
+    const { tracks, clips, isPlaying } = get();
+    const remainingClips = clips.filter((c) => !idSet.has(c.id));
+    set({
+      clips: remainingClips,
+      duration: recalcDuration(remainingClips),
+      selectedClipIds: [],
+    });
+    if (isPlaying) {
+      void audioEngine.play(tracks, remainingClips, audioEngine.getCurrentTime());
     }
   },
 
@@ -984,7 +1055,7 @@ export const useDawStore = create<DawState>((set, get) => ({
       masterVolume: 1.0,
       masterMute: false,
       selectedTrackId: null,
-      selectedClipId: null,
+      selectedClipIds: [],
       tracks: [],
       clips: [],
     });

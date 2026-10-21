@@ -146,7 +146,7 @@ describe('M1 Audio Boot Resilience & Startup Error Handling', () => {
       clips: [],
       toasts: [],
       selectedTrackId: null,
-      selectedClipId: null,
+      selectedClipIds: [],
       currentTime: 0,
       isPlaying: false,
       isRecording: false,

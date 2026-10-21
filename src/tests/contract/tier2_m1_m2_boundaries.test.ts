@@ -500,7 +500,7 @@ describe('Tier 2: Boundary & Corner Cases (M1: F1–F3, M2: F4–F9)', () => {
 
     it('F9-B4: rapid spamming of delete action executes once and maintains empty clip state', () => {
       const clip = createMockClip({ id: 'c1' });
-      useDawStore.setState({ clips: [clip], selectedClipId: 'c1' });
+      useDawStore.setState({ clips: [clip], selectedClipIds: ['c1'] });
 
       const state = useDawStore.getState();
       for (let i = 0; i < 5; i++) {
@@ -508,16 +508,16 @@ describe('Tier 2: Boundary & Corner Cases (M1: F1–F3, M2: F4–F9)', () => {
       }
 
       expect(useDawStore.getState().clips).toHaveLength(0);
-      expect(useDawStore.getState().selectedClipId).toBeNull();
+      expect(useDawStore.getState().selectedClipIds).toEqual([]);
     });
 
-    it('F9-B5: selectedClipId immediately clears to null when selected clip is deleted', () => {
+    it('F9-B5: selectedClipIds drops the id immediately when the selected clip is deleted', () => {
       const clip = createMockClip({ id: 'c1' });
-      useDawStore.setState({ clips: [clip], selectedClipId: 'c1' });
-      expect(useDawStore.getState().selectedClipId).toBe('c1');
+      useDawStore.setState({ clips: [clip], selectedClipIds: ['c1'] });
+      expect(useDawStore.getState().selectedClipIds).toEqual(['c1']);
 
       useDawStore.getState().removeClip('c1');
-      expect(useDawStore.getState().selectedClipId).toBeNull();
+      expect(useDawStore.getState().selectedClipIds).toEqual([]);
     });
   });
 });

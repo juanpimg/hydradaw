@@ -45,7 +45,7 @@ export function resetDawStore() {
     tracks: [],
     clips: [],
     selectedTrackId: null,
-    selectedClipId: null,
+    selectedClipIds: [],
     activeView: 'timeline',
     zoom: 50,
     scrollLeft: 0,

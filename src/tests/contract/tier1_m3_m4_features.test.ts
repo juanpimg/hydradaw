@@ -319,7 +319,7 @@ describe('Tier 1: Feature Coverage (M3: F10–F15, M4: F16–F17)', () => {
 
     it('F15-3: Cut button state is enabled only when playhead is strictly inside selected clip', () => {
       const clip = createMockClip({ id: 'c1', startTime: 2.0, duration: 4.0 }); // [2.0s - 6.0s]
-      useDawStore.setState({ clips: [clip], selectedClipId: 'c1' });
+      useDawStore.setState({ clips: [clip], selectedClipIds: ['c1'] });
 
       const isInside = (time: number) => time > clip.startTime && time < clip.startTime + clip.duration;
 

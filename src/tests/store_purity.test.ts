@@ -107,7 +107,7 @@ beforeEach(() => {
     duration: 32,
     isPlaying: false,
     isRecording: false,
-    selectedClipId: null,
+    selectedClipIds: [],
     selectedTrackId: null,
     toasts: [],
   });
@@ -151,7 +151,7 @@ describe('store purity (ST-10)', () => {
   });
 
   it('removeClip en play: play se llama una vez y ya no ve el clip', () => {
-    useDawStore.setState({ isPlaying: true, selectedClipId: 'clip_1' });
+    useDawStore.setState({ isPlaying: true, selectedClipIds: ['clip_1'] });
     useDawStore.getState().removeClip('clip_1');
     expect(callsOf('play')).toHaveLength(1);
     expect(callsOf('play')[0]!.clips).toHaveLength(0);

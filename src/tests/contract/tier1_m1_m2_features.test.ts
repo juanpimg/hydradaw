@@ -222,7 +222,7 @@ describe('Tier 1: Feature Coverage (M1: F1–F3, M2: F4–F9)', () => {
       expect(state.clips).toHaveLength(0);
       expect(state.projectName).toBe('Proyecto sin título');
       expect(state.selectedTrackId).toBeNull();
-      expect(state.selectedClipId).toBeNull();
+      expect(state.selectedClipIds).toEqual([]);
     });
 
     it('F3-2: createBlankProject resets duration to 16s and tempo to 120 BPM', async () => {
@@ -251,7 +251,7 @@ describe('Tier 1: Feature Coverage (M1: F1–F3, M2: F4–F9)', () => {
     it('F3-5: project creation cleanses selection and modal state', async () => {
       useDawStore.setState({
         selectedTrackId: 'track_1',
-        selectedClipId: 'clip_1',
+        selectedClipIds: ['clip_1'],
         exportModalOpen: true,
         pluginModalTrackId: 'track_1',
       });
@@ -260,7 +260,7 @@ describe('Tier 1: Feature Coverage (M1: F1–F3, M2: F4–F9)', () => {
 
       const state = useDawStore.getState();
       expect(state.selectedTrackId).toBeNull();
-      expect(state.selectedClipId).toBeNull();
+      expect(state.selectedClipIds).toEqual([]);
     });
   });
 
@@ -434,8 +434,8 @@ describe('Tier 1: Feature Coverage (M1: F1–F3, M2: F4–F9)', () => {
   // =========================================================================
   describe('F9: UI Clip Deletion Action', () => {
     it('F9-1: UI Delete button is disabled when no clip is selected', () => {
-      useDawStore.setState({ selectedClipId: null });
-      const hasSelection = !!useDawStore.getState().selectedClipId;
+      useDawStore.setState({ selectedClipIds: [] });
+      const hasSelection = useDawStore.getState().selectedClipIds.length > 0;
       const isDeleteDisabled = !hasSelection;
       expect(isDeleteDisabled).toBe(true);
     });
@@ -443,9 +443,9 @@ describe('Tier 1: Feature Coverage (M1: F1–F3, M2: F4–F9)', () => {
     it('F9-2: UI Delete button becomes enabled when a clip is selected', () => {
       const track = createMockTrack();
       const clip = createMockClip({ trackId: track.id });
-      useDawStore.setState({ tracks: [track], clips: [clip], selectedClipId: clip.id });
+      useDawStore.setState({ tracks: [track], clips: [clip], selectedClipIds: [clip.id] });
 
-      const hasSelection = !!useDawStore.getState().selectedClipId;
+      const hasSelection = useDawStore.getState().selectedClipIds.length > 0;
       const isDeleteDisabled = !hasSelection;
       expect(isDeleteDisabled).toBe(false);
     });
@@ -453,13 +453,13 @@ describe('Tier 1: Feature Coverage (M1: F1–F3, M2: F4–F9)', () => {
     it('F9-3: clicking UI Delete button removes selected clip from store', () => {
       const track = createMockTrack();
       const clip = createMockClip({ trackId: track.id });
-      useDawStore.setState({ tracks: [track], clips: [clip], selectedClipId: clip.id });
+      useDawStore.setState({ tracks: [track], clips: [clip], selectedClipIds: [clip.id] });
 
       const state = useDawStore.getState();
       state.removeClip(clip.id);
 
       expect(useDawStore.getState().clips).toHaveLength(0);
-      expect(useDawStore.getState().selectedClipId).toBeNull();
+      expect(useDawStore.getState().selectedClipIds).toEqual([]);
     });
 
     it('F9-4: UI Delete button action handles non-existent clip ID gracefully', () => {

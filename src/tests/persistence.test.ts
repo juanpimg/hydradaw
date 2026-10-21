@@ -115,7 +115,7 @@ function baseState(): PersistableProjectState {
     scrollLeft: 10,
     activeView: 'mixer',
     selectedTrackId: 'track_drums',
-    selectedClipId: 'clip_drums_1',
+    selectedClipIds: ['clip_drums_1'],
     tracks: [demoTrack('track_drums', 0.95, -0.2)],
     clips: [demoClip('clip_drums_1', 'track_drums', 'Drums Groove (120 BPM)')],
   };
@@ -374,11 +374,11 @@ describe('persistence: storage + autosave (idb-keyval mockeado)', () => {
     expect(a).not.toHaveProperty('scrollLeft');
     expect(a).not.toHaveProperty('activeView');
     expect(a).not.toHaveProperty('selectedTrackId');
-    expect(a).not.toHaveProperty('selectedClipId');
+    expect(a).not.toHaveProperty('selectedClipIds');
     expect(a.snapMode).toBe('1/16');
     // Pan/zoom/vista/selección no rearmar el debounce…
     expect(
-      selectAutosaveSnapshot({ ...base, zoom: 999, scrollLeft: 42, activeView: 'timeline', selectedTrackId: 'x', selectedClipId: 'y', currentTime: 123 }),
+      selectAutosaveSnapshot({ ...base, zoom: 999, scrollLeft: 42, activeView: 'timeline', selectedTrackId: 'x', selectedClipIds: ['y'], currentTime: 123 }),
     ).toEqual(a);
     // …pero un cambio real sí.
     expect(selectAutosaveSnapshot({ ...base, snapMode: 'bar' })).not.toEqual(a);

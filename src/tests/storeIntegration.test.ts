@@ -90,7 +90,7 @@ beforeEach(() => {
     isRecording: false,
     isLooping: false,
     metronome: false,
-    selectedClipId: null,
+    selectedClipIds: [],
     selectedTrackId: null,
   });
 });
@@ -137,7 +137,7 @@ describe('store integration (wave2)', () => {
     expect(clips[1]!.duration).toBeCloseTo(5, 5);
     expect(clips[1]!.offset).toBeCloseTo(3, 5);
     expect(clips[1]!.id).toContain('split');
-    expect(useDawStore.getState().selectedClipId).toBe(clips[1]!.id);
+    expect(useDawStore.getState().selectedClipIds).toEqual([clips[1]!.id]);
   });
 
   it('splitClip respeta minDuration 0.2: corte pegado al borde no muta', () => {
@@ -146,7 +146,7 @@ describe('store integration (wave2)', () => {
 
     expect(useDawStore.getState().clips).toHaveLength(1);
     expect(useDawStore.getState().clips[0]!.duration).toBe(8);
-    expect(useDawStore.getState().selectedClipId).toBeNull();
+    expect(useDawStore.getState().selectedClipIds).toEqual([]);
   });
 
   it('splitClip con clip inexistente no muta', () => {

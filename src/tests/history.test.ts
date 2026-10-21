@@ -101,7 +101,7 @@ beforeEach(() => {
     masterMute: false,
     snapMode: '1/16',
     selectedTrackId: null,
-    selectedClipId: null,
+    selectedClipIds: [],
     tracks: [makeTrack()],
     clips: [makeClip()],
     toasts: [],
@@ -189,13 +189,13 @@ describe('history (ST-01/02/03/11)', () => {
   });
 
   it('H8: undo() de un removeClip devuelve el clip y la selección', () => {
-    useDawStore.setState({ selectedClipId: 'clip_1' });
+    useDawStore.setState({ selectedClipIds: ['clip_1'] });
     useDawStore.getState().removeClip('clip_1');
     expect(useDawStore.getState().clips).toHaveLength(0);
-    expect(useDawStore.getState().selectedClipId).toBeNull();
+    expect(useDawStore.getState().selectedClipIds).toEqual([]);
     useDawStore.getState().undo();
     expect(useDawStore.getState().clips).toHaveLength(1);
-    expect(useDawStore.getState().selectedClipId).toBe('clip_1');
+    expect(useDawStore.getState().selectedClipIds).toEqual(['clip_1']);
   });
 
   it('H9: tras updateClip (arrastre), undo() devuelve el startTime', () => {

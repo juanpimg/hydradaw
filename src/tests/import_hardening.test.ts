@@ -25,7 +25,7 @@ function baseRaw(): Record<string, unknown> {
     scrollLeft: 0,
     activeView: 'timeline',
     selectedTrackId: null,
-    selectedClipId: null,
+    selectedClipIds: [],
     tracks: [{ id: 't1', name: 'T1', type: 'audio', color: '#fff', volume: 1, pan: 0, mute: false, solo: false, armed: false, plugins: [] }],
     clips: [],
     audioClipIds: [],
@@ -116,7 +116,7 @@ describe('import hardening (ST-08, SEC-02)', () => {
     const back = deserializeProject(raw);
     expect(back).not.toBeNull();
     expect(back!.selectedTrackId).toBeNull();
-    expect(back!.selectedClipId).toBeNull();
+    expect(back!.selectedClipIds).toEqual([]);
   });
 
   it('I0: archivo > 25 MB ⇒ se rechaza con un toast y no se importa', async () => {

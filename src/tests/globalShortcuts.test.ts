@@ -27,7 +27,7 @@ describe('handleGlobalKeyDown', () => {
       isRecording: false,
       isLooping: false,
       metronome: false,
-      selectedClipId: null,
+      selectedClipIds: [],
       selectedTrackId: null,
       exportModalOpen: false,
       pluginModalTrackId: null,
@@ -89,14 +89,14 @@ describe('handleGlobalKeyDown', () => {
 
   it('S splits clip when a clip is selected', () => {
     const splitSpy = vi.spyOn(useDawStore.getState(), 'splitClip');
-    useDawStore.setState({ selectedClipId: 'c1' });
+    useDawStore.setState({ selectedClipIds: ['c1'] });
 
     handleGlobalKeyDown(makeKeyEvent({ key: 's' }));
     expect(splitSpy).toHaveBeenCalledWith('c1', 5.0);
   });
 
   it('S toggles solo on track when track is selected and no clip is selected', () => {
-    useDawStore.setState({ selectedClipId: null, selectedTrackId: 't1' });
+    useDawStore.setState({ selectedClipIds: [], selectedTrackId: 't1' });
     expect(useDawStore.getState().tracks[0]!.solo).toBe(false);
 
     handleGlobalKeyDown(makeKeyEvent({ key: 's' }));
@@ -104,7 +104,7 @@ describe('handleGlobalKeyDown', () => {
   });
 
   it('M toggles mute on selected track', () => {
-    useDawStore.setState({ selectedClipId: null, selectedTrackId: 't1' });
+    useDawStore.setState({ selectedClipIds: [], selectedTrackId: 't1' });
     expect(useDawStore.getState().tracks[0]!.mute).toBe(false);
 
     handleGlobalKeyDown(makeKeyEvent({ key: 'm' }));
@@ -117,11 +117,20 @@ describe('handleGlobalKeyDown', () => {
     expect(stopSpy).toHaveBeenCalledTimes(1);
   });
 
-  it('Delete removes selected clip', () => {
-    const removeSpy = vi.spyOn(useDawStore.getState(), 'removeClip');
-    useDawStore.setState({ selectedClipId: 'c1' });
+  it('Delete removes all selected clips', () => {
+    const removeSpy = vi.spyOn(useDawStore.getState(), 'removeSelectedClips');
+    useDawStore.setState({ selectedClipIds: ['c1'] });
     handleGlobalKeyDown(makeKeyEvent({ key: 'Delete' }));
-    expect(removeSpy).toHaveBeenCalledWith('c1');
+    expect(removeSpy).toHaveBeenCalledTimes(1);
+    expect(useDawStore.getState().clips).toHaveLength(0);
+  });
+
+  it('Escape clears the clip selection', () => {
+    useDawStore.setState({ selectedClipIds: ['c1'] });
+    const ev = makeKeyEvent({ key: 'Escape' });
+    handleGlobalKeyDown(ev);
+    expect(useDawStore.getState().selectedClipIds).toEqual([]);
+    expect(ev.preventDefault).not.toHaveBeenCalled();
   });
 
   it('Ctrl+Z triggers undo, and Ctrl+Y triggers redo', () => {
@@ -139,8 +148,8 @@ describe('handleGlobalKeyDown', () => {
   });
 
   it('S1: con exportModalOpen, Delete no borra el clip seleccionado', () => {
-    const removeSpy = vi.spyOn(useDawStore.getState(), 'removeClip');
-    useDawStore.setState({ selectedClipId: 'c1', exportModalOpen: true });
+    const removeSpy = vi.spyOn(useDawStore.getState(), 'removeSelectedClips');
+    useDawStore.setState({ selectedClipIds: ['c1'], exportModalOpen: true });
     handleGlobalKeyDown(makeKeyEvent({ key: 'Delete' }));
     expect(removeSpy).not.toHaveBeenCalled();
     expect(useDawStore.getState().clips).toHaveLength(1);
@@ -157,7 +166,7 @@ describe('handleGlobalKeyDown', () => {
 
   it('S2: con pluginModalTrackId activo, S no corta el clip', () => {
     const splitSpy = vi.spyOn(useDawStore.getState(), 'splitClip');
-    useDawStore.setState({ selectedClipId: 'c1', pluginModalTrackId: 't1', pluginModalInstanceId: 'inst_1' });
+    useDawStore.setState({ selectedClipIds: ['c1'], pluginModalTrackId: 't1', pluginModalInstanceId: 'inst_1' });
     handleGlobalKeyDown(makeKeyEvent({ key: 's' }));
     expect(splitSpy).not.toHaveBeenCalled();
     expect(useDawStore.getState().clips).toHaveLength(1);
@@ -166,11 +175,13 @@ describe('handleGlobalKeyDown', () => {
   it('S3: con un modal abierto, Escape no dispara atajos y se deja pasar al modal', () => {
     const removeSpy = vi.spyOn(useDawStore.getState(), 'removeClip');
     const undoSpy = vi.spyOn(useDawStore.getState(), 'undo');
-    useDawStore.setState({ selectedClipId: 'c1', exportModalOpen: true });
+    useDawStore.setState({ selectedClipIds: ['c1'], exportModalOpen: true });
     const ev = makeKeyEvent({ key: 'Escape' });
     handleGlobalKeyDown(ev);
     expect(removeSpy).not.toHaveBeenCalled();
     expect(undoSpy).not.toHaveBeenCalled();
+    // Con modal abierto Escape tampoco limpia la selección.
+    expect(useDawStore.getState().selectedClipIds).toEqual(['c1']);
     // El modal cierra con Escape en su propio listener: no se interfiere.
     expect(ev.preventDefault).not.toHaveBeenCalled();
   });

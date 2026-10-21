@@ -84,7 +84,7 @@ describe('Tier 3: Cross-Feature Combinations (Pairwise Interactions)', () => {
   it('C3 (F6+F9): Trimming a clip preserves selection, and UI delete action removes it completely', () => {
     const track = createMockTrack({ id: 't1' });
     const clip = createMockClip({ id: 'c1', trackId: 't1', startTime: 2.0, duration: 6.0 });
-    useDawStore.setState({ tracks: [track], clips: [clip], selectedClipId: 'c1' });
+    useDawStore.setState({ tracks: [track], clips: [clip], selectedClipIds: ['c1'] });
 
     // Trim right handle
     const trimmed = trimRightOperation(clip, -2.0);
@@ -94,7 +94,7 @@ describe('Tier 3: Cross-Feature Combinations (Pairwise Interactions)', () => {
     // Delete trimmed clip via UI toolbar action
     useDawStore.getState().removeClip('c1');
     expect(useDawStore.getState().clips).toHaveLength(0);
-    expect(useDawStore.getState().selectedClipId).toBeNull();
+    expect(useDawStore.getState().selectedClipIds).toEqual([]);
   });
 
   // =========================================================================

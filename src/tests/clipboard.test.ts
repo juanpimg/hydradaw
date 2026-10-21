@@ -82,7 +82,7 @@ beforeEach(() => {
     masterMute: false,
     snapMode: '1/16',
     selectedTrackId: null,
-    selectedClipId: null,
+    selectedClipIds: [],
     exportModalOpen: false,
     pluginModalTrackId: null,
     pluginModalInstanceId: null,
@@ -128,7 +128,7 @@ describe('Portapapeles de clips (G2)', () => {
   });
 
   it('C3: duplicateSelectedClips ⇒ el duplicado va justo después del original', () => {
-    useDawStore.setState({ selectedClipId: 'c1' });
+    useDawStore.setState({ selectedClipIds: ['c1'] });
     useDawStore.getState().duplicateSelectedClips();
     const clips = useDawStore.getState().clips;
     expect(clips).toHaveLength(3);

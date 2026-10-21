@@ -25,7 +25,7 @@ beforeEach(() => {
     tracks: [],
     clips: [],
     toasts: [],
-    selectedClipId: null,
+    selectedClipIds: [],
     selectedTrackId: null,
   });
 });
