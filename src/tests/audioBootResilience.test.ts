@@ -1,6 +1,114 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { useDawStore } from '../store/useDawStore';
 import { AudioEngine } from '../audio/AudioEngine';
+import type { AudioTrack, AudioClip } from '../types/daw';
+
+// ---------------------------------------------------------------------------
+// Mocks con identidad de contexto (Grupo 5 / AUD-11): cablear nodos de
+// contextos distintos lanza InvalidAccessError, como el navegador real.
+// ---------------------------------------------------------------------------
+
+function aud11InvalidAccess(): Error {
+  const err = new Error('Failed to execute \'connect\': nodes belong to different contexts');
+  err.name = 'InvalidAccessError';
+  return err;
+}
+
+class Aud11Param {
+  value: number;
+  constructor(defaultValue: number = 0) {
+    this.value = defaultValue;
+  }
+  setTargetAtTime(target: number): void {
+    this.value = target;
+  }
+  setValueAtTime(v: number): void {
+    this.value = v;
+  }
+  linearRampToValueAtTime(): void {}
+  exponentialRampToValueAtTime(): void {}
+}
+
+class Aud11Node {
+  __ctx: unknown;
+  connectedTo: Aud11Node[] = [];
+  constructor(ctx: unknown) {
+    this.__ctx = ctx;
+  }
+  connect(destination: Aud11Node): Aud11Node {
+    if (!destination || destination.__ctx !== this.__ctx) throw aud11InvalidAccess();
+    this.connectedTo.push(destination);
+    return destination;
+  }
+  disconnect(): void {
+    this.connectedTo = [];
+  }
+}
+
+class Aud11Gain extends Aud11Node {
+  gain = new Aud11Param(1);
+}
+
+class Aud11Source extends Aud11Node {
+  buffer: AudioBuffer | null = null;
+  onended: (() => void) | null = null;
+  startCalls: Array<{ when: number; offset: number; dur: number }> = [];
+  start(when?: number, offset?: number, dur?: number): void {
+    this.startCalls.push({ when: when ?? 0, offset: offset ?? 0, dur: dur ?? 0 });
+  }
+  stop(): void {}
+}
+
+class Aud11Context {
+  state: string = 'running';
+  currentTime = 50;
+  sampleRate = 44100;
+  destination: Aud11Node;
+  sources: Aud11Source[] = [];
+  constructor() {
+    this.destination = new Aud11Node(this);
+  }
+  createGain(): Aud11Gain {
+    return new Aud11Gain(this);
+  }
+  createBufferSource(): Aud11Source {
+    const s = new Aud11Source(this);
+    this.sources.push(s);
+    return s;
+  }
+  createDynamicsCompressor(): Aud11Node & Record<string, Aud11Param> {
+    const n = new Aud11Node(this) as Aud11Node & Record<string, Aud11Param>;
+    n.threshold = new Aud11Param(-24);
+    n.knee = new Aud11Param(30);
+    n.ratio = new Aud11Param(12);
+    n.attack = new Aud11Param(0.003);
+    n.release = new Aud11Param(0.05);
+    return n;
+  }
+  createStereoPanner(): Aud11Node & { pan: Aud11Param } {
+    const n = new Aud11Node(this) as Aud11Node & { pan: Aud11Param };
+    n.pan = new Aud11Param(0);
+    return n;
+  }
+  createAnalyser(): Aud11Node & { fftSize: number; smoothingTimeConstant: number; getFloatTimeDomainData: (a: Float32Array) => void } {
+    const n = new Aud11Node(this) as Aud11Node & {
+      fftSize: number;
+      smoothingTimeConstant: number;
+      getFloatTimeDomainData: (a: Float32Array) => void;
+    };
+    n.fftSize = 256;
+    n.smoothingTimeConstant = 0.8;
+    n.getFloatTimeDomainData = (a: Float32Array) => a.fill(0.1);
+    return n;
+  }
+  resume(): Promise<void> {
+    return Promise.resolve();
+  }
+  close(): Promise<void> {
+    this.state = 'closed';
+    return Promise.resolve();
+  }
+}
 import {
   runHandleContinue,
   runHandleBlank,
@@ -51,6 +159,9 @@ describe('M1 Audio Boot Resilience & Startup Error Handling', () => {
     (globalThis as unknown as { requestAnimationFrame: unknown }).requestAnimationFrame = originalRaf;
     (globalThis as unknown as { cancelAnimationFrame: unknown }).cancelAnimationFrame = originalCaf;
     AudioEngine.getInstance().dispose();
+    // Fix(AUD-11): los spies de un test no fugan al siguiente (el Grupo 4
+    // deja ensureContext/syncTracks mockeados con rechazo).
+    vi.restoreAllMocks();
   });
 
   // =========================================================================
@@ -485,6 +596,71 @@ describe('M1 Audio Boot Resilience & Startup Error Handling', () => {
       expect(busyStates[busyStates.length - 1]).toBeNull();
       expect(useDawStore.getState().tracks).toHaveLength(4);
       expect(useDawStore.getState().toasts.length).toBeGreaterThan(0);
+    });
+  });
+
+  // =========================================================================
+  // Grupo 5: Recreación del contexto tras cambio de dispositivo (AUD-11)
+  // =========================================================================
+  describe('Grupo 5: los nodos de pista se rehacen al cambiar de contexto', () => {
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    it('tras reemplazar el contexto, las pistas se reconstruyen y suenan', async () => {
+      const ctxV1 = new Aud11Context();
+      const ctxV2 = new Aud11Context();
+      let current: Aud11Context = ctxV1;
+      vi.stubGlobal('AudioContext', vi.fn().mockImplementation(() => current));
+
+      const engine = AudioEngine.getInstance();
+      await engine.ensureContext();
+      expect(engine.getContext()).toBe(ctxV1);
+
+      const track: AudioTrack = {
+        id: 't1',
+        name: 'Pista 1',
+        type: 'audio',
+        color: '#06b6d4',
+        volume: 1,
+        pan: 0,
+        mute: false,
+        solo: false,
+        armed: false,
+        plugins: [],
+      };
+      await engine.syncTracks([track]);
+      expect(engine.getTrackNodes().size).toBe(1);
+
+      // Simula cambio de dispositivo: el contexto viejo se cierra y el
+      // siguiente ensureContext fabrica uno nuevo.
+      await ctxV1.close();
+      current = ctxV2;
+      await engine.ensureContext();
+      expect(engine.getContext()).toBe(ctxV2);
+      // Los nodos viejos (atados al contexto cerrado) se descartan y las
+      // firmas se resetean para forzar la reconstrucción.
+      expect(engine.getTrackNodes().size).toBe(0);
+      expect(
+        (engine as unknown as { trackEffectsSig: Map<string, string> }).trackEffectsSig.size
+      ).toBe(0);
+
+      const clip: AudioClip = {
+        id: 'c1',
+        trackId: 't1',
+        name: 'Clip 1',
+        startTime: 0,
+        duration: 4,
+        offset: 0,
+        audioBuffer: { duration: 4 } as unknown as AudioBuffer,
+        peaks: new Float32Array(0),
+      };
+      await engine.play([track], [clip], 0);
+      // La pista vive en el contexto nuevo y el clip se programa sin
+      // InvalidAccessError (fuente nueva -> entrada nueva, mismo contexto).
+      expect(engine.getTrackNodes().get('t1')?.context).toBe(ctxV2);
+      expect(ctxV2.sources.length).toBe(1);
+      expect(ctxV2.sources[0]!.startCalls.length).toBe(1);
     });
   });
 });

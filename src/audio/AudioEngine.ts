@@ -137,6 +137,17 @@ export class AudioEngine {
    */
   async ensureContext(): Promise<AudioContext> {
     if (!this.context || this.context.state === 'closed') {
+      // Fix(AUD-11): los trackNodes viejos pertenecen al contexto anterior —
+      // se desconectan y descartan para que syncTracks los reconstruya en el
+      // contexto nuevo (si no, las fuentes nuevas se cablean a entradas
+      // viejas y el navegador lanza InvalidAccessError).
+      for (const [, node] of this.trackNodes) {
+        try {
+          node.dispose();
+        } catch (_) {}
+      }
+      this.trackNodes.clear();
+      this.trackEffectsSig.clear();
       const AudioCtx =
         typeof window !== 'undefined'
           ? window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext
