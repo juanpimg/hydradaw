@@ -1439,7 +1439,75 @@ npm run build 2>&1 | tail -8
 
 ---
 
-### Task 38: Endurecer el tsconfig y cerrar el build (TS-01, CFG-02)
+### Task 38: Identificar y eliminar el flake de la suite
+
+**Ficheros:**
+- Modificar: el fichero de test que aloje el flake (a determinar)
+- Crear: (ninguno obligatorio; puede ser una regresión sobre un test existente)
+
+**Interfaces:**
+- Produce: la suite `npm test` es **determinista**: 30 ejecuciones consecutivas en verde, sin
+  ningún "2 failed" transitorio.
+
+**Contexto:** a lo largo de los work packages 1-3 se ha observado **una vez por work package** una
+ejecución de `npm test` que reporta "2 failed" con el resto en verde, sin reproducirse en 20-30
+reintentos posteriores. Los nombres de los 2 tests **nunca** se han capturado, así que la
+investigación no ha podido empezar. Sospechas: (a) contaminación global de stubs entre ficheros
+del mismo worker (parcialmente corregida en el WP3); (b) tests de audio con presupuestos de tiempo
+real bajo contención de CPU — `src/audio/plugin_safety.test.ts` tarda ~11 s e incluye un test de IR
+de reverb de ~4.7 s; (c) cualquier otro estado global del singleton `audioEngine` compartido
+entre ficheros de test.
+
+**Por qué es una tarea y no una nota:** un gate que falla "a veces" sin poder nombrar al culpable
+es exactamente la falsa confianza que este programa viene a eliminar. Si el flake es real, es un
+defecto de los tests; si es environmental, hay que demostrarlo con evidencia.
+
+- [ ] **Paso 1: reproducir con captura de salida**
+
+```bash
+for i in $(seq 1 30); do
+  npx vitest run --reporter=verbose 2>&1 | tee /tmp/flake-$i.log | grep -E "Tests  .*failed" && echo "FLAKE en iteración $i" && break
+done
+```
+
+Con CPU concurrente para forzar la contención:
+```bash
+for i in $(seq 1 30); do (yes > /dev/null &) ; npx vitest run --reporter=verbose 2>&1 | tee /tmp/flake-$i.log; done
+```
+
+- [ ] **Paso 2: identificar los 2 tests y el mecanismo**
+
+De los logs: qué tests fallaron, qué aserción falló, y **por qué** (no basta con el nombre).
+Determina si es: temporal (``setTimeout``/sleep real), estado global compartido, orden de ejecución
+de ficheros, o saturación de CPU.
+
+- [ ] **Paso 3: corregir la causa**
+
+- Si es un **presupuesto de tiempo**: usar relojes falsos (`vi.useFakeTimers()`) en vez de tiempo
+  real, o ampliar el presupuesto a un valor que sea estable en hardware lento — con un comentario
+  que explique el margen.
+- Si es **estado global compartido**: mover el estado a un `beforeEach`/`afterEach` o a un
+  `vi.stubGlobal` con restauración garantizada.
+- Si es **orden de ejecución**: declarar la dependencia en lugar de depender del orden de ficheros.
+
+- [ ] **Paso 4: verificar la estabilidad**
+
+```bash
+for i in $(seq 1 30); do npx vitest run --reporter=basic | tail -3; done
+```
+Los 30 en verde y con el **mismo** recuento.
+
+- [ ] **Paso 5: commit**
+
+```bash
+git commit -m "fix(test): elimina el flake transitorio de la suite"
+```
+
+**Si resulta ser ambiental y no reproducible bajo carga** (y sólo entonces): documentarlo con la
+evidencia de los 30 intentos en el informe y en `TEST_INFRA.md`, en vez de "arreglar" algo que no
+está roto.
+
+### Task 39: Endurecer el tsconfig y cerrar el build (TS-01, CFG-02)
 
 **Ficheros:**
 - Modificar: `tsconfig.json` (`exactOptionalPropertyTypes: true`)
