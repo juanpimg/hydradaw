@@ -45,8 +45,14 @@ describe('CFG-01: PWA instalable con iconos PNG reales', () => {
   it('index.html incluye apple-touch-icon y og:image', () => {
     const html = read('index.html');
     expect(html).toContain('apple-touch-icon');
-    expect(html).toContain('/icons/icon-192.png');
+    expect(html).toContain('icons/icon-192.png');
     expect(html).toContain('og:image');
+  });
+
+  it('SEO-01: no hay placeholder de verificación de Search Console', () => {
+    // Sin token real no se envía nada (ronda fix 1): el fichero placeholder
+    // con el nombre repetido no debe existir.
+    expect(existsSync(join(ROOT, 'public', 'google3fce0f2d783a10a6.html'))).toBe(false);
   });
 });
 
