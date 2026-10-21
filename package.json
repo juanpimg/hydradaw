@@ -10,7 +10,7 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:dom": "vitest run src/tests/dom",
-    "test:browser": "node tests/browser/smoke.mjs",
+    "test:browser": "node tests/browser/smoke.mjs && node tests/browser/prodCheck.mjs",
     "test:all": "npm test && npm run test:dom && npm run test:browser",
     "icons": "node scripts/generate-icons.mjs"
   },
