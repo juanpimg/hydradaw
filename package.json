@@ -10,7 +10,7 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:dom": "vitest run src/tests/dom",
-    "test:browser": "vitest run --passWithNoTests tests/browser",
+    "test:browser": "node tests/browser/smoke.mjs",
     "test:all": "npm test && npm run test:dom && npm run test:browser"
   },
   "dependencies": {
