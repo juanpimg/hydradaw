@@ -51,9 +51,15 @@ export type SandboxPrecheck =
 
 /**
  * Lista de prohibición (spec §3.7 + la anterior): cualquier coincidencia
- * rechaza el plugin. `eval` no puede sombrearse como parámetro en modo
- * estricto (SyntaxError), así que su única defensa es este escáner: todo uso
- * de `eval` lo nombra literalmente y cae aquí.
+ * rechaza el plugin.
+ *
+ * Ronda fix 1: `eval` y `Function` se rechazan como PALABRAS (`/\beval\b/`),
+ * no solo como llamadas. `const e = eval;` pasaba el escáner antiguo y, como
+ * `eval` no puede sombrearse como parámetro en modo estricto (SyntaxError),
+ * el alias seguía siendo el `eval` real: un `e(payload)` indirecto ejecuta en
+ * ámbito global y salta todos los sombreados. `this` (solo minúsculas, la
+ * palabra reservada) se rechaza porque `this['constr'+'uctor']` elude el
+ * rechazo por subcadena de `constructor`.
  */
 export const FORBIDDEN_PATTERNS: RegExp[] = [
   /\b(globalThis|self|top|parent|frames|opener)\b/i,
@@ -62,7 +68,9 @@ export const FORBIDDEN_PATTERNS: RegExp[] = [
   /\b(postMessage|indexedDB|caches|cookieStore)\b/i,
   /\b(document|window|localStorage|sessionStorage)\b/i,
   /\b(fetch|XMLHttpRequest|WebSocket|EventSource|sendBeacon)\b/i,
-  /\b(eval|Function)\s*\(/i,
+  /\beval\b/i,
+  /\bFunction\b/i,
+  /\bthis\b/,
   /\bimport\s*\(/i,
   /\bimport\.meta\b/i,
   /\bprototype\b/i,

