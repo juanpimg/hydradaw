@@ -35,6 +35,11 @@ export interface ClipSchedule {
   playDuration: number;
 }
 
+// Fix(AUD-05): el watchdog del loop vigila cada 25 ms y pre-programa la
+// siguiente iteración con 0.1 s de antelación en el borde exacto (sin hueco).
+const LOOP_WATCH_MS = 25;
+const LOOP_SCHEDULE_LEAD_SEC = 0.1;
+
 export class AudioEngine {
   private static instance: AudioEngine;
 
@@ -55,10 +60,10 @@ export class AudioEngine {
 
   // Fix(wave3): estado persistente de loop / metrónomo. El store aún NO los propaga
   // (placebos) — play() los respeta automáticamente para que el cableado futuro sea
-  // trivial. Técnica de loop: stop + replanificación vigilada por un intervalo
-  // de 25 ms en el reloj de audio (AUD-05; NO BufferSource.loop=true, que
-  // repetiría el contenido del buffer en lugar del arreglo del timeline con
-  // clips arbitrarios).
+  // trivial. Técnica de loop: stop + replanificación con la siguiente
+  // iteración pre-programada en el borde exacto del reloj de audio (AUD-05;
+  // NO BufferSource.loop=true, que repetiría el contenido del buffer en lugar
+  // del arreglo del timeline con clips arbitrarios).
   // NOTE(wave3): el store aún no llama a setLoop/setMetronome — cablearlo es un cambio de 3 líneas en useDawStore
   private loopEnabled: boolean = false;
   private loopStart: number = 0;
@@ -69,7 +74,11 @@ export class AudioEngine {
   private activeLoop: { start: number; end: number } | null = null;
   private activeMetronome: boolean = false;
   private activeTimeSig: [number, number] = [4, 4];
-  private loopTimer: ReturnType<typeof setTimeout> | null = null;
+  private loopTimer: ReturnType<typeof setInterval> | null = null;
+  // Fix(AUD-05): borde de audio pre-programado pendiente de empalme (fase 2).
+  // null = la iteración en curso es la vigente; non-null = la siguiente ya
+  // está programada y toma el relevo al cruzar ese instante.
+  private loopPendingAt: number | null = null;
   private metroTimer: ReturnType<typeof setInterval> | null = null;
   private metronomeNodes: OscillatorNode[] = [];
   // Fix(AUD-04): watermark del metrónomo (segundos de timeline): hasta dónde ya
@@ -1016,45 +1025,45 @@ export class AudioEngine {
     }, 1000);
   }
 
-  // Fix(wave3 + AUD-05): replanificación del loop (stop + replan), decidida en
-  // el reloj de audio por el watchdog (checkLoopWrap). Reusa caché tracks/clips
-  // y respeta el tempo vigente. El anclaje en currentTime + 0.02 rellena el hueco
-  // cuando el watchdog detecta el cruce tarde; en hora es el empalme natural.
-  private handleLoopWrap(): void {
+  // Fix(wave3 + AUD-05): replanificación del loop en dos fases vía watchdog
+  // (checkLoopWrap): pre-programa en el borde y empalma al cruzarlo. Reusa
+  // caché tracks/clips y respeta el tempo vigente.
+
+  // Fix(AUD-05): vigilancia del loop en el reloj de audio, en dos fases para
+  // un empalme sin hueco y sin solape:
+  // - Fase 1 (antelación): cuando faltan <= 0.1 s para el loopEnd proyectado,
+  //   programa la siguiente iteración con inicio EXACTO en el borde. Lo viejo
+  //   acaba ahí por construcción (duraciones capadas) y lo nuevo empieza ahí.
+  // - Fase 2 (empalme): al cruzar el borde, mueve offsets. Sin stopAllSources:
+  //   mataría las fuentes recién programadas; las viejas ya acabaron. Los
+  //   tails de click (<= 60 ms) decaen solos para no truncar.
+  // Si el watchdog llega famélico (borde ya pasado), la fase 1 hace gap fill
+  // en currentTime + 0.02 en lugar del borde obsoleto.
+  private checkLoopWrap(): void {
     if (!this.isPlaying || !this.activeLoop || !this.context) return;
     const ctx = this.context;
     const { start, end } = this.activeLoop;
-    const len = end - start;
-    if (!(len > 0)) return;
-    for (const node of this.trackNodes.values()) {
-      node.stopAllSources();
-    }
-    this.stopMetronomeNodes();
-    this.playheadOffset = start;
-    this.startTime = ctx.currentTime + 0.02;
-    this.scheduleClipsRange(ctx, this.cachedClips, start, end, this.startTime);
-    if (this.activeMetronome) {
-      this.scheduleMetronomeRange(ctx, start, end, this.startTime);
-    }
-    // Sin re-arme: el intervalo de vigilancia sigue corriendo y recalcula el
-    // loopEnd proyectado desde el nuevo startTime/playheadOffset.
-  }
-
-  // Fix(AUD-05): vigilancia del loop cada 25 ms contra el loopEnd proyectado en
-  // tiempo de audio (startTime + (end - playheadOffset)). Dispara solo cuando el
-  // audio cruza el fin — nunca antes — para no truncar formas de onda en vuelo.
-  private checkLoopWrap(): void {
-    if (!this.isPlaying || !this.activeLoop || !this.context) return;
-    const { end } = this.activeLoop;
-    const projectedEnd = this.startTime + (end - this.playheadOffset);
-    if (this.context.currentTime >= projectedEnd) {
-      this.handleLoopWrap();
+    if (this.loopPendingAt == null) {
+      const projectedEnd = this.startTime + (end - this.playheadOffset);
+      if (ctx.currentTime >= projectedEnd - LOOP_SCHEDULE_LEAD_SEC) {
+        const boundary = Math.max(projectedEnd, ctx.currentTime + 0.02);
+        this.scheduleClipsRange(ctx, this.cachedClips, start, end, boundary);
+        if (this.activeMetronome) {
+          this.scheduleMetronomeRange(ctx, start, end, boundary);
+        }
+        this.loopPendingAt = boundary;
+      }
+    } else if (ctx.currentTime >= this.loopPendingAt) {
+      this.playheadOffset = start;
+      this.startTime = this.loopPendingAt;
+      this.loopPendingAt = null;
     }
   }
 
   private armLoopTimer(): void {
     if (this.loopTimer) clearInterval(this.loopTimer);
-    this.loopTimer = setInterval(() => this.checkLoopWrap(), 25);
+    this.loopPendingAt = null;
+    this.loopTimer = setInterval(() => this.checkLoopWrap(), LOOP_WATCH_MS);
   }
 
   private clearLoopTimers(): void {
@@ -1062,6 +1071,7 @@ export class AudioEngine {
       clearInterval(this.loopTimer);
       this.loopTimer = null;
     }
+    this.loopPendingAt = null;
     if (this.metroTimer) {
       clearInterval(this.metroTimer);
       this.metroTimer = null;

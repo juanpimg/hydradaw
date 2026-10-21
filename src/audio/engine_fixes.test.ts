@@ -343,11 +343,10 @@ describe('waveA: fixes del engine', () => {
     expect(muteVal).toBe(0);
   });
 
-  // AUD-05: sustituye al test wall-clock 'loop timer suma lookahead 0.02…'.
-  // El setTimeout de pared + compensación por Date.now() ya no existen: el wrap
-  // lo decide un intervalo de 25 ms contra el reloj de audio. No es un
-  // debilitamiento — la nueva expectativa (intervalo de 25 ms + gap-fill en
-  // currentTime + 0.02) es el comportamiento que exige el brief.
+  // AUD-05 (lookahead en dos fases): el setTimeout de pared + Date.now() ya no
+  // existen. El watchdog pre-programa en el borde (fase 1) y empalma al
+  // cruzarlo (fase 2). No es un debilitamiento: fija el intervalo en 25 ms,
+  // el pre-programado exacto y el empalme sin salto.
   it('loop watchdog: intervalo de 25 ms en el reloj de audio y gap-fill al detectar tarde', async () => {
     vi.useFakeTimers();
     try {
@@ -356,16 +355,17 @@ describe('waveA: fixes del engine', () => {
       await engine.play([makeTrack()], [makeClip()], 0, { loop: true, loopStart: 0, loopEnd: 4 });
       const intervalDelay = intSpy.mock.calls[intSpy.mock.calls.length - 1]![1] as number;
       expect(intervalDelay).toBe(25);
-      // Wrap tardío: el audio ya pasó loopEnd → la siguiente iteración se ancla
-      // en currentTime + 0.02 (relleno del hueco), no en loopEnd.
-      mockCtx.currentTime += 10;
-      const before = mockCtx.sources.length;
+      // Watchdog famélico: el audio ya pasó loopEnd (104.02). Fase 1:
+      // la siguiente iteración se pre-programa en currentTime + 0.02.
+      mockCtx.currentTime += 10; // 110
       await vi.advanceTimersByTimeAsync(50);
-      expect(mockCtx.sources.length).toBeGreaterThan(before);
-      expect((engine as unknown as { startTime: number }).startTime).toBeCloseTo(
-        mockCtx.currentTime + 0.02,
-        9
-      );
+      const whens = mockCtx.sources.flatMap((s) => s.startCalls.map((c) => c.when));
+      expect(whens.some((w) => Math.abs(w - 110.02) < 1e-6)).toBe(true);
+      // Fase 2: al alcanzar el borde pre-programado, el flip empalma sin salto.
+      mockCtx.currentTime += 0.05; // 110.05 >= 110.02
+      await vi.advanceTimersByTimeAsync(50);
+      expect((engine as unknown as { playheadOffset: number }).playheadOffset).toBeCloseTo(0, 9);
+      expect((engine as unknown as { startTime: number }).startTime).toBeCloseTo(110.02, 9);
     } finally {
       vi.useRealTimers();
     }

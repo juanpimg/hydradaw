@@ -246,34 +246,53 @@ describe('wave3: loop real en el engine', () => {
     expect(engine.getCurrentTime()).toBeCloseTo(0.98, 5);
   });
 
-  it('handleLoopWrap replanifica la siguiente iteración desde loopStart', async () => {
-    const { engine, mockCtx } = setupEngine();
-    await engine.play([makeTrack()], [makeClip()], 0, { loop: true, loopStart: 2, loopEnd: 6 });
-    const scheduledBefore = mockCtx.sources.length;
-    mockCtx.currentTime += 10; // fuerza cruce de loopEnd
-    (engine as unknown as { handleLoopWrap: () => void }).handleLoopWrap();
-    expect((engine as unknown as { playheadOffset: number }).playheadOffset).toBeCloseTo(2, 9);
-    expect(mockCtx.sources.length).toBeGreaterThan(scheduledBefore);
+  it('wrap por watchdog replanifica la siguiente iteración desde loopStart', async () => {
+    vi.useFakeTimers();
+    try {
+      const { engine, mockCtx } = setupEngine();
+      await engine.play([makeTrack()], [makeClip()], 0, { loop: true, loopStart: 2, loopEnd: 6 });
+      const scheduledBefore = mockCtx.sources.length;
+      mockCtx.currentTime += 10; // fuerza cruce de loopEnd (watchdog famélico)
+      await vi.advanceTimersByTimeAsync(50); // fase 1: pre-programa en now+0.02
+      expect(mockCtx.sources.length).toBeGreaterThan(scheduledBefore);
+      mockCtx.currentTime += 0.05;
+      await vi.advanceTimersByTimeAsync(50); // fase 2: flip al borde
+      expect((engine as unknown as { playheadOffset: number }).playheadOffset).toBeCloseTo(2, 9);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
-  it('wrap tardío en el reloj de audio rellena el hueco (AUD-05)', async () => {
+  // AUD-05 (lookahead): la siguiente iteración se pre-programa en el borde
+  // exacto ANTES de que acabe la actual — sin hueco y sin solape.
+  it('el loop se programa por adelantado: sin hueco ni solape en el empalme', async () => {
     vi.useFakeTimers();
     try {
       const { engine, mockCtx } = setupEngine();
       await engine.play([makeTrack()], [makeClip()], 0, { loop: true, loopStart: 0, loopEnd: 4 });
-      const scheduledBefore = mockCtx.sources.length;
-      expect(scheduledBefore).toBeGreaterThan(0);
-      // El watchdog se dispara tarde: el audio ya pasó loopEnd (100.02 + 4).
-      mockCtx.currentTime += 10;
+      // Iteración 1 suena en [100.02, 104.02]. El watchdog la detecta con
+      // antelación (lead 0.1 s) y deja la 2 programada en el borde exacto.
+      mockCtx.currentTime = 103.95;
       await vi.advanceTimersByTimeAsync(50);
-      expect(mockCtx.sources.length).toBeGreaterThan(scheduledBefore);
+      const spans = mockCtx.sources.flatMap((s) => s.startCalls.map((c) => ({ when: c.when, dur: c.dur })));
+      expect(spans.length).toBeGreaterThan(1);
+      // Sin hueco: la siguiente iteración ya está programada en el borde…
+      const atBoundary = spans.filter((s) => Math.abs(s.when - 104.02) < 1e-6);
+      expect(atBoundary.length).toBeGreaterThan(0);
+      // …y sin solape: lo viejo acaba donde empieza lo nuevo.
+      for (const s of spans) {
+        if (s.when < 104.02 - 1e-6) {
+          expect(s.when + s.dur).toBeLessThanOrEqual(104.02 + 1e-6);
+        } else {
+          expect(s.when).toBeGreaterThanOrEqual(104.02 - 1e-6);
+        }
+      }
+      // Al cruzar el borde, el flip empalma sin salto.
+      mockCtx.currentTime = 104.05;
+      await vi.advanceTimersByTimeAsync(50);
       expect((engine as unknown as { playheadOffset: number }).playheadOffset).toBeCloseTo(0, 9);
-      // Gap fill: la siguiente iteración se ancla en currentTime + 0.02,
-      // no en el loopEnd obsoleto.
-      expect((engine as unknown as { startTime: number }).startTime).toBeCloseTo(
-        mockCtx.currentTime + 0.02,
-        9
-      );
+      expect((engine as unknown as { startTime: number }).startTime).toBeCloseTo(104.02, 9);
+      expect(engine.getCurrentTime()).toBeCloseTo(0.03, 2);
     } finally {
       vi.useRealTimers();
     }
