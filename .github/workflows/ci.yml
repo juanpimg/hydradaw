@@ -1,0 +1,33 @@
+name: CI
+on:
+  push: { branches: [main] }
+  pull_request:
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '20', cache: npm }
+      - run: npm ci
+      - run: npm test
+      - run: npx tsc --noEmit
+      - run: npm run build
+  browser:
+    runs-on: ubuntu-latest
+    needs: unit
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '20', cache: npm }
+      - run: npm ci
+      # ubuntu-latest trae google-chrome-stable preinstalado (lo usa
+      # tests/browser/harness.mjs); sin paso de instalación de navegador.
+      - run: |
+          nohup npm run dev -- --port 5175 > /tmp/vite.log 2>&1 &
+          for i in $(seq 1 60); do
+            if curl -fsS http://localhost:5175/ > /dev/null; then break; fi
+            sleep 2
+          done
+          curl -fsS http://localhost:5175/ > /dev/null
+      - run: npm run test:browser
