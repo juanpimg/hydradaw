@@ -250,8 +250,8 @@ Lanzar con `--no-sandbox --disable-dev-shm-usage --autoplay-policy=no-user-gestu
 | B7 | `touch-action` | el elemento de clip tiene `getComputedStyle(el).touchAction === 'none'` (falla hoy ⇒ se arregla en W2) |
 | B8 | Errores de consola | 0 `pageerror` y 0 `console.error` en todo el recorrido |
 
-Los checks B1-B6, B8 deben pasar **ya**; B7 debe fallar hasta la Tarea 18 ⇒ marcarlo como
-`expectedFailure` hasta entonces, con un `TODO(ses_...)` que apunte a la Tarea 18, y quitarlo allí.
+Los checks B1-B6, B8 deben pasar **ya**; B7 debe fallar hasta la Tarea 21 (Pointer Events) ⇒ marcarlo como
+`expectedFailure` hasta entonces, con un `TODO` que apunte a la Tarea 21, y quitarlo allí.
 
 - [ ] **Paso 3: script de npm y artefactos**
 
@@ -844,9 +844,67 @@ hasta 400 ms los bloques de entrada más cortos que un bloque.
 
 ---
 
+### Task 20: El transporte conserva la posición al parar
+
+**Ficheros:**
+- Modificar: `src/audio/AudioEngine.ts` (`stop()`, `pause` implícito)
+- Modificar: `src/store/useDawStore.ts` (acciones `stop` y `pause`)
+- Crear: `src/audio/engine_transport_position.test.ts`
+
+**Interfaces:**
+- Produce: `AudioEngine.stop()` **persiste** la posición actual en `this.playheadOffset` antes de
+  limpiar el estado ⇒ `getCurrentTime()` devuelve la posición de parada, no la de arranque.
+- Produce: la acción `stop` del store deja `currentTime` en la posición de parada (no en 0);
+  la acción `pause` mantiene ese mismo valor.
+
+**Por qué (bug real encontrado por la capa de navegador del WP2):** hoy `stop()` calcula
+`currentPos = this.getCurrentTime()` y lo **devuelve**, pero nunca lo escribe en `playheadOffset`.
+Tras parar, `getCurrentTime()` devuelve el `playheadOffset` obsoleto (típicamente 0). Y la acción
+`stop` del store fuerza `currentTime: 0`. Consecuencias visibles:
+1. **Cortar un clip con `S` en pausa no hace nada**: `WaveformCanvas.handleKeyDown` llama a
+   `splitClip(clip.id, audioEngine.getCurrentTime())` ⇒ siempre 0 ⇒ el corte cae en el borde y la
+   operación se descarta en silencio.
+2. La posición de reproducción **se pierde** al parar: el usuario pierde su sitio en el proyecto.
+3. `pause` y `stop` se comportan de forma inconsistente entre sí y respecto al motor.
+
+- [ ] **Paso 1: test que falla**
+
+```ts
+it('stop() conserva la posición del cursor', () => {
+  engine.play(tracks, clips, 0);
+  // avanzar el reloj del contexto simulado 5 s
+  const pos = engine.stop();
+  expect(pos).toBeCloseTo(5, 2);
+  expect(engine.getCurrentTime()).toBeCloseTo(5, 2); // hoy devuelve 0
+});
+
+it('la acción stop del store no rebobina a 0', () => {
+  // tras reproduce 5 s y parar, expect(state.currentTime).toBeCloseTo(5, 2)
+});
+```
+
+- [ ] **Paso 2: verificar que falla** → `npx vitest run src/audio/engine_transport_position.test.ts`
+
+- [ ] **Paso 3: implementar**
+
+En `AudioEngine.stop()`: tras calcular `currentPos`, asignar `this.playheadOffset = currentPos`
+(antes de limpiar `activeLoop`). En el store, la acción `stop` pasa a
+`set({ isPlaying: false, isRecording: false, currentTime: audioEngine.stop() })` — reutilizando el
+valor devuelto, no forzando 0. La acción `pause` ya usa el valor devuelto: verificar que sigue
+correcta tras el cambio del motor.
+
+- [ ] **Paso 4: verificar** → test + `npm test` + `npm run test:browser` (el check B4 del smoke
+  suite debe seguir verde)
+
+- [ ] **Paso 5: commit**
+
+```bash
+git commit -m "fix(transport): parar conserva la posicion del cursor"
+```
+
 # WAVE 2 — El contrato de interacción (F4-F8, F10-F13) implementado de verdad
 
-### Task 20: Pointer Events en los clips (UI-03, F4, F5, F6)
+### Task 21: Pointer Events en los clips (UI-03, F4, F5, F6)
 
 **Ficheros:**
 - Modificar: `src/components/Timeline/WaveformCanvas.tsx`
@@ -885,7 +943,7 @@ selección).
 
 ---
 
-### Task 21: El knob, con captura de puntero y rueda real (UI-04, F7)
+### Task 22: El knob, con captura de puntero y rueda real (UI-04, F7)
 
 **Ficheros:**
 - Modificar: `src/components/Plugins/Knob.tsx`
@@ -915,7 +973,7 @@ selección).
 
 ---
 
-### Task 22: Scroll vertical sincronizado y regla sticky (UI-01, UI-02, F10, F11, F12)
+### Task 23: Scroll vertical sincronizado y regla sticky (UI-01, UI-02, F10, F11, F12)
 
 **Ficheros:**
 - Modificar: `src/components/Timeline/Timeline.tsx`
@@ -949,7 +1007,7 @@ selección).
 
 ---
 
-### Task 23: Seek acotado y por teclado (UI-08, F13)
+### Task 24: Seek acotado y por teclado (UI-08, F13)
 
 **Ficheros:**
 - Modificar: `src/components/Timeline/Ruler.tsx`
@@ -979,7 +1037,7 @@ selección).
 
 ---
 
-### Task 24: Un solo bucle de playhead + seguimiento de scroll (UI-07, UI-12)
+### Task 25: Un solo bucle de playhead + seguimiento de scroll (UI-07, UI-12)
 
 **Ficheros:**
 - Crear: `src/hooks/usePlayheadSync.ts`
@@ -1013,7 +1071,7 @@ selección).
 
 # WAVE 3 — Accesibilidad, responsive y diseño
 
-### Task 25: Nombres accesibles en los controles de icono (UI-05)
+### Task 26: Nombres accesibles en los controles de icono (UI-05)
 
 **Ficheros:**
 - Modificar: `src/components/Transport/TransportBar.tsx`, `src/components/Timeline/Timeline.tsx`,
@@ -1037,7 +1095,7 @@ selección).
 
 ---
 
-### Task 26: Selectores granulares en el store (UI-06)
+### Task 27: Selectores granulares en el store (UI-06)
 
 **Ficheros:**
 - Modificar: `src/components/Mixer/MixerConsole.tsx`, `src/components/Timeline/TrackHeader.tsx`,
@@ -1061,7 +1119,7 @@ selección).
 
 ---
 
-### Task 27: Responsive y objetivos táctiles (UI-09, F8, F14, F15, F16, F17)
+### Task 28: Responsive y objetivos táctiles (UI-09, F8, F14, F15, F16, F17)
 
 **Ficheros:**
 - Modificar: `src/components/Timeline/Timeline.tsx`, `src/components/Timeline/TrackHeader.tsx`,
@@ -1070,7 +1128,7 @@ selección).
 - Crear: `src/tests/dom/responsive.test.tsx`
 
 **Interfaces:**
-- Produce: headers de pista `w-36 sm:w-60`; el ancho de lanes se deriva del ancho medido (Tarea 22).
+- Produce: headers de pista `w-36 sm:w-60`; el ancho de lanes se deriva del ancho medido (Tarea 23).
 - Produce: los botones de zoom, M/S/R, stop/loop/play, mute master, borrar pista y añadir efecto
   miden **≥ 44×44 px** en punteros gruesos.
 - Produce: la barra de transporte **conserva** metrónomo y VU master en todos los breakpoints.
@@ -1089,7 +1147,7 @@ selección).
 
 ---
 
-### Task 28: Teclado en la selección y el foco atrapado en los modales (UI-10, UI-11)
+### Task 29: Teclado en la selección y el foco atrapado en los modales (UI-10, UI-11)
 
 **Ficheros:**
 - Modificar: `src/components/Timeline/TrackHeader.tsx`, `src/components/Timeline/Timeline.tsx`,
@@ -1115,7 +1173,7 @@ selección).
 
 ---
 
-### Task 29: Fidelidad al sistema de diseño (UI-13, UI-14)
+### Task 30: Fidelidad al sistema de diseño (UI-13, UI-14)
 
 **Ficheros:**
 - Modificar: `src/components/Timeline/WaveformCanvas.tsx`, `src/components/Transport/TransportBar.tsx`,
@@ -1142,7 +1200,7 @@ selección).
 
 # WAVE 4 — Funciones nuevas
 
-### Task 30: Importar audio sin arrastrar (G1)
+### Task 31: Importar audio sin arrastrar (G1)
 
 **Ficheros:**
 - Crear: `src/audio/importAudio.ts`
@@ -1183,7 +1241,7 @@ selección).
 
 ---
 
-### Task 31: Copiar, pegar y duplicar clips (G2)
+### Task 32: Copiar, pegar y duplicar clips (G2)
 
 **Ficheros:**
 - Modificar: `src/store/useDawStore.ts` (`copyClips`, `pasteClips`, `duplicateSelectedClips`,
@@ -1217,7 +1275,7 @@ selección).
 
 ---
 
-### Task 32: Multi-selección de clips (G5)
+### Task 33: Multi-selección de clips (G5)
 
 **Ficheros:**
 - Modificar: `src/store/useDawStore.ts` (`selectedClipIds: string[]` sustituye a `selectedClipId`;
@@ -1254,7 +1312,7 @@ selección).
 
 ---
 
-### Task 33: Barrido de documentación (DOC-01, DOC-02, OPS-01 ya resuelto en T4)
+### Task 34: Barrido de documentación (DOC-01, DOC-02, OPS-01 ya resuelto en T4)
 
 **Ficheros:**
 - Modificar: `PROJECT.md`, `HANDOFF.md`, `TEST_INFRA.md`, `TEST_READY.md`, `README.md`
@@ -1289,7 +1347,7 @@ npm run build 2>&1 | tail -8
 
 # WAVE 5 — Seguridad y operaciones
 
-### Task 34: Sandbox real de plugins (SEC-01, AUD-08)
+### Task 35: Sandbox real de plugins (SEC-01, AUD-08)
 
 **Ficheros:**
 - Modificar: `src/audio/PluginHost.ts`
@@ -1326,7 +1384,7 @@ npm run build 2>&1 | tail -8
 
 ---
 
-### Task 35: Service worker versionado (SW-01)
+### Task 36: Service worker versionado (SW-01)
 
 **Ficheros:**
 - Modificar: `public/sw.js`
@@ -1352,7 +1410,7 @@ npm run build 2>&1 | tail -8
 
 ---
 
-### Task 36: PWA instalable, cabeceras y meta (CFG-01, HDR-01, SEO-01, CFG-02)
+### Task 37: PWA instalable, cabeceras y meta (CFG-01, HDR-01, SEO-01, CFG-02)
 
 **Ficheros:**
 - Crear: `public/icons/icon-192.png`, `public/icons/icon-512.png`,
@@ -1381,7 +1439,7 @@ npm run build 2>&1 | tail -8
 
 ---
 
-### Task 37: Endurecer el tsconfig y cerrar el build (TS-01, CFG-02)
+### Task 38: Endurecer el tsconfig y cerrar el build (TS-01, CFG-02)
 
 **Ficheros:**
 - Modificar: `tsconfig.json` (`exactOptionalPropertyTypes: true`)
