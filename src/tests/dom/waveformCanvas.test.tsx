@@ -116,4 +116,17 @@ describe('WaveformCanvas con Pointer Events (UI-03, F4, F5, F6)', () => {
     expect(clip?.duration).toBeCloseTo(4, 5);
     expect(clip?.startTime).toBeCloseTo(2, 5);
   });
+
+  it('W6: pointercancel a mitad de trim ⇒ se restaura el visual (ancho y transform)', () => {
+    const { el } = renderClip();
+    el.dispatchEvent(pointerEvent('pointerdown', { pointerId: 3, pointerType: 'touch', clientX: 295 }));
+    el.dispatchEvent(pointerEvent('pointermove', { pointerId: 3, pointerType: 'touch', clientX: 315 }));
+    // El trim a medio gesto escribe ancho visual (4.4 s × 50 px/s ≈ 220 px).
+    expect(parseFloat(el.style.width)).toBeCloseTo(220, 5);
+    el.dispatchEvent(pointerEvent('pointercancel', { pointerId: 3, pointerType: 'touch', clientX: 315 }));
+    expect(el.style.transform).toBe('');
+    expect(el.style.width).toBe('');
+    const clip = useDawStore.getState().clips.find((c) => c.id === 'c1');
+    expect(clip?.duration).toBeCloseTo(4, 5);
+  });
 });

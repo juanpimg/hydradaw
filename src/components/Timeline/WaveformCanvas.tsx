@@ -227,6 +227,15 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     }
   };
 
+  // Restaura el visual que el arrastre escribe en línea (transform + width).
+  // Único punto de restauración: tanto el commit como la cancelación pasan por
+  // aquí para que no puedan divergir (el commit parecía funcionar solo porque
+  // el update del store re-renderizaba y reescribía el width por accidente).
+  const clearDragVisual = (el: HTMLElement) => {
+    el.style.transform = '';
+    el.style.width = '';
+  };
+
   const endDrag = (commit: boolean) => {
     const drag = dragRef.current;
     dragRef.current = null;
@@ -238,7 +247,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
         // Sin captura activa: nada que liberar.
       }
     }
-    drag.el.style.transform = '';
+    clearDragVisual(drag.el);
     if (commit && drag.hasMoved && drag.pendingUpdates) {
       updateClip(clip.id, drag.pendingUpdates);
     }
@@ -249,10 +258,12 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
   };
 
   const handlePointerCancel = () => {
-    // El gesto se abortó (llamada, alerta del SO…): se descarta lo pendiente.
+    // El gesto se abortó (llamada, alerta del SO…): se descarta lo pendiente
+    // y se restaura el visual a medio gesto.
     const drag = dragRef.current;
-    if (drag) drag.el.style.transform = '';
     dragRef.current = null;
+    if (!drag) return;
+    clearDragVisual(drag.el);
   };
 
   // Fix(waveA): clip focuseable con borrado/corte por teclado.
