@@ -38,6 +38,16 @@ export const TrackHeader: React.FC<TrackHeaderProps> = ({ track, isSelected }) =
   return (
     <div
       onClick={() => setSelectedTrack(track.id)}
+      onKeyDown={(e) => {
+        // Solo el propio header: los botones/sliders internos ya son operables.
+        const t = e.target as HTMLElement | null;
+        if (t && t !== e.currentTarget && t.closest('button,input,select,textarea,a,[role="slider"]')) return;
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          setSelectedTrack(track.id);
+        }
+      }}
+      tabIndex={0}
       className={`h-24 w-36 sm:w-60 border-r border-b border-dark-border px-1 sm:px-3 py-2 flex flex-col justify-between transition-colors cursor-pointer select-none relative ${
         isSelected
           ? 'bg-dark-surfaceLight/90 ring-1 ring-inset ring-cyan-500/30'

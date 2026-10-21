@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useDawStore } from '../../store/useDawStore';
 import { useShallow } from 'zustand/react/shallow';
+import { trapTabKey, useModalBackgroundInert } from '../../hooks/useModalFocus';
 import type { AudioClip } from '../../types/daw';
 import { audioEngine } from '../../audio/AudioEngine';
 import { encodeWavAsync, downloadAudioBlob } from '../../audio/WavExporter';
@@ -112,7 +113,10 @@ export const ExportModal: React.FC = () => {
 
   // Fix(waveA): foco inicial al abrir + devolver foco al cerrar + cierre con ESC.
   const panelRef = useRef<HTMLDivElement>(null);
+  const overlayRef = useRef<HTMLDivElement>(null);
   const prevFocusRef = useRef<HTMLElement | null>(null);
+  // UI-11: fondo inerte mientras el export está abierto.
+  useModalBackgroundInert(exportModalOpen, overlayRef);
   // Fix(waveA): ref viva para que el handler de ESC vea el estado actual de exportación.
   const exportingRef = useRef(isExporting);
   exportingRef.current = isExporting;
@@ -256,9 +260,13 @@ export const ExportModal: React.FC = () => {
   return (
     // Fix(waveA): cierre por click en overlay (target === currentTarget: no dentro del panel).
     <div
+      ref={overlayRef}
       className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 select-none"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) closeModal();
+      }}
+      onKeyDown={(e) => {
+        if (e.key === 'Tab') trapTabKey(e, panelRef.current);
       }}
     >
       <div

@@ -174,15 +174,17 @@ const ChannelStripInner: React.FC<ChannelStripProps> = ({ track, levels }) => {
         <VUMeter peak={levels.peak} rms={levels.rms} height={145} />
       </div>
 
-      {/* Numeric dB Value Readout */}
-      <div
-        className="pt-2 border-t border-dark-border text-center cursor-pointer hover:text-cyan-400"
-        onDoubleClick={() => updateTrack(track.id, { volume: 1.0 })}
-        title="Doble clic para resetear a 0 dB"
-      >
-        <span className="text-[10px] font-mono font-bold text-slate-300">
+      {/* Numeric dB Value Readout (botón: teclado + clic restablecen a 0 dB) */}
+      <div className="pt-2 border-t border-dark-border text-center">
+        <button
+          type="button"
+          onClick={() => updateTrack(track.id, { volume: 1.0 })}
+          aria-label={`${track.name}: ${volumeDb === -Infinity ? '-∞ dB' : `${volumeDb.toFixed(1)} dB`}, restablecer a 0 dB`}
+          title="Clic para restablecer a 0 dB"
+          className="text-[10px] font-mono font-bold text-slate-300 hover:text-cyan-400 cursor-pointer"
+        >
           {volumeDb === -Infinity ? '-∞ dB' : `${volumeDb.toFixed(1)} dB`}
-        </span>
+        </button>
       </div>
     </div>
   );

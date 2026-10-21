@@ -279,6 +279,8 @@ export const Timeline: React.FC = () => {
               return (
                 <div
                   key={track.id}
+                  role="listbox"
+                  aria-label={`Clips de la pista ${track.name}`}
                   onDragOver={(e) => e.preventDefault()}
                   onDrop={(e) => {
                     e.stopPropagation();

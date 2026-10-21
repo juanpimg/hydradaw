@@ -152,11 +152,17 @@ export const MixerConsole: React.FC = () => {
           <VUMeter peak={meterLevels.master.peak} rms={meterLevels.master.rms} height={145} />
         </div>
 
-        {/* Master dB Readout */}
+        {/* Master dB Readout (botón: teclado + clic restablecen a 0 dB) */}
         <div className="pt-2 border-t border-dark-border text-center">
-          <span className="text-[11px] font-mono font-bold text-cyan-400">
+          <button
+            type="button"
+            onClick={() => setMasterVolume(1.0)}
+            aria-label={`Volumen master: ${masterDb === -Infinity ? '-∞ dB' : `${masterDb.toFixed(1)} dB`}, restablecer a 0 dB`}
+            title="Clic para restablecer el master a 0 dB"
+            className="text-[11px] font-mono font-bold text-cyan-400 hover:text-cyan-300 cursor-pointer"
+          >
             {masterDb === -Infinity ? '-∞ dB' : `${masterDb.toFixed(1)} dB`}
-          </span>
+          </button>
         </div>
       </div>
     </div>

@@ -203,16 +203,18 @@ export const Knob: React.FC<KnobProps> = ({
           className="w-12 text-[10px] font-mono text-center bg-dark-bg text-cyan-300 border border-cyan-500 rounded px-0.5 mt-1 outline-none"
         />
       ) : (
-        <span
+        <button
+          type="button"
           onClick={() => {
             setEditVal(String(Math.round(value * 100) / 100));
             setEditing(true);
           }}
-          className="text-[10px] font-mono text-slate-300 mt-1 cursor-pointer hover:text-cyan-400 hover:underline"
+          aria-label={`Editar ${label}`}
+          className="text-[10px] font-mono text-slate-300 mt-1 cursor-pointer hover:text-cyan-400 hover:underline bg-transparent border-0 p-0"
           title="Clic para editar valor numérico"
         >
           {Math.round(value * 10) / 10}{unit}
-        </span>
+        </button>
       )}
     </div>
   );

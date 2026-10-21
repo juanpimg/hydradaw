@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useDawStore } from '../../store/useDawStore';
 import { useShallow } from 'zustand/react/shallow';
+import { trapTabKey, useModalBackgroundInert } from '../../hooks/useModalFocus';
 import { pluginHost } from '../../audio/PluginHost';
 import { Knob } from './Knob';
 import { 
@@ -66,7 +67,10 @@ const customPlugin = {
 
   // Fix(waveA): foco inicial al abrir + devolver foco al cerrar + cierre con ESC.
   const panelRef = useRef<HTMLDivElement>(null);
+  const overlayRef = useRef<HTMLDivElement>(null);
   const prevFocusRef = useRef<HTMLElement | null>(null);
+  // UI-11: fondo inerte mientras el rack está abierto.
+  useModalBackgroundInert(Boolean(pluginModalTrackId), overlayRef);
   useEffect(() => {
     if (!pluginModalTrackId) return;
     prevFocusRef.current = document.activeElement as HTMLElement | null;
@@ -117,9 +121,13 @@ const customPlugin = {
   return (
     // Fix(waveA): cierre por click en overlay (target === currentTarget: no dentro del panel).
     <div
+      ref={overlayRef}
       className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 select-none"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) setPluginModal(null, null);
+      }}
+      onKeyDown={(e) => {
+        if (e.key === 'Tab') trapTabKey(e, panelRef.current);
       }}
     >
       <div
