@@ -147,11 +147,11 @@ export const Timeline: React.FC = () => {
   return (
     <div className="flex-1 flex flex-col bg-dark-bg overflow-hidden relative select-none">
       {/* Zoom & Editing Toolbar Floating Overlay */}
-      <div className="absolute bottom-4 right-6 z-30 flex items-center space-x-1.5 bg-dark-surface/90 border border-dark-border/80 backdrop-blur-md px-2.5 py-1.5 rounded-xl shadow-xl">
+      <div className="absolute bottom-2 right-2 sm:bottom-4 sm:right-6 z-30 flex items-center space-x-1.5 bg-dark-surface/90 border border-dark-border/80 backdrop-blur-md px-2.5 py-1.5 rounded-xl shadow-xl">
         <button
           onClick={() => setZoom(zoom - 10)}
           aria-label="Alejar zoom"
-          className="p-1 rounded text-slate-300 hover:text-white hover:bg-dark-surfaceLight"
+          className="p-1 rounded text-slate-300 hover:text-white hover:bg-dark-surfaceLight min-w-[44px] min-h-[44px] inline-flex items-center justify-center"
           title="Alejar Zoom (-)"
         >
           <ZoomOut className="w-4 h-4" />
@@ -160,7 +160,7 @@ export const Timeline: React.FC = () => {
         <button
           onClick={() => setZoom(zoom + 10)}
           aria-label="Acercar zoom"
-          className="p-1 rounded text-slate-300 hover:text-white hover:bg-dark-surfaceLight"
+          className="p-1 rounded text-slate-300 hover:text-white hover:bg-dark-surfaceLight min-w-[44px] min-h-[44px] inline-flex items-center justify-center"
           title="Acercar Zoom (+)"
         >
           <ZoomIn className="w-4 h-4" />
@@ -212,7 +212,7 @@ export const Timeline: React.FC = () => {
       {/* Timeline Main Layout: Headers on left, Scrollable Lanes on right */}
       <div className="flex-1 flex overflow-hidden">
         {/* Left: Track Headers Column */}
-        <div ref={headerColRef} data-testid="headers-col" className="w-60 flex-shrink-0 flex flex-col bg-dark-surface border-r border-dark-border z-20">
+        <div ref={headerColRef} data-testid="headers-col" className="w-36 sm:w-60 flex-shrink-0 flex flex-col bg-dark-surface border-r border-dark-border z-20">
           {/* Header Placeholder above tracks aligning with Ruler */}
           <div className="h-7 bg-dark-surfaceLight/80 border-b border-dark-border px-3 flex items-center justify-between">
             <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Pistas ({tracks.length})</span>

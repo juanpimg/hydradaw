@@ -308,7 +308,7 @@ export const TransportBar: React.FC = () => {
         <button
           onClick={stop}
           aria-label="Detener"
-          className="p-2 rounded-lg bg-dark-surfaceLight hover:bg-dark-border text-slate-300 hover:text-white transition-colors"
+          className="p-2 rounded-lg bg-dark-surfaceLight hover:bg-dark-border text-slate-300 hover:text-white transition-colors min-w-[44px] min-h-[44px] inline-flex items-center justify-center"
           title="Detener y volver al inicio (0:00)"
         >
           <Square className="w-4 h-4 fill-current" />
@@ -317,7 +317,7 @@ export const TransportBar: React.FC = () => {
         <button
           onClick={isPlaying ? pause : play}
           aria-label={isPlaying ? 'Pausar' : 'Reproducir'}
-          className={`p-2.5 rounded-xl font-bold transition-all ${
+          className={`p-2.5 rounded-xl font-bold transition-all min-w-[44px] min-h-[44px] inline-flex items-center justify-center ${
             isPlaying
               ? 'bg-amber-500 text-slate-950 shadow-md shadow-amber-500/20'
               : 'bg-cyan-500 text-slate-950 hover:bg-cyan-400 shadow-md shadow-cyan-500/20'
@@ -330,7 +330,7 @@ export const TransportBar: React.FC = () => {
         <button
           onClick={toggleRecord}
           aria-label="Grabar"
-          className={`p-2.5 rounded-xl transition-all ${
+          className={`p-2.5 rounded-xl transition-all min-w-[44px] min-h-[44px] inline-flex items-center justify-center ${
             isRecording
               ? 'bg-red-600 text-white animate-pulse shadow-lg shadow-red-600/40 ring-2 ring-red-400'
               : 'bg-dark-surfaceLight hover:bg-red-500/20 text-red-500 border border-red-500/30'
@@ -346,7 +346,7 @@ export const TransportBar: React.FC = () => {
           onClick={toggleLoop}
           aria-pressed={isLooping}
           aria-label="Activar bucle"
-          className={`p-2 rounded-lg transition-colors ${
+          className={`p-2 rounded-lg transition-colors min-w-[44px] min-h-[44px] inline-flex items-center justify-center ${
             isLooping
               ? 'bg-cyan-950 border border-cyan-500 text-cyan-400'
               : 'bg-dark-surfaceLight text-slate-400 hover:text-slate-200'
@@ -400,12 +400,12 @@ export const TransportBar: React.FC = () => {
           )}
         </select>
 
-        {/* Fix(waveA): metrónomo con aria-pressed; oculto en pantallas pequeñas. */}
+        {/* Fix(waveA): metrónomo con aria-pressed; visible en todos los breakpoints (requisito de producto). */}
         <button
           onClick={toggleMetronome}
           aria-pressed={metronome}
           aria-label="Metrónomo"
-          className={`px-2 py-1 rounded-lg text-xs font-semibold transition-colors hidden sm:inline-block ${
+          className={`px-2 py-1 rounded-lg text-xs font-semibold transition-colors inline-block min-w-[44px] min-h-[44px] ${
             metronome
               ? 'bg-cyan-500/20 border border-cyan-500/40 text-cyan-300'
               : 'bg-dark-surfaceLight border border-dark-border text-slate-400 hover:text-slate-200'
@@ -421,7 +421,7 @@ export const TransportBar: React.FC = () => {
         <button
           onClick={() => setMasterMute(!masterMute)}
           aria-label="Silenciar master"
-          className={`p-1.5 rounded transition-colors ${masterMute ? 'text-red-400 bg-red-950/40' : 'text-slate-400 hover:text-white'}`}
+          className={`p-1.5 rounded transition-colors min-w-[44px] min-h-[44px] inline-flex items-center justify-center ${masterMute ? 'text-red-400 bg-red-950/40' : 'text-slate-400 hover:text-white'}`}
           title="Silenciar Master"
         >
           {masterMute ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
@@ -443,9 +443,9 @@ export const TransportBar: React.FC = () => {
           </span>
         </div>
 
-        {/* Fix(waveA): medidor oculto en pantallas pequeñas (visible desde sm). */}
+        {/* Fix(waveA): medidor siempre visible (requisito de producto). */}
         {/* 15 FPS Stereo Master Meter Bar (throttled, ver efecto de arriba) */}
-        <div className="w-14 h-4 bg-dark-bg border border-dark-border rounded hidden sm:flex overflow-hidden p-0.5" title="Medidor de pico Master (0 dBFS)">
+        <div className="w-14 h-4 bg-dark-bg border border-dark-border rounded flex overflow-hidden p-0.5" title="Medidor de pico Master (0 dBFS)">
           <div
             className="h-full rounded-sm transition-all duration-75"
             style={{

@@ -38,7 +38,7 @@ export const TrackHeader: React.FC<TrackHeaderProps> = ({ track, isSelected }) =
   return (
     <div
       onClick={() => setSelectedTrack(track.id)}
-      className={`h-24 w-60 border-r border-b border-dark-border px-3 py-2 flex flex-col justify-between transition-colors cursor-pointer select-none relative ${
+      className={`h-24 w-36 sm:w-60 border-r border-b border-dark-border px-1 sm:px-3 py-2 flex flex-col justify-between transition-colors cursor-pointer select-none relative ${
         isSelected
           ? 'bg-dark-surfaceLight/90 ring-1 ring-inset ring-cyan-500/30'
           : 'bg-dark-surface hover:bg-dark-surfaceLight/50'
@@ -84,7 +84,7 @@ export const TrackHeader: React.FC<TrackHeaderProps> = ({ track, isSelected }) =
           >
             <Sliders className="w-2.5 h-2.5" />
             {/* Fix(waveA): contador activos/total en vez de solo activos. */}
-            <span>FX ({activePluginsCount}/{track.plugins.length})</span>
+            <span className="hidden sm:inline">FX ({activePluginsCount}/{track.plugins.length})</span>
           </button>
 
           {/* Delete Track */}
@@ -95,7 +95,7 @@ export const TrackHeader: React.FC<TrackHeaderProps> = ({ track, isSelected }) =
               removeTrack(track.id);
               pushToast(`Pista "${track.name}" eliminada (deshecho no disponible).`);
             }}
-            className="p-1 rounded text-slate-500 hover:text-red-400 hover:bg-red-950/20 transition-colors"
+            className="p-1 rounded text-slate-500 hover:text-red-400 hover:bg-red-950/20 transition-colors min-w-[44px] min-h-[44px] inline-flex items-center justify-center"
             title="Eliminar Pista"
             aria-label={`Eliminar pista ${track.name}`}
           >
@@ -105,7 +105,7 @@ export const TrackHeader: React.FC<TrackHeaderProps> = ({ track, isSelected }) =
       </div>
 
       {/* Middle Row: Mute, Solo & Record Arm buttons */}
-      <div className="flex items-center space-x-1.5">
+      <div className="flex items-center space-x-0.5 sm:space-x-1.5">
         <button
           onClick={(e) => {
             e.stopPropagation();
@@ -113,7 +113,7 @@ export const TrackHeader: React.FC<TrackHeaderProps> = ({ track, isSelected }) =
           }}
           aria-pressed={track.mute}
           aria-label={`Silenciar pista ${track.name}`}
-          className={`w-9 h-9 rounded text-xs font-bold transition-all ${
+          className={`w-9 h-9 min-w-[44px] min-h-[44px] rounded text-xs font-bold transition-all ${
             track.mute
               ? 'bg-amber-500 text-slate-950 shadow-sm shadow-amber-500/30'
               : 'bg-dark-surfaceLight text-slate-400 hover:text-slate-200 border border-dark-border'
@@ -130,7 +130,7 @@ export const TrackHeader: React.FC<TrackHeaderProps> = ({ track, isSelected }) =
           }}
           aria-pressed={track.solo}
           aria-label={`Pista ${track.name} en solo`}
-          className={`w-9 h-9 rounded text-xs font-bold transition-all ${
+          className={`w-9 h-9 min-w-[44px] min-h-[44px] rounded text-xs font-bold transition-all ${
             track.solo
               ? 'bg-yellow-400 text-slate-950 shadow-sm shadow-yellow-400/30'
               : 'bg-dark-surfaceLight text-slate-400 hover:text-slate-200 border border-dark-border'
@@ -147,7 +147,7 @@ export const TrackHeader: React.FC<TrackHeaderProps> = ({ track, isSelected }) =
           }}
           aria-pressed={track.armed}
           aria-label={`Armar pista ${track.name} para grabación`}
-          className={`w-9 h-9 rounded text-xs font-bold transition-all ${
+          className={`w-9 h-9 min-w-[44px] min-h-[44px] rounded text-xs font-bold transition-all ${
             track.armed
               ? 'bg-red-500 text-white shadow-sm shadow-red-500/40 ring-1 ring-red-400 animate-pulse'
               : 'bg-dark-surfaceLight text-slate-400 hover:text-red-400 border border-dark-border'
@@ -157,8 +157,8 @@ export const TrackHeader: React.FC<TrackHeaderProps> = ({ track, isSelected }) =
           R
         </button>
 
-        {/* Pan Dial / Slider */}
-        <div className="flex items-center space-x-1 flex-1 ml-1" onClick={(e) => e.stopPropagation()}>
+        {/* Pan Dial / Slider (oculto en móvil: no cabe junto a M/S/R de 44px) */}
+        <div className="hidden sm:flex items-center space-x-1 flex-1 ml-1" onClick={(e) => e.stopPropagation()}>
           <span className="text-[9px] font-mono text-slate-400">PAN</span>
           <input
             type="range"

@@ -27,7 +27,7 @@ const ChannelStripInner: React.FC<ChannelStripProps> = ({ track, levels }) => {
   const volumeDb = track.volume === 0 ? -Infinity : 20 * Math.log10(track.volume);
 
   return (
-    <div className="w-28 flex-shrink-0 bg-dark-surface border border-dark-border rounded-xl flex flex-col justify-between p-2.5 shadow-lg select-none">
+    <div className="w-40 flex-shrink-0 bg-dark-surface border border-dark-border rounded-xl flex flex-col justify-between p-2.5 shadow-lg select-none">
       {/* Top Header Tag */}
       <div className="flex flex-col items-center pb-2 border-b border-dark-border">
         <div
@@ -49,7 +49,7 @@ const ChannelStripInner: React.FC<ChannelStripProps> = ({ track, levels }) => {
           <button
             onClick={() => setPluginModal(track.id, null)}
             aria-label="Añadir efecto"
-            className="text-cyan-400 hover:text-cyan-300"
+            className="text-cyan-400 hover:text-cyan-300 min-w-[44px] min-h-[44px] inline-flex items-center justify-center"
             title="Añadir Efecto VST"
           >
             <Plus className="w-3 h-3" />
@@ -101,7 +101,7 @@ const ChannelStripInner: React.FC<ChannelStripProps> = ({ track, levels }) => {
       <div className="flex justify-between items-center my-2 px-1">
         <button
           onClick={() => updateTrack(track.id, { mute: !track.mute })}
-          className={`w-6 h-6 rounded text-xs font-bold transition-all ${
+          className={`w-6 h-6 min-w-[44px] min-h-[44px] inline-flex items-center justify-center rounded text-xs font-bold transition-all ${
             track.mute
               ? 'bg-amber-500 text-slate-950 shadow-sm shadow-amber-500/30'
               : 'bg-dark-surfaceLight text-slate-400 hover:text-slate-200 border border-dark-border'
@@ -113,7 +113,7 @@ const ChannelStripInner: React.FC<ChannelStripProps> = ({ track, levels }) => {
 
         <button
           onClick={() => updateTrack(track.id, { solo: !track.solo })}
-          className={`w-6 h-6 rounded text-xs font-bold transition-all ${
+          className={`w-6 h-6 min-w-[44px] min-h-[44px] inline-flex items-center justify-center rounded text-xs font-bold transition-all ${
             track.solo
               ? 'bg-yellow-400 text-slate-950 shadow-sm shadow-yellow-400/30'
               : 'bg-dark-surfaceLight text-slate-400 hover:text-slate-200 border border-dark-border'
@@ -125,7 +125,7 @@ const ChannelStripInner: React.FC<ChannelStripProps> = ({ track, levels }) => {
 
         <button
           onClick={() => updateTrack(track.id, { armed: !track.armed })}
-          className={`w-6 h-6 rounded text-xs font-bold transition-all ${
+          className={`w-6 h-6 min-w-[44px] min-h-[44px] inline-flex items-center justify-center rounded text-xs font-bold transition-all ${
             track.armed
               ? 'bg-red-500 text-white shadow-sm shadow-red-500/40 ring-1 ring-red-400 animate-pulse'
               : 'bg-dark-surfaceLight text-slate-400 hover:text-red-400 border border-dark-border'

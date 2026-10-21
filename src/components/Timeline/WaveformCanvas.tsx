@@ -346,13 +346,13 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
 
       {/* Trimming Grab Handles (12px, high visibility on hover/touch) */}
       <div
-        className="absolute top-0 bottom-0 left-0 w-3 hover:bg-cyan-400/50 cursor-col-resize opacity-25 hover:opacity-100 transition-opacity flex items-center justify-center bg-gradient-to-r from-cyan-400/30 to-transparent"
+        className="absolute top-0 bottom-0 left-0 w-3 hover:bg-cyan-400/50 cursor-col-resize opacity-60 hover:opacity-100 transition-opacity flex items-center justify-center bg-gradient-to-r from-cyan-400/30 to-transparent"
         title="Recortar inicio (Trim Izq)"
       >
         <div className="w-0.5 h-3.5 bg-cyan-200/80 rounded-full pointer-events-none" />
       </div>
       <div
-        className="absolute top-0 bottom-0 right-0 w-3 hover:bg-cyan-400/50 cursor-col-resize opacity-25 hover:opacity-100 transition-opacity flex items-center justify-center bg-gradient-to-l from-cyan-400/30 to-transparent"
+        className="absolute top-0 bottom-0 right-0 w-3 hover:bg-cyan-400/50 cursor-col-resize opacity-60 hover:opacity-100 transition-opacity flex items-center justify-center bg-gradient-to-l from-cyan-400/30 to-transparent"
         title="Recortar final (Trim Der)"
       >
         <div className="w-0.5 h-3.5 bg-cyan-200/80 rounded-full pointer-events-none" />

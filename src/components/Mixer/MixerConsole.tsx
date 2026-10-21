@@ -74,7 +74,7 @@ export const MixerConsole: React.FC = () => {
         <button
           onClick={() => addTrack()}
           title="Añadir pista"
-          className="w-28 flex-shrink-0 self-stretch min-h-64 rounded-xl border-2 border-dashed border-dark-border text-slate-500 hover:text-cyan-300 hover:border-cyan-500/50 flex flex-col items-center justify-center space-y-1 transition-colors"
+          className="w-40 flex-shrink-0 self-stretch min-h-64 rounded-xl border-2 border-dashed border-dark-border text-slate-500 hover:text-cyan-300 hover:border-cyan-500/50 flex flex-col items-center justify-center space-y-1 transition-colors"
         >
           <Plus className="w-5 h-5" />
           <span className="text-xs font-bold">+ Pista</span>
@@ -108,7 +108,7 @@ export const MixerConsole: React.FC = () => {
         <div className="my-3 flex justify-center">
           <button
             onClick={() => setMasterMute(!masterMute)}
-            className={`px-3 py-1 rounded text-xs font-bold transition-all flex items-center space-x-1 ${
+            className={`px-3 py-1 rounded text-xs font-bold transition-all flex items-center justify-center space-x-1 min-h-[44px] min-w-[44px] ${
               masterMute
                 ? 'bg-red-500 text-white shadow-md shadow-red-500/40'
                 : 'bg-dark-surfaceLight text-slate-300 hover:text-white border border-dark-border'

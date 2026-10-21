@@ -282,11 +282,80 @@ async function main() {
       await sleep(500);
       const scrollWidth = await page.evaluate(() => document.documentElement.scrollWidth);
       await shot('b6-320px');
-      await withViewport(page, 1440, 900);
-      await sleep(300);
       if (scrollWidth > 320) {
         throw new Error(`scroll horizontal: scrollWidth=${scrollWidth} > 320`);
       }
+      // UI-09: objetivos táctiles >= 44x44 (clases min-44 verificadas en DOM;
+      // aquí el rectángulo real renderizado).
+      const small = await page.evaluate(() => {
+        const need = [
+          'button[aria-label="Alejar zoom"]',
+          'button[aria-label="Acercar zoom"]',
+          'button[aria-label="Detener"]',
+          'button[aria-label="Grabar"]',
+          'button[aria-label="Activar bucle"]',
+          'button[aria-label="Silenciar master"]',
+          'button[aria-label^="Silenciar pista"]',
+          'button[aria-label^="Eliminar pista"]',
+        ];
+        const bad = [];
+        for (const sel of need) {
+          const el = document.querySelector(sel);
+          if (!el) {
+            bad.push(`${sel}: no encontrado`);
+            continue;
+          }
+          const r = el.getBoundingClientRect();
+          if (!(r.width >= 44 && r.height >= 44)) {
+            bad.push(`${sel}: ${Math.round(r.width)}x${Math.round(r.height)}`);
+          }
+        }
+        // Metrónomo y VU master visibles en todos los breakpoints.
+        const metro = document.querySelector('button[aria-label="Metrónomo"]');
+        if (!metro || getComputedStyle(metro).display === 'none') bad.push('metrónomo oculto');
+        const vu = document.querySelector('[title="Medidor de pico Master (0 dBFS)"]');
+        if (!vu || getComputedStyle(vu).display === 'none') bad.push('VU master oculto');
+        return bad;
+      });
+      if (small.length > 0) {
+        throw new Error(`objetivos <44px: ${small.join(' | ')}`);
+      }
+      // Objetivos del mixer (vista mixer y vuelta a timeline para B7).
+      await page.click('button[aria-label="Ver mixer"]');
+      await page.waitForFunction(
+        () => !!document.querySelector('button[aria-label="Añadir efecto"]'),
+        { timeout: 15000 },
+      );
+      const mixerBad = await page.evaluate(() => {
+        const need = [
+          'button[title="Mute"]',
+          'button[title="Solo"]',
+          'button[title="Record Arm"]',
+          'button[aria-label="Añadir efecto"]',
+        ];
+        const bad = [];
+        for (const sel of need) {
+          const el = document.querySelector(sel);
+          if (!el) {
+            bad.push(`${sel}: no encontrado`);
+            continue;
+          }
+          const r = el.getBoundingClientRect();
+          if (!(r.width >= 44 && r.height >= 44)) {
+            bad.push(`${sel}: ${Math.round(r.width)}x${Math.round(r.height)}`);
+          }
+        }
+        return bad;
+      });
+      await page.click('button[aria-label="Ver timeline"]');
+      await page.waitForFunction(() => !!document.querySelector('[role="option"]'), {
+        timeout: 15000,
+      });
+      if (mixerBad.length > 0) {
+        throw new Error(`objetivos mixer <44px: ${mixerBad.join(' | ')}`);
+      }
+      await withViewport(page, 1440, 900);
+      await sleep(300);
     });
 
     await check('B7 touch-action none', async () => {

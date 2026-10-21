@@ -33,7 +33,7 @@ export const Header: React.FC = () => {
           <span className="text-white font-extrabold tracking-tight">
             Hydra<span className="text-cyan-400">DAW</span>
           </span>
-          <span className="text-[10px] px-1.5 py-0.5 rounded bg-cyan-900/40 text-cyan-300 border border-cyan-700/50 uppercase font-mono">
+          <span className="hidden md:inline text-[10px] px-1.5 py-0.5 rounded bg-cyan-900/40 text-cyan-300 border border-cyan-700/50 uppercase font-mono">
             Local 100%
           </span>
         </div>
@@ -45,7 +45,7 @@ export const Header: React.FC = () => {
           value={projectName}
           onChange={(e) => setProjectName(e.target.value)}
           aria-label="Nombre del proyecto"
-          className="bg-dark-surfaceLight/60 hover:bg-dark-surfaceLight text-slate-200 text-sm font-medium px-2.5 py-1 rounded border border-dark-border focus:border-cyan-500 focus:outline-none transition-colors w-28 md:w-48 truncate"
+          className="bg-dark-surfaceLight/60 hover:bg-dark-surfaceLight text-slate-200 text-sm font-medium px-2.5 py-1 rounded border border-dark-border focus:border-cyan-500 focus:outline-none transition-colors w-24 sm:w-28 md:w-48 truncate"
           title="Nombre del Proyecto"
         />
       </div>
@@ -64,7 +64,7 @@ export const Header: React.FC = () => {
           }`}
         >
           <Layers className="w-3.5 h-3.5" />
-          <span>Timeline</span>
+          <span className="hidden sm:inline">Timeline</span>
         </button>
         <button
           onClick={() => setActiveView('mixer')}
@@ -77,7 +77,7 @@ export const Header: React.FC = () => {
           }`}
         >
           <Sliders className="w-3.5 h-3.5" />
-          <span>Mixer</span>
+          <span className="hidden sm:inline">Mixer</span>
         </button>
       </div>
 
@@ -91,7 +91,7 @@ export const Header: React.FC = () => {
             title="Cargar stems instrumentales de demostración"
           >
             <Sparkles className="w-3.5 h-3.5" />
-            <span>Cargar Demo</span>
+            <span className="hidden sm:inline">Cargar Demo</span>
           </button>
         )}
 
@@ -101,7 +101,7 @@ export const Header: React.FC = () => {
           className="flex items-center space-x-1 px-3 py-1.5 rounded-lg text-xs font-medium bg-dark-surfaceLight hover:bg-dark-border text-slate-200 border border-dark-border transition-colors"
         >
           <Plus className="w-3.5 h-3.5 text-cyan-400" />
-          <span>Nueva Pista</span>
+          <span className="hidden sm:inline">Nueva Pista</span>
         </button>
 
         <button
@@ -110,7 +110,7 @@ export const Header: React.FC = () => {
           className="flex items-center space-x-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 shadow-md shadow-emerald-500/20 transition-all"
         >
           <Download className="w-3.5 h-3.5" />
-          <span>Masterizar & Exportar</span>
+          <span className="hidden sm:inline">Masterizar & Exportar</span>
         </button>
 
         <a
