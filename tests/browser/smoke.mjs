@@ -23,23 +23,24 @@ function failureLine(err) {
 }
 
 async function check(name, fn, opts = {}) {
-  const { expectedFailure = false } = opts;
+  const { expectedFailure = false, fullError = false } = opts;
+  const errText = (err) => (fullError ? String((err && err.message) || err) : failureLine(err));
   try {
     await fn();
     if (expectedFailure) {
-      results.push({ name, status: 'unexpected-pass' });
+      results.push({ name, status: 'unexpected-pass', fullError });
       console.log(`[browser] ${name}: PASA INESPERADO — quitar la marca expectedFailure`);
     } else {
-      results.push({ name, status: 'pass' });
+      results.push({ name, status: 'pass', fullError });
       console.log(`[browser] ${name}: pasa`);
     }
   } catch (err) {
     if (expectedFailure) {
-      results.push({ name, status: 'expected-failure', error: err });
-      console.log(`[browser] ${name}: fallo esperado (${failureLine(err)})`);
+      results.push({ name, status: 'expected-failure', error: err, fullError });
+      console.log(`[browser] ${name}: fallo esperado (${errText(err)})`);
     } else {
-      results.push({ name, status: 'fail', error: err });
-      console.log(`[browser] ${name}: FALLA — ${failureLine(err)}`);
+      results.push({ name, status: 'fail', error: err, fullError });
+      console.log(`[browser] ${name}: FALLA — ${errText(err)}`);
     }
   }
 }
@@ -124,11 +125,9 @@ async function main() {
         { timeout: 15000 },
       );
       // Avanza el cursor (~2 s) para que el corte caiga dentro del clip.
-      // NOTA: la S se pulsa EN REPRODUCCIÓN porque el engine congela su
-      // playhead interno al pausar (stop() no actualiza playheadOffset y
-      // getCurrentTime() vuelve al inicio): partir en pausa es un no-op
-      // silencioso. Bug de producto real, fuera del alcance de este WP
-      // (infra de tests + CI); queda registrado para un WP posterior.
+      // NOTA: este check parte EN REPRODUCCIÓN. Partir en pausa también
+      // funciona: engine.stop() aparca playheadOffset y el store lo conserva
+      // en pause (stop rebobina a 0 por convención DAW); B4b lo cubre.
       await sleep(2000);
       const clips = await page.$$('[role="option"]');
       const first = clips[0];
@@ -143,32 +142,96 @@ async function main() {
       await shot('b4-split');
     });
 
+    await check('B4b split con S en pausa', async () => {
+      const before = await clipCount(page);
+      if (before !== 5) throw new Error(`precondición: clips=${before}, esperados 5`);
+      await page.click('button[title="Reproducir (Espacio)"]');
+      await page.waitForFunction(
+        () => !!document.querySelector('button[title="Pausar (Espacio)"]'),
+        { timeout: 15000 },
+      );
+      await sleep(2000);
+      // Pausa: el cursor queda aparcado en posición no nula (stop aparca el
+      // motor y pause conserva la posición en el store).
+      await page.click('button[title="Pausar (Espacio)"]');
+      await page.waitForFunction(
+        () => !!document.querySelector('button[title="Reproducir (Espacio)"]'),
+        { timeout: 15000 },
+      );
+      // Posición aparcada leída del readout real (MM:SS.cc), no de un sleep fijo.
+      // Se lee el div del tiempo (último hijo), no todo el contenedor: los spans
+      // de compás y tiempo van pegados en textContent y el regex mordería de más.
+      const readout = await page.evaluate(
+        () =>
+          document.querySelector('div[title="Rejilla (no estira el audio)"] > div:last-child')
+            ?.textContent ?? '',
+      );
+      const m = readout.match(/(\d+):(\d{2})\.(\d{2})/);
+      if (!m) throw new Error(`readout ilegible: "${readout}"`);
+      const paused = Number(m[1]) * 60 + Number(m[2]) + Number(m[3]) / 100;
+      if (!(paused > 0.5 && paused < 15)) {
+        throw new Error(`pausa fuera del interior del clip: ${paused}`);
+      }
+      // Corta un clip largo intacto (el de B4 ya está partido en dos).
+      await page.click('[aria-label="Clip Bass Progression"]');
+      await page.keyboard.press('s');
+      await page.waitForFunction(
+        () => document.querySelectorAll('[role="option"]').length === 6,
+        { timeout: 15000 },
+      );
+      // La frontera nueva está en el cursor aparcado, no en 0 (zoom 50 px/s).
+      // Un corte en 0 se rechaza (mínimo 0.2 s), así que 5→6 ya prueba que es
+      // interior; esto lo clava al cursor.
+      const lefts = await page.evaluate(() =>
+        Array.from(document.querySelectorAll('[aria-label="Clip Bass Progression"]')).map((el) =>
+          parseFloat(el.style.left),
+        ),
+      );
+      if (lefts.length !== 2) throw new Error(`partes del bajo: ${lefts.length}, esperadas 2`);
+      const expected = paused * 50;
+      if (!lefts.some((l) => Math.abs(l - expected) < 8)) {
+        throw new Error(
+          `frontera ${JSON.stringify(lefts)} lejos del cursor ${paused} (esperado ~${expected.toFixed(1)}px)`,
+        );
+      }
+      await page.click('button[title="Detener y volver al inicio (0:00)"]');
+      await shot('b4b-split-pausa');
+    });
+
     await check('B5 modal de export', async () => {
       await page.click('button[aria-label="Abrir diálogo de masterización y exportación"]');
       await page.waitForSelector('[aria-label="Exportar mezcla"]', {
         visible: true,
         timeout: 15000,
       });
-      const verdict = await page.evaluate(() => {
-        const dialog = document.querySelector('[aria-label="Exportar mezcla"]');
-        if (!dialog) return { ok: false, reason: 'sin diálogo' };
-        if (dialog.getAttribute('role') !== 'dialog') return { ok: false, reason: 'sin role=dialog' };
-        // W3C ARIA: aria-modal="true" declara el fondo como inerte.
-        if (dialog.getAttribute('aria-modal') !== 'true') {
-          return { ok: false, reason: 'sin aria-modal=true (fondo no marcado como inerte)' };
+      try {
+        const verdict = await page.evaluate(() => {
+          const dialog = document.querySelector('[aria-label="Exportar mezcla"]');
+          if (!dialog) return { ok: false, reason: 'sin diálogo' };
+          if (dialog.getAttribute('role') !== 'dialog') return { ok: false, reason: 'sin role=dialog' };
+          // W3C ARIA: aria-modal="true" declara el fondo como inerte.
+          if (dialog.getAttribute('aria-modal') !== 'true') {
+            return { ok: false, reason: 'sin aria-modal=true (fondo no marcado como inerte)' };
+          }
+          const active = document.activeElement;
+          if (!active || !dialog.contains(active)) {
+            return { ok: false, reason: 'foco inicial fuera del diálogo' };
+          }
+          return { ok: true, reason: '' };
+        });
+        if (!verdict.ok) throw new Error(`fondo interactivo: ${verdict.reason}`);
+      } finally {
+        // El artefacto y el cierre ocurren siempre: un fallo aquí no debe
+        // encadenarse con B6/B7 ni perder el pantallazo.
+        await shot('b5-export');
+        const open = await page.$('[aria-label="Exportar mezcla"]');
+        if (open) {
+          await page.click('button[aria-label="Cerrar diálogo de exportación"]');
+          await page.waitForFunction(() => !document.querySelector('[aria-label="Exportar mezcla"]'), {
+            timeout: 15000,
+          });
         }
-        const active = document.activeElement;
-        if (!active || !dialog.contains(active)) {
-          return { ok: false, reason: 'foco inicial fuera del diálogo' };
-        }
-        return { ok: true, reason: '' };
-      });
-      if (!verdict.ok) throw new Error(`fondo interactivo: ${verdict.reason}`);
-      await shot('b5-export');
-      await page.click('button[aria-label="Cerrar diálogo de exportación"]');
-      await page.waitForFunction(() => !document.querySelector('[aria-label="Exportar mezcla"]'), {
-        timeout: 15000,
-      });
+      }
     });
 
     await check('B6 layout 320px', async () => {
@@ -202,16 +265,20 @@ async function main() {
       { expectedFailure: true },
     );
 
-    await check('B8 cero errores de consola', async () => {
-      await shot('b8-final');
-      const problems = [
-        ...errors.pageErrors.map((e) => `pageerror: ${e}`),
-        ...errors.consoleErrors.map((e) => `console.error: ${e}`),
-      ];
-      if (problems.length > 0) {
-        throw new Error(`${problems.length} error(es):\n${problems.join('\n')}`);
-      }
-    });
+    await check(
+      'B8 cero errores de consola',
+      async () => {
+        await shot('b8-final');
+        const problems = [
+          ...errors.pageErrors.map((e) => `pageerror: ${e}`),
+          ...errors.consoleErrors.map((e) => `console.error: ${e}`),
+        ];
+        if (problems.length > 0) {
+          throw new Error(`${problems.length} error(es):\n${problems.join('\n')}`);
+        }
+      },
+      { fullError: true },
+    );
 
     const passed = results.filter((r) => r.status === 'pass').length;
     const expected = results.filter((r) => r.status === 'expected-failure').length;
@@ -223,7 +290,8 @@ async function main() {
     );
     if (failed.length > 0) {
       for (const f of failed) {
-        console.log(`[browser] fallo: ${f.name} — ${failureLine(f.error)}`);
+        const text = f.fullError ? String((f.error && f.error.message) || f.error) : failureLine(f.error);
+        console.log(`[browser] fallo: ${f.name} — ${text}`);
       }
       throw new Error(`${failed.length} check(s) de navegador fallaron`);
     }
