@@ -22,5 +22,18 @@
   X-Frame-Options: DENY
   Referrer-Policy: no-referrer
 
+# SEC-01 (ronda fix 2): el harness del sandbox tiene documento y CSP propios.
+# El iframe se carga por `src` (no `srcdoc`: el srcdoc hereda el CSP del padre
+# y el harness inline moriría). Sin `allow-same-origin` el origen sigue siendo
+# opaco. El sandbox puede evaluar el código del plugin (`new Function`) pero
+# NO puede hacer ninguna petición de red (ni a terceros ni a la app); el
+# documento principal sigue con `script-src 'self'` sin 'unsafe-eval'.
+# (Formato: las rutas van sin indentar; las cabeceras, indentadas.)
+/sandbox.html
+  Content-Security-Policy: default-src 'none'; script-src 'self' 'unsafe-eval'; connect-src 'none'
+  X-Frame-Options: SAMEORIGIN
+/sandbox.js
+  Content-Security-Policy: default-src 'none'; script-src 'self' 'unsafe-eval'; connect-src 'none'
+
 /assets/*
   Cache-Control: public, max-age=31536000, immutable

@@ -2,6 +2,7 @@ import { BUILTIN_PLUGINS } from './builtinPlugins';
 import type { PluginDefinition, PluginInstance, PluginParameter } from '../types/daw';
 import {
   applyBridgeOpsToNodes,
+  BRIDGE_MESSAGE_TYPES,
   evaluateInSandbox,
   getSandboxSession,
   isSandboxAvailable,
@@ -306,7 +307,7 @@ export class PluginHost {
     // Instancia viva en el iframe (crea sus cierres y devuelve los valores
     // por el canal). Sin sandbox (tests node) el template ya suena.
     this.forwardToSandbox({
-      type: 'hydradaw-instantiate',
+      type: BRIDGE_MESSAGE_TYPES.instantiate,
       pluginId: def.id,
       instanceId,
       params: sanitized,
@@ -320,10 +321,10 @@ export class PluginHost {
       outputNode: replayed.outputNode,
       updateParameter: (paramId: string, value: number) => {
         const clamped = host.clampToDef(def.id, paramId, value);
-        host.forwardToSandbox({ type: 'hydradaw-update', instanceId, paramId, value: clamped });
+        host.forwardToSandbox({ type: BRIDGE_MESSAGE_TYPES.update, instanceId, paramId, value: clamped });
       },
       cleanup: () => {
-        host.forwardToSandbox({ type: 'hydradaw-dispose', instanceId });
+        host.forwardToSandbox({ type: BRIDGE_MESSAGE_TYPES.dispose, instanceId });
         const entry = host.bridgeInstances.get(instanceId);
         host.bridgeInstances.delete(instanceId);
         const nodes = entry ? entry.nodes : replayed.nodes;

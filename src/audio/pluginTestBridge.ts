@@ -1,16 +1,14 @@
-// Ronda fix 1: puente de test para el sandbox de plugins.
-//
-// Ejecuta el harness REAL (la misma cadena que el padre envía al `srcdoc`
-// del iframe) en un contenedor `node:vm` con una ventana falsa (registro de
-// listeners + captura de `postMessage`) y vuelca el resultado con un
-// round-trip JSON —como el clon estructurado de `postMessage`— antes de
-// importarlo al host. Es el espejo del camino del navegador sin DOM.
+// Ronda fix 1: puente de test para el sandbox de plugins. Ronda fix 2:
+// ejecuta los BYTES EXACTOS de public/sandbox.js (el mismo fichero que se
+// sirve en producción) en un contenedor `node:vm` con una ventana falsa
+// (registro de listeners + captura de `postMessage`) y vuelca el resultado
+// con un round-trip JSON —como el clon estructurado de `postMessage`— antes
+// de importarlo al host. Es el espejo del camino del navegador sin DOM.
 // Solo para la capa node (este fichero importa `node:vm`, nunca va al bundle).
 import { createContext, runInContext } from 'node:vm';
-import {
-  buildSandboxScript,
-  scanCustomPluginCode,
-} from './pluginSandbox';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { scanCustomPluginCode } from './pluginSandbox';
 import type {
   BridgeDescriptor,
   BridgeOp,
@@ -54,7 +52,7 @@ function makeFakeWindow(captured: CapturedPost[]) {
 /**
  * Ejecuta el harness REAL en `vm` SIN pasar el escáner: pruebas de
  * confinamiento (el payload se ejecuta dentro del contenedor y el padre debe
- * quedar intacto).
+ * quedar intacto). Corre public/sandbox.js byte por byte.
  */
 export function runHarnessDirect(): HarnessRun {
   const captured: CapturedPost[] = [];
@@ -72,7 +70,10 @@ export function runHarnessDirect(): HarnessRun {
     Error,
     isFinite,
   });
-  runInContext(buildSandboxScript(TEST_SESSION), context);
+  // Los bytes exactos servidos en producción (la sesión se adopta del primer
+  // mensaje, igual que en el iframe: este fichero es estático).
+  const shipped = readFileSync(join(process.cwd(), 'public', 'sandbox.js'), 'utf8');
+  runInContext(shipped, context);
   return { captured, dispatch: fake.dispatch };
 }
 

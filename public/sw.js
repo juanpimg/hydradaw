@@ -27,6 +27,9 @@ const SHELL = [
   './icons/icon-192.png',
   './icons/icon-512.png',
   './icons/icon-512-maskable.png',
+  // El sandbox de plugins también es shell (sin él no hay import offline).
+  './sandbox.html',
+  './sandbox.js',
 ];
 
 self.addEventListener('install', (event) => {

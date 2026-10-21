@@ -22,7 +22,9 @@ describe('backend del sandbox iframe (jsdom)', () => {
     const backend = ensureSandboxBackend();
     expect(backend.iframe.getAttribute('sandbox')).toBe('allow-scripts');
     expect(backend.iframe.hasAttribute('allow-same-origin')).toBe(false);
-    expect(backend.iframe.srcdoc).toContain('hydradaw-evaluate');
+    // Ronda fix 2: el harness se carga por `src` (documento con CSP propia),
+    // no por `srcdoc` (heredaría el CSP del padre y moriría en producción).
+    expect(backend.iframe.src).toMatch(/sandbox\.html$/);
     expect(backend.session.length).toBeGreaterThan(0);
     expect(document.body.contains(backend.iframe)).toBe(true);
   });

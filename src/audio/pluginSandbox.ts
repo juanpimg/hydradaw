@@ -143,9 +143,10 @@ interface BridgeNodeSpec {
 /**
  * Superficie exacta del proxy (ver ayuda del editor en PluginRackModal y el
  * informe): 8 factorías, props enumeradas, 5 operaciones de parámetro,
- * connect/disconnect. Todo lo demás se rechaza.
+ * connect/disconnect. Todo lo demás se rechaza. Exportada para la prueba de
+ * sincronía con public/sandbox.js (derivado de esta tabla).
  */
-const BRIDGE_NODE_SPECS: Record<string, BridgeNodeSpec> = {
+export const BRIDGE_NODE_SPECS: Record<string, BridgeNodeSpec> = {
   gain: { method: 'createGain', params: ['gain'], props: {}, factoryArgs: 0 },
   filter: {
     method: 'createBiquadFilter',
@@ -179,7 +180,7 @@ const BRIDGE_NODE_SPECS: Record<string, BridgeNodeSpec> = {
 };
 
 /** Defaults para lectura (el replay usa los defaults reales de los AudioParam). */
-const BRIDGE_PARAM_DEFAULTS: Record<string, Record<string, number>> = {
+export const BRIDGE_PARAM_DEFAULTS: Record<string, Record<string, number>> = {
   gain: { gain: 1 },
   filter: { frequency: 350, Q: 1, gain: 0 },
   delay: { delayTime: 0 },
@@ -555,7 +556,12 @@ export function applyBridgeOpsToNodes(nodes: Map<string, AudioNode>, ops: Bridge
 }
 
 // ---------------------------------------------------------------------------
-// 5. Harness del iframe (cadena; el iframe no tiene imports)
+// ---------------------------------------------------------------------------
+// 5. Harness del iframe: vive en public/sandbox.js (documento estático con
+// CSP propia, cargado por `src`). La única fuente de verdad de la tabla
+// allowlisted y los validadores de ESTE fichero (secciones 2-4) la genera;
+// public/sandbox.js se derivó de ellos y los tests `vm` corren esos bytes
+// exactos (ver src/tests/pluginBridge.test.ts).
 // ---------------------------------------------------------------------------
 
 const MSG_EVALUATE = 'hydradaw-evaluate';
@@ -565,331 +571,15 @@ const MSG_UPDATE = 'hydradaw-update';
 const MSG_DISPOSE = 'hydradaw-dispose';
 const MSG_OPS = 'hydradaw-ops';
 
-/**
- * Construye el `srcdoc` del iframe. El código de usuario llega después por
- * `postMessage` (nunca interpolado aquí: evita rupturas de `</script>`).
- * Solo usa globales disponibles en iframe opaco y en `node:vm` (window, JSON,
- * Object, Array, Number, String, Boolean, RegExp, Error, isFinite).
- */
-export function buildSandboxHarness(session: string): string {
-  return (
-    '<!DOCTYPE html><html><body><script>\n' +
-    buildSandboxScript(session) +
-    '<\\/script></body></html>'
-  );
-}
+export const BRIDGE_MESSAGE_TYPES = {
+  evaluate: MSG_EVALUATE,
+  result: MSG_RESULT,
+  instantiate: MSG_INSTANTIATE,
+  update: MSG_UPDATE,
+  dispose: MSG_DISPOSE,
+  ops: MSG_OPS,
+} as const;
 
-/** El JS del harness sin envoltura HTML (para `node:vm` en tests). */
-export function buildSandboxScript(session: string): string {
-  const parts: string[] = [];
-  parts.push("'use strict';\n");
-  parts.push('(function () {\n');
-  parts.push(`var SESSION = ${JSON.stringify(session)};\n`);
-  parts.push(`var NODE = ${JSON.stringify(BRIDGE_NODE_SPECS)};\n`);
-  parts.push(`var DEFAULTS = ${JSON.stringify(BRIDGE_PARAM_DEFAULTS)};\n`);
-  parts.push(
-    `var SCAN = ${JSON.stringify(FORBIDDEN_PATTERNS.map((p) => [p.source, p.flags]))};\n`
-  );
-  parts.push(
-    "var METHODS = ['setValue','setValueAtTime','setTargetAtTime','linearRampToValueAtTime','exponentialRampToValueAtTime'];\n"
-  );
-  parts.push('var OP_CAP_TEMPLATE = ' + String(BRIDGE_OP_CAP_TEMPLATE) + ';\n');
-  parts.push('var OP_CAP_TOTAL = 2048;\n');
-  parts.push('var OP_CAP_RUNTIME = 64;\n');
-  parts.push('var MAX_PARAMS = 64;\n');
-  parts.push('var MAX_INSTANCES = 64;\n');
-  parts.push('var parentOrigin = null;\n');
-  parts.push('var plugins = {};\n');
-  parts.push('var instances = {};\n');
-  parts.push('var instanceCount = 0;\n');
-  parts.push('var handleSeq = 0;\n');
-  parts.push('function isNum(v) { return typeof v === "number" && isFinite(v); }\n');
-  parts.push('function isStr(v, max) { return typeof v === "string" && v.length <= max; }\n');
-  parts.push('function newHandle() { handleSeq += 1; return "h" + handleSeq; }\n');
-  parts.push(
-    'function post(evt, msg) {\n' +
-      '  try { evt.source.postMessage(msg, parentOrigin || "*"); } catch (e) {}\n' +
-      '}\n'
-  );
-  parts.push(
-    'function fail(evt, reqId, error) {\n' +
-      `  post(evt, { type: "${MSG_RESULT}", session: SESSION, reqId: reqId, ok: false, error: error });\n` +
-      '}\n'
-  );
-  parts.push(
-    'function scan(code) {\n' +
-      '  var low = code.toLowerCase();\n' +
-      '  if (low.indexOf("constructor") !== -1 || low.indexOf("__proto__") !== -1) return "constructor/__proto__";\n' +
-      '  for (var i = 0; i < SCAN.length; i++) {\n' +
-      '    if (new RegExp(SCAN[i][0], SCAN[i][1]).test(code)) return SCAN[i][0];\n' +
-      '  }\n' +
-      '  return null;\n' +
-      '}\n'
-  );
-  parts.push(
-    'function checkArgs(args, n) {\n' +
-      '  if (!Array.isArray(args) || args.length !== n) throw new Error("argumentos inválidos");\n' +
-      '  for (var i = 0; i < args.length; i++) if (!isNum(args[i])) throw new Error("argumento no finito");\n' +
-      '  return args;\n' +
-      '}\n'
-  );
-  parts.push(
-    'function emit(rec, op) {\n' +
-      '  if (rec.ops.length >= OP_CAP_TOTAL) throw new Error("demasiadas operaciones");\n' +
-      '  rec.ops.push(op);\n' +
-      '}\n'
-  );
-  parts.push(
-    'function makeParam(rec, hid, ntype, pname) {\n' +
-      '  function record(method, args) { emit(rec, { op: "param", handle: hid, param: pname, method: method, args: args }); }\n' +
-      '  return {\n' +
-      '    get value() { return rec.values[hid + "." + pname]; },\n' +
-      '    set value(v) {\n' +
-      '      if (!isNum(v)) throw new Error("valor de parámetro no finito");\n' +
-      '      rec.values[hid + "." + pname] = v;\n' +
-      '      record("setValue", [v]);\n' +
-      '    },\n' +
-      '    setValueAtTime: function (v, t) { record("setValueAtTime", checkArgs([v, t], 2)); },\n' +
-      '    setTargetAtTime: function (v, t, tc) { record("setTargetAtTime", checkArgs([v, t, tc], 3)); },\n' +
-      '    linearRampToValueAtTime: function (v, t) { record("linearRampToValueAtTime", checkArgs([v, t], 2)); },\n' +
-      '    exponentialRampToValueAtTime: function (v, t) { record("exponentialRampToValueAtTime", checkArgs([v, t], 2)); }\n' +
-      '  };\n' +
-      '}\n'
-  );
-  parts.push(
-    'function makeFacade(rec, hid, ntype) {\n' +
-      '  var spec = NODE[ntype];\n' +
-      '  var f = { __hid: hid };\n' +
-      '  for (var i = 0; i < spec.params.length; i++) (function (pname) {\n' +
-      '    rec.values[hid + "." + pname] = DEFAULTS[ntype][pname];\n' +
-      '    f[pname] = makeParam(rec, hid, ntype, pname);\n' +
-      '  })(spec.params[i]);\n' +
-      '  for (var prop in spec.props) (function (pname, rule) {\n' +
-      '    var current = null;\n' +
-      '    Object.defineProperty(f, pname, {\n' +
-      '      enumerable: true, configurable: false,\n' +
-      '      get: function () { return current; },\n' +
-      '      set: function (v) {\n' +
-      '        if (rule === "finite") { if (!isNum(v)) throw new Error("propiedad no finita para " + pname); }\n' +
-      '        else if (rule.indexOf(v) === -1) throw new Error("valor fuera de la lista permitida para " + pname);\n' +
-      '        current = v;\n' +
-      '        emit(rec, { op: "set", handle: hid, prop: pname, value: v });\n' +
-      '      }\n' +
-      '    });\n' +
-      '  })(prop, spec.props[prop]);\n' +
-      '  f.connect = function (dest, out, inn) {\n' +
-      '    if (!dest || typeof dest !== "object" || !isStr(dest.__hid, 8)) throw new Error("destino de connect inválido");\n' +
-      '    var mop = { op: "connect", from: hid, to: dest.__hid };\n' +
-      '    if (arguments.length > 1) {\n' +
-      '      if (!Number.isInteger(out) || out < 0) throw new Error("índices de connect inválidos");\n' +
-      '      mop.out = out;\n' +
-      '      if (arguments.length > 2) {\n' +
-      '        if (!Number.isInteger(inn) || inn < 0) throw new Error("índices de connect inválidos");\n' +
-      '        mop.inn = inn;\n' +
-      '      }\n' +
-      '    }\n' +
-      '    emit(rec, mop);\n' +
-      '    return dest;\n' +
-      '  };\n' +
-      '  f.disconnect = function (dest) {\n' +
-      '    var mop = { op: "disconnect", from: hid };\n' +
-      '    if (dest !== undefined) {\n' +
-      '      if (!dest || typeof dest !== "object" || !isStr(dest.__hid, 8)) throw new Error("destino de disconnect inválido");\n' +
-      '      mop.to = dest.__hid;\n' +
-      '    }\n' +
-      '    emit(rec, mop);\n' +
-      '  };\n' +
-      '  try { Object.preventExtensions(f); } catch (e) {}\n' +
-      '  return f;\n' +
-      '}\n'
-  );
-  parts.push(
-    'function makeProxy(rec) {\n' +
-      '  var ctx = {};\n' +
-      '  for (var key in NODE) (function (ntype) {\n' +
-      '    var spec = NODE[ntype];\n' +
-      '    ctx[spec.method] = function () {\n' +
-      '      var args = [];\n' +
-      '      if (spec.factoryArgs > 0) {\n' +
-      '        if (arguments.length > 1) throw new Error("demasiados argumentos para " + spec.method);\n' +
-      '        if (arguments.length === 1) {\n' +
-      '          if (!isNum(arguments[0])) throw new Error("argumento no finito para " + spec.method);\n' +
-      '          args = [arguments[0]];\n' +
-      '        }\n' +
-      '      } else if (arguments.length > 0) {\n' +
-      '        throw new Error("argumentos no permitidos para " + spec.method);\n' +
-      '      }\n' +
-      '      var hid = newHandle();\n' +
-      '      emit(rec, { op: "create", node: ntype, handle: hid, args: args });\n' +
-      '      return makeFacade(rec, hid, ntype);\n' +
-      '    };\n' +
-      '  })(key);\n' +
-      '  try { Object.preventExtensions(ctx); } catch (e) {}\n' +
-      '  return ctx;\n' +
-      '}\n'
-  );
-  parts.push(
-    'function errText(e) { return e && e.message ? String(e.message) : String(e); }\n' +
-      'function checkShape(def) {\n' +
-      '  if (!def || typeof def !== "object") return "sin definición";\n' +
-      '  if (typeof def.id !== "string" || !def.id || def.id.length > 64) return "id inválido";\n' +
-      '  if (typeof def.createDSPNode !== "function") return "sin createDSPNode";\n' +
-      '  if (def.parameters !== undefined && !Array.isArray(def.parameters)) return "parameters inválido";\n' +
-      '  return null;\n' +
-      '}\n' +
-      'function checkParams(raw) {\n' +
-      '  if (!Array.isArray(raw)) return "parameters debe ser un array";\n' +
-      '  if (raw.length > MAX_PARAMS) return "demasiados parámetros";\n' +
-      '  for (var i = 0; i < raw.length; i++) {\n' +
-      '    var p = raw[i];\n' +
-      '    if (!p || typeof p !== "object") return "parámetro inválido";\n' +
-      '    if (!isStr(p.id, 64) || !p.id) return "parámetro sin id";\n' +
-      '    if (!isStr(p.name, 128) || !p.name) return "parámetro sin nombre";\n' +
-      '    if (!isNum(p.min) || !isNum(p.max) || !isNum(p.step) || !isNum(p.defaultValue)) return "rango no finito en " + p.id;\n' +
-      '    if (!(p.min <= p.max) || !(p.step > 0)) return "rango incoherente en " + p.id;\n' +
-      '    if (!(p.defaultValue >= p.min && p.defaultValue <= p.max)) return "default fuera de rango en " + p.id;\n' +
-      '    if (p.unit !== undefined && !isStr(p.unit, 32)) return "unit inválida en " + p.id;\n' +
-      '  }\n' +
-      '  return null;\n' +
-      '}\n' +
-      'function isFacade(v) { return v && typeof v === "object" && isStr(v.__hid, 8); }\n'
-  );
-  parts.push(
-    `function onEvaluate(evt, d) {\n` +
-      '  if (!isStr(d.reqId, 64) || typeof d.code !== "string") return;\n' +
-      '  var hit = scan(d.code);\n' +
-      `  if (hit) { fail(evt, d.reqId, "Código de plugin bloqueado por seguridad: " + hit); return; }\n` +
-      '  var customPlugin = null;\n' +
-      '  try {\n' +
-      '    var factory = new Function("\\"use strict\\";\\n" + d.code + "\\n;return typeof customPlugin !== \\"undefined\\" ? customPlugin : null;");\n' +
-      '    customPlugin = factory();\n' +
-      '  } catch (e) { fail(evt, d.reqId, "El plugin falló al evaluarse: " + errText(e)); return; }\n' +
-      '  var bad = checkShape(customPlugin);\n' +
-      '  if (bad) { fail(evt, d.reqId, "El plugin local no exporta una definición válida (" + bad + ")."); return; }\n' +
-      '  var params = Array.isArray(customPlugin.parameters) ? customPlugin.parameters : [];\n' +
-      '  bad = checkParams(params);\n' +
-      '  if (bad) { fail(evt, d.reqId, "Parámetros inválidos (" + bad + ")."); return; }\n' +
-      '  var defaults = {};\n' +
-      '  for (var i = 0; i < params.length; i++) defaults[params[i].id] = params[i].defaultValue;\n' +
-      '  var rec = { ops: [], values: {} };\n' +
-      '  var produced = null;\n' +
-      '  try {\n' +
-      '    produced = customPlugin.createDSPNode(makeProxy(rec), defaults);\n' +
-      '  } catch (e) { fail(evt, d.reqId, "createDSPNode lanzó: " + errText(e)); return; }\n' +
-      '  if (!produced || typeof produced !== "object" || !isFacade(produced.inputNode) || !isFacade(produced.outputNode)) {\n' +
-      '    fail(evt, d.reqId, "inputNode/outputNode deben crearse con el proxy del sandbox."); return;\n' +
-      '  }\n' +
-      '  if (typeof produced.updateParameter !== "function") {\n' +
-      '    fail(evt, d.reqId, "falta updateParameter."); return;\n' +
-      '  }\n' +
-      '  var split = rec.ops.length;\n' +
-      '  try {\n' +
-      '    for (var j = 0; j < params.length; j++) {\n' +
-      '      var p = params[j];\n' +
-      '      var alt = p.defaultValue !== p.max ? p.max : (p.defaultValue !== p.min ? p.min : p.defaultValue);\n' +
-      '      var before = rec.ops.length;\n' +
-      '      produced.updateParameter(p.id, p.defaultValue);\n' +
-      '      produced.updateParameter(p.id, alt);\n' +
-      '      var saw = false;\n' +
-      '      for (var k = before; k < rec.ops.length; k++) if (rec.ops[k].op === "param") { saw = true; break; }\n' +
-      `      if (!saw) { fail(evt, d.reqId, "el parámetro '" + p.id + "' debe responder a updateParameter."); return; }\n` +
-      '    }\n' +
-      '  } catch (e) { fail(evt, d.reqId, "updateParameter lanzó en la sonda: " + errText(e)); return; }\n' +
-      '  if (split > OP_CAP_TEMPLATE) { fail(evt, d.reqId, "demasiadas operaciones en el template."); return; }\n' +
-      '  if (rec.ops.length > OP_CAP_TOTAL) { fail(evt, d.reqId, "demasiadas operaciones en total."); return; }\n' +
-      '  var serialParams = null;\n' +
-      '  try { serialParams = JSON.parse(JSON.stringify(params)); }\n' +
-      '  catch (e) { fail(evt, d.reqId, "parámetros no serializables."); return; }\n' +
-      '  plugins[customPlugin.id] = { createDSPNode: customPlugin.createDSPNode };\n' +
-      `  post(evt, { type: "${MSG_RESULT}", session: SESSION, reqId: d.reqId, ok: true,\n` +
-      '    descriptor: { id: customPlugin.id,\n' +
-      '      name: typeof customPlugin.name === "string" ? customPlugin.name : "",\n' +
-      '      category: typeof customPlugin.category === "string" ? customPlugin.category : "",\n' +
-      '      description: typeof customPlugin.description === "string" ? customPlugin.description : "",\n' +
-      '      parameters: serialParams },\n' +
-      '    oplog: rec.ops.slice(0, split),\n' +
-      '    input: produced.inputNode.__hid,\n' +
-      '    output: produced.outputNode.__hid });\n' +
-      '}\n'
-  );
-  parts.push(
-    `function onInstantiate(evt, d) {\n` +
-      '  if (!isStr(d.pluginId, 64) || !isStr(d.instanceId, 128)) return;\n' +
-      '  var plugin = plugins[d.pluginId];\n' +
-      '  if (!plugin) return;\n' +
-      '  if (instanceCount >= MAX_INSTANCES) return;\n' +
-      '  if (!d.params || typeof d.params !== "object") return;\n' +
-      '  var keys = Object.keys(d.params);\n' +
-      '  if (keys.length > MAX_PARAMS) return;\n' +
-      '  var params = {};\n' +
-      '  var kept = [];\n' +
-      '  for (var i = 0; i < keys.length; i++) {\n' +
-      '    if (!isStr(keys[i], 64)) continue;\n' +
-      '    var v = d.params[keys[i]];\n' +
-      '    if (!isNum(v)) continue;\n' +
-      '    params[keys[i]] = v;\n' +
-      '    kept.push(keys[i]);\n' +
-      '  }\n' +
-      '  var rec = { ops: [], values: {} };\n' +
-      '  var produced = null;\n' +
-      '  try { produced = plugin.createDSPNode(makeProxy(rec), params); }\n' +
-      '  catch (e) { return; }\n' +
-      '  if (!produced || typeof produced !== "object" || typeof produced.updateParameter !== "function") return;\n' +
-      '  instances[d.instanceId] = { update: produced.updateParameter, cleanup: produced.cleanup, rec: rec };\n' +
-      '  instanceCount += 1;\n' +
-      '  var sync = [];\n' +
-      '  try {\n' +
-      '    for (var j = 0; j < kept.length; j++) {\n' +
-      '      produced.updateParameter(kept[j], params[kept[j]]);\n' +
-      '    }\n' +
-      '    for (var k = 0; k < rec.ops.length && sync.length < OP_CAP_RUNTIME; k++) sync.push(rec.ops[k]);\n' +
-      '  } catch (e) { opsOut(evt, d.instanceId, sync, "updateParameter lanzó: " + errText(e)); return; }\n' +
-      '  opsOut(evt, d.instanceId, sync, null);\n' +
-      '}\n' +
-      'function opsOut(evt, instanceId, ops, error) {\n' +
-      `  var msg = { type: "${MSG_OPS}", session: SESSION, instanceId: instanceId, ops: ops };\n` +
-      '  if (error) msg.error = error;\n' +
-      '  post(evt, msg);\n' +
-      '}\n' +
-      `function onUpdate(evt, d) {\n` +
-      '  if (!isStr(d.instanceId, 128) || !isStr(d.paramId, 64) || !isNum(d.value)) return;\n' +
-      '  var inst = instances[d.instanceId];\n' +
-      '  if (!inst || typeof inst.update !== "function") return;\n' +
-      '  inst.rec.ops = [];\n' +
-      '  try { inst.update(d.paramId, d.value); }\n' +
-      '  catch (e) { opsOut(evt, d.instanceId, [], "updateParameter lanzó: " + errText(e)); return; }\n' +
-      '  if (inst.rec.ops.length > OP_CAP_RUNTIME) { opsOut(evt, d.instanceId, [], "demasiadas operaciones."); return; }\n' +
-      '  opsOut(evt, d.instanceId, inst.rec.ops.slice(0), null);\n' +
-      '}\n' +
-      `function onDispose(evt, d) {\n` +
-      '  if (!isStr(d.instanceId, 128)) return;\n' +
-      '  var inst = instances[d.instanceId];\n' +
-      '  if (!inst) return;\n' +
-      '  delete instances[d.instanceId];\n' +
-      '  instanceCount -= 1;\n' +
-      '  try { if (typeof inst.cleanup === "function") inst.cleanup(); } catch (e) {}\n' +
-      '}\n'
-  );
-  parts.push(
-    'window.addEventListener("message", function (event) {\n' +
-      '  try {\n' +
-      '    if (event.source !== window.parent) return;\n' +
-      '    var d = event.data;\n' +
-      '    if (!d || typeof d !== "object" || typeof d.type !== "string") return;\n' +
-      '    if (d.session !== SESSION) return;\n' +
-      '    if (typeof d.origin === "string" && /^https?:\\/\\/[^/]+$/.test(d.origin)) parentOrigin = d.origin;\n' +
-      `    if (d.type === "${MSG_EVALUATE}") onEvaluate(event, d);\n` +
-      `    else if (d.type === "${MSG_INSTANTIATE}") onInstantiate(event, d);\n` +
-      `    else if (d.type === "${MSG_UPDATE}") onUpdate(event, d);\n` +
-      `    else if (d.type === "${MSG_DISPOSE}") onDispose(event, d);\n` +
-      '  } catch (e) {}\n' +
-      '});\n'
-  );
-  parts.push('})();\n');
-  return parts.join('');
-}
-
-// ---------------------------------------------------------------------------
 // 6. Backend del padre (transporte iframe + validación de cada mensaje)
 // ---------------------------------------------------------------------------
 
@@ -1003,11 +693,14 @@ export function ensureSandboxBackend(): SandboxBackend {
   }
   const session = `s_${Date.now().toString(36)}_${Math.floor(Math.random() * 1e9).toString(36)}`;
   const iframe = doc.createElement('iframe');
-  // Origen opaco: allow-scripts SIN allow-same-origin.
+  // Origen opaco: allow-scripts SIN allow-same-origin. El harness se carga
+  // por `src` (documento con CSP propia): el `srcdoc` heredaría el CSP del
+  // padre y el harness inline moriría en producción. Ruta relativa al
+  // documento ⇒ vale en raíz y en sub-path.
   iframe.setAttribute('sandbox', 'allow-scripts');
   iframe.setAttribute('aria-hidden', 'true');
   iframe.style.display = 'none';
-  iframe.srcdoc = buildSandboxHarness(session);
+  iframe.src = './sandbox.html';
   let resolveReady: () => void = () => {};
   const ready = new Promise<void>((resolve) => {
     resolveReady = resolve;

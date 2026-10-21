@@ -6,6 +6,13 @@ import {
   TEST_SESSION,
 } from '../audio/pluginTestBridge';
 import { replayBridgeOps, scanCustomPluginCode } from '../audio/pluginSandbox';
+import {
+  BRIDGE_NODE_SPECS,
+  BRIDGE_PARAM_DEFAULTS,
+  FORBIDDEN_PATTERNS,
+} from '../audio/pluginSandbox';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { pluginHost } from '../audio/PluginHost';
 
 afterEach(() => {
@@ -326,8 +333,7 @@ describe('Puente de capacidades iframe (ronda fix 1)', () => {
     expect(replayed.inputNode).toBe(filters[0] as unknown as AudioNode);
   });
 
-  it('V8: las operaciones de update viajan por el canal (ops con instanceId)', () => {
-    const run = runHarnessDirect();
+  it('V8: las operaciones de update viajan por el canal (ops con instanceId)', () => {    const run = runHarnessDirect();
     run.dispatch({
       type: 'hydradaw-evaluate',
       session: TEST_SESSION,
@@ -351,5 +357,51 @@ describe('Puente de capacidades iframe (ronda fix 1)', () => {
     expect(
       list.some((o) => o['op'] === 'param' && o['param'] === 'gain')
     ).toBe(true);
+  });
+
+  it('V9: el harness adopta la sesión del primer mensaje y descarta la ajena', () => {
+    const run = runHarnessDirect();
+    run.dispatch({
+      type: 'hydradaw-evaluate',
+      session: 'sesion-ajena',
+      reqId: 'v9',
+      code: GAIN_PLUGIN,
+      origin: 'http://localhost/',
+    });
+    // El contenedor adopta 'sesion-ajena': un evaluate posterior con la
+    // sesión de test ya no responde.
+    const before = run.captured.length;
+    run.dispatch({
+      type: 'hydradaw-evaluate',
+      session: TEST_SESSION,
+      reqId: 'v9b',
+      code: GAIN_PLUGIN,
+      origin: 'http://localhost/',
+    });
+    expect(run.captured.length).toBe(before);
+  });
+
+  it('V10: public/sandbox.js lleva la tabla y el escáner vigentes (sin deriva)', () => {
+    const shipped = readFileSync(join(process.cwd(), 'public', 'sandbox.js'), 'utf8');
+    // La tabla allowlisted y los defaults incrustados son los de este código.
+    expect(shipped).toContain(JSON.stringify(BRIDGE_NODE_SPECS));
+    expect(shipped).toContain(JSON.stringify(BRIDGE_PARAM_DEFAULTS));
+    // Los patrones del escáner viajan incrustados (misma fuente de verdad;
+    // en el fichero van escapados como JSON: se compara la forma escapada).
+    for (const pattern of FORBIDDEN_PATTERNS) {
+      expect(shipped).toContain(JSON.stringify(pattern.source));
+    }
+    // El protocolo y la adopción de sesión están presentes.
+    for (const marker of [
+      'hydradaw-evaluate',
+      'hydradaw-result',
+      'hydradaw-instantiate',
+      'hydradaw-update',
+      'hydradaw-dispose',
+      'hydradaw-ops',
+      'SESSION = null',
+    ]) {
+      expect(shipped).toContain(marker);
+    }
   });
 });

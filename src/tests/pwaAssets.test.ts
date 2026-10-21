@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
 // CFG-01 / HDR-01 / SEO-01 / CFG-02: la app es instalable (iconos PNG
@@ -66,6 +66,46 @@ describe('HDR-01: cabeceras de seguridad en _headers', () => {
     expect(headers).toMatch(/Strict-Transport-Security:/);
     expect(headers).toMatch(/frame-ancestors\s+'none'/);
     expect(headers).toMatch(/Referrer-Policy:/);
+  });
+
+  it('el documento principal no permite unsafe-eval (el hilo principal no evalúa)', () => {
+    const headers = read('public/_headers');
+    const mainCsp = headers
+      .slice(0, headers.indexOf('/sandbox.html'))
+      .split('\n')
+      .find((line) => line.includes('Content-Security-Policy:'));
+    expect(mainCsp).toBeDefined();
+    expect(mainCsp!).toContain("script-src 'self'");
+    expect(mainCsp!).not.toContain("'unsafe-eval'");
+  });
+
+  it('el sandbox tiene CSP propia con unsafe-eval y sin red', () => {
+    const headers = read('public/_headers');
+    const sandboxBlock = headers.slice(headers.indexOf('/sandbox.html'));
+    expect(sandboxBlock).toContain("'unsafe-eval'");
+    expect(sandboxBlock).toMatch(/connect-src\s+'none'/);
+  });
+});
+
+describe('SEC-01: el hilo principal nunca evalúa código de usuario', () => {
+  function* walkTs(dir: string): Generator<string> {
+    for (const entry of readdirSync(dir)) {
+      const full = join(dir, entry);
+      if (statSync(full).isDirectory()) {
+        yield* walkTs(full);
+      } else if (full.endsWith('.ts') && !full.endsWith('.test.ts') && !full.endsWith('.test.tsx')) {
+        yield full;
+      }
+    }
+  }
+
+  it('ningún fichero de producto contiene `new Function`', () => {
+    const offenders: string[] = [];
+    for (const file of walkTs(join(ROOT, 'src'))) {
+      const content = readFileSync(file, 'utf8');
+      if (content.includes('new Function')) offenders.push(file);
+    }
+    expect(offenders).toEqual([]);
   });
 });
 
