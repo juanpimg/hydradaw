@@ -13,7 +13,7 @@ function read(rel: string): string {
 }
 
 describe('CFG-01: PWA instalable con iconos PNG reales', () => {
-  it('el manifest referencia iconos PNG con purpose correcto (sin data:)', () => {
+  it('el manifest referencia iconos PNG con purpose correcto (rutas relativas)', () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const manifest = JSON.parse(read('public/manifest.webmanifest')) as any;
     expect(Array.isArray(manifest.icons)).toBe(true);
@@ -21,12 +21,14 @@ describe('CFG-01: PWA instalable con iconos PNG reales', () => {
     expect(icons.length).toBeGreaterThanOrEqual(3);
     for (const icon of icons) {
       expect(icon.src ?? '').not.toMatch(/^data:/);
+      // Relativas al manifest: funcionan en raíz y en sub-path (base './').
+      expect(icon.src ?? '').not.toMatch(/^\//);
       expect(icon.type).toBe('image/png');
     }
     const bySrc = new Map(icons.map((i) => [i.src, i]));
-    expect(bySrc.get('/icons/icon-192.png')?.sizes).toBe('192x192');
-    expect(bySrc.get('/icons/icon-512.png')?.sizes).toBe('512x512');
-    expect(bySrc.get('/icons/icon-512-maskable.png')?.purpose).toContain('maskable');
+    expect(bySrc.get('icons/icon-192.png')?.sizes).toBe('192x192');
+    expect(bySrc.get('icons/icon-512.png')?.sizes).toBe('512x512');
+    expect(bySrc.get('icons/icon-512-maskable.png')?.purpose).toContain('maskable');
   });
 
   it('los PNG existen y tienen firma PNG válida', () => {
@@ -42,10 +44,11 @@ describe('CFG-01: PWA instalable con iconos PNG reales', () => {
     }
   });
 
-  it('index.html incluye apple-touch-icon y og:image', () => {
+  it('index.html incluye apple-touch-icon y og:image (rutas relativas)', () => {
     const html = read('index.html');
     expect(html).toContain('apple-touch-icon');
-    expect(html).toContain('icons/icon-192.png');
+    expect(html).toContain('href="icons/icon-192.png"');
+    expect(html).toContain('href="manifest.webmanifest"');
     expect(html).toContain('og:image');
   });
 
@@ -71,5 +74,17 @@ describe('CFG-02: el build funciona en sub-path', () => {
     const config = read('vite.config.ts');
     expect(config).toMatch(/base:\s*['"]\.\/['"]/);
     expect(config).toMatch(/target:\s*['"]es20\d{2}['"]/);
+  });
+
+  it('el registro del SW deriva de BASE_URL (sin /sw.js absoluto)', () => {
+    const main = read('src/main.tsx');
+    expect(main).toContain('BASE_URL');
+    expect(main).not.toContain("register('/sw.js')");
+  });
+
+  it('el precache del SW usa rutas relativas al scope', () => {
+    const sw = read('public/sw.js');
+    expect(sw).toContain("'./index.html'");
+    expect(sw).not.toMatch(/\[\s*'\/(index\.html)?'/);
   });
 });

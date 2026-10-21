@@ -10,9 +10,14 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
 );
 
 // Register PWA Service Worker for offline mode in supported browser environments
-if (typeof window !== 'undefined' && 'serviceWorker' in navigator && Boolean((import.meta as unknown as { env?: { PROD?: boolean } }).env?.PROD)) {
+if (typeof window !== 'undefined' && 'serviceWorker' in navigator && Boolean((import.meta as unknown as { env?: { PROD?: boolean; BASE_URL?: string } }).env?.PROD)) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js').catch((err) => {
+    // CFG-02: la URL deriva de BASE_URL para que el scope sea correcto en
+    // sub-path ('./' ⇒ './sw.js' relativo al documento; '/sub/' ⇒ absoluto).
+    const base =
+      (import.meta as unknown as { env?: { BASE_URL?: string } }).env?.BASE_URL ?? '/';
+    const swUrl = base.startsWith('.') ? `${base}sw.js` : `${base.replace(/\/+$/, '')}/sw.js`;
+    navigator.serviceWorker.register(swUrl).catch((err) => {
       console.warn('[PWA] Service Worker registration failed:', err);
     });
   });

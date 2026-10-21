@@ -16,14 +16,17 @@
 const SW_VERSION = '__SW_VERSION__';
 const CACHE_NAME = `hydradaw-${SW_VERSION}`;
 
-// Precache del shell: lo mínimo para arrancar offline en primera visita.
+// Precache del shell: rutas RELATIVAS al scope del SW (resuelven contra la
+// ubicación de sw.js) ⇒ funcionan en raíz y en sub-path con base './'.
+// Los assets con hash (/assets/*) NO se precachean por nombre (los hashes los
+// genera el build): entran por cache-first en la primera carga (ver abajo).
 const SHELL = [
-  '/',
-  '/index.html',
-  '/manifest.webmanifest',
-  '/icons/icon-192.png',
-  '/icons/icon-512.png',
-  '/icons/icon-512-maskable.png',
+  './',
+  './index.html',
+  './manifest.webmanifest',
+  './icons/icon-192.png',
+  './icons/icon-512.png',
+  './icons/icon-512-maskable.png',
 ];
 
 self.addEventListener('install', (event) => {
@@ -61,7 +64,8 @@ async function networkFirst(request) {
     const cached = await cache.match(request);
     if (cached) return cached;
     if (request.mode === 'navigate') {
-      const shell = await cache.match('/index.html');
+      // Relativo al scope: vale en raíz y en sub-path.
+      const shell = await cache.match('./index.html');
       if (shell) return shell;
     }
     return Response.error();
@@ -87,13 +91,18 @@ self.addEventListener('fetch', (event) => {
   if (!url.protocol.startsWith('http')) return;
   if (url.origin !== self.location.origin) return;
 
+  // CFG-02: el scope puede ser un sub-path (base './'); las rutas se comparan
+  // contra el scope de registro, no contra la raíz del origen.
+  const scopePath = new URL(self.registration.scope).pathname.replace(/\/+$/, '');
+  const cleanPath = url.pathname.replace(/\/+$/, '') || '/';
+
   // Navegaciones (app shell) ⇒ network-first.
-  if (event.request.mode === 'navigate' || url.pathname === '/' || url.pathname.endsWith('/index.html')) {
+  if (event.request.mode === 'navigate' || cleanPath === scopePath || url.pathname.endsWith('/index.html')) {
     event.respondWith(networkFirst(event.request));
     return;
   }
   // Assets con hash ⇒ cache-first.
-  if (url.pathname.startsWith('/assets/')) {
+  if (url.pathname.startsWith(`${scopePath}/assets/`)) {
     event.respondWith(cacheFirst(event.request));
     return;
   }
