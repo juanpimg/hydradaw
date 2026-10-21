@@ -114,6 +114,44 @@ export function handleGlobalKeyDown(e: KeyboardEvent) {
     return;
   }
 
+  // Portapapeles interno de clips (G2): copiar / pegar / duplicar / cortar.
+  // Vive tras las guardas de modal e inputs: Ctrl+V en un campo de texto
+  // pega texto, no clips. Sin repeat: mantener pulsado no inunda el historial.
+  if ((e.ctrlKey || e.metaKey) && (e.key === 'c' || e.key === 'C') && !e.altKey) {
+    if (e.repeat) return;
+    const st = useDawStore.getState();
+    if (st.selectedClipId) {
+      e.preventDefault();
+      st.copyClips([st.selectedClipId]);
+    }
+    return;
+  }
+
+  if ((e.ctrlKey || e.metaKey) && (e.key === 'v' || e.key === 'V') && !e.altKey) {
+    if (e.repeat) return;
+    e.preventDefault();
+    useDawStore.getState().pasteClips(audioEngine.getCurrentTime());
+    return;
+  }
+
+  if ((e.ctrlKey || e.metaKey) && (e.key === 'd' || e.key === 'D') && !e.altKey) {
+    if (e.repeat) return;
+    e.preventDefault();
+    useDawStore.getState().duplicateSelectedClips();
+    return;
+  }
+
+  if ((e.ctrlKey || e.metaKey) && (e.key === 'x' || e.key === 'X') && !e.altKey) {
+    if (e.repeat) return;
+    const st = useDawStore.getState();
+    if (st.selectedClipId) {
+      e.preventDefault();
+      st.copyClips([st.selectedClipId]);
+      st.removeClip(st.selectedClipId);
+    }
+    return;
+  }
+
   // Redo: Ctrl+Y / Cmd+Y or Ctrl+Shift+Z / Cmd+Shift+Z
   if (
     ((e.ctrlKey || e.metaKey) && (e.key === 'y' || e.key === 'Y')) ||

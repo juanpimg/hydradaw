@@ -45,6 +45,14 @@ let redoStack: HistorySnapshot[] = [];
 const PLUGIN_PARAM_HISTORY_MS = 400;
 let lastPluginParamHistoryAt = 0;
 
+// Portapapeles interno de clips (G2): guarda copias superficiales — `audioBuffer`
+// y `peaks` se comparten por referencia para no duplicar el PCM en memoria.
+// Vive fuera del estado: no persiste ni entra en el historial.
+let clipClipboard: AudioClip[] = [];
+
+const newClipId = (): string =>
+  'clip_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6);
+
 export function cloneHistoryState(state: {
   tracks: AudioTrack[];
   clips: AudioClip[];
@@ -177,6 +185,11 @@ interface DawState {
   removeClip: (id: string) => void;
   splitClip: (clipId: string, atTime: number) => void;
   trimClip: (clipId: string, edge: 'left' | 'right', deltaSeconds: number) => void;
+
+  // Portapapeles interno de clips (G2)
+  copyClips: (ids: string[]) => void;
+  pasteClips: (atTime?: number) => void;
+  duplicateSelectedClips: () => void;
 
   // Plugins
   addPluginToTrack: (trackId: string, pluginId: string) => void;
@@ -582,6 +595,69 @@ export const useDawStore = create<DawState>((set, get) => ({
     // Fix(waveA): recalcular duración tras el trim (encoger puede liberar compases).
     const updatedClips = get().clips.map((c) => (c.id === clipId ? next : c));
     set({ clips: updatedClips, duration: recalcDuration(updatedClips) });
+  },
+
+  copyClips: (ids) => {
+    // Sin historial: el portapapeles no es estado del proyecto. Copia
+    // superficial: `audioBuffer` y `peaks` se comparten por referencia.
+    clipClipboard = get().clips
+      .filter((c) => ids.includes(c.id))
+      .map((c) => ({ ...c }));
+  },
+
+  pasteClips: (atTime) => {
+    if (clipClipboard.length === 0) return;
+    const state = get();
+    // Pista de repliegue si la original ya no existe.
+    const fallbackTrackId = state.selectedTrackId ?? state.tracks[0]?.id ?? null;
+    if (state.tracks.length === 0 || fallbackTrackId === null) {
+      state.pushToast('No hay pista donde pegar los clips.');
+      return;
+    }
+    const liveTrackIds = new Set(state.tracks.map((t) => t.id));
+    const minStart = Math.min(...clipClipboard.map((c) => c.startTime));
+    const pasted: AudioClip[] = clipClipboard.map((c) => ({
+      ...c,
+      id: newClipId(),
+      trackId: liveTrackIds.has(c.trackId) ? c.trackId : fallbackTrackId,
+      startTime: atTime === undefined ? c.startTime : atTime + (c.startTime - minStart),
+    }));
+    recordHistory(cloneHistoryState(get()));
+    // ST-10: calcular con `get()`, luego `set(...)`, luego el efecto.
+    const { tracks, clips, isPlaying } = get();
+    const updatedClips = [...clips, ...pasted];
+    set({
+      clips: updatedClips,
+      duration: recalcDuration(updatedClips),
+      selectedClipId: pasted[0]?.id ?? null,
+    });
+    if (isPlaying) {
+      void audioEngine.play(tracks, updatedClips, audioEngine.getCurrentTime());
+    }
+  },
+
+  duplicateSelectedClips: () => {
+    const selected = get().selectedClipId;
+    if (!selected) return;
+    const clip = get().clips.find((c) => c.id === selected);
+    if (!clip) return;
+    recordHistory(cloneHistoryState(get()));
+    const dup: AudioClip = {
+      ...clip,
+      id: newClipId(),
+      startTime: clip.startTime + clip.duration,
+    };
+    // ST-10: calcular con `get()`, luego `set(...)`, luego el efecto.
+    const { tracks, clips, isPlaying } = get();
+    const updatedClips = [...clips, dup];
+    set({
+      clips: updatedClips,
+      duration: recalcDuration(updatedClips),
+      selectedClipId: dup.id,
+    });
+    if (isPlaying) {
+      void audioEngine.play(tracks, updatedClips, audioEngine.getCurrentTime());
+    }
   },
 
   addPluginToTrack: (trackId, pluginId) => {
