@@ -16,7 +16,7 @@ layout real, canvas, audio y foco.
 
 ```bash
 npm run dev -- --port 5199 &
-npm run test:browser                  # dev (smoke.mjs, 9 checks) + prod (prodCheck.mjs, 11 checks)
+npm run test:browser                  # dev (smoke.mjs, 9 checks) + prod (prodCheck.mjs, 12 checks)
 node tests/browser/smoke.mjs http://localhost:5199   # solo fase dev, o por argumento
 BASE_URL=http://localhost:5199 npm run test:browser  # o por env var
 ```
@@ -38,16 +38,18 @@ BASE_URL=http://localhost:5199 npm run test:browser  # o por env var
 El script sale con código 1 si falla cualquier check o si hay cualquier
 `pageerror` / `console.error`.
 
-## Checks (prodCheck.mjs — fase producción, 11/11)
+## Checks (prodCheck.mjs — fase producción, 12/12)
 
 Construye `dist/`, lo sirve con el `public/_headers` **real** (`serveDist.mjs`)
 y comprueba: CSP del documento sin `'unsafe-eval'` + COOP/COEP/HSTS/XFO/RP (P1),
 CSP propia del sandbox (`default-src 'none'; script-src 'self' 'unsafe-eval';
 connect-src 'none'`) (P2), caché inmutable de `/assets/*` (P3), arranque del
 build (P4), plugin benigno aceptado (P5), 4 payloads maliciosos rechazados
-(P6), cero ejecución/red (P7) y cero errores (P8). Sin esta fase, ningún fallo
-que solo exista bajo cabeceras de producción (como el harness `srcdoc`
-bloqueado por la CSP heredada) puede cazarse.
+(P6), cero ejecución/red (P7), plantilla real del editor aceptada (P9: recarga
+para partir del textarea pristine y compila su valor por defecto tal cual) y
+cero errores (P8). Sin esta fase, ningún fallo que solo exista bajo cabeceras
+de producción (como el harness `srcdoc` bloqueado por la CSP heredada) puede
+cazarse.
 
 ## Ficheros
 
@@ -55,6 +57,6 @@ bloqueado por la CSP heredada) puede cazarse.
   guarda en `test-artifacts/browser/<nombre>.png`; `collectErrors(page)` devuelve
   `{ pageErrors, consoleErrors }`; `withViewport(page, w, h)`.
 - `smoke.mjs` — los 9 checks dev + resumen + código de salida.
-- `prodCheck.mjs` — los 11 checks de producción (construye `dist/` primero).
+- `prodCheck.mjs` — los 12 checks de producción (construye `dist/` primero).
 - `serveDist.mjs` — sirve `dist/` aplicando el `_headers` real (respeta la sangría).
 - Artefactos: `test-artifacts/browser/*.png` (`test-artifacts/` está en `.gitignore`).

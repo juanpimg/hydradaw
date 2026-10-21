@@ -8,16 +8,16 @@
 
 | Comprobación | Comando | Resultado |
 |---|---|---|
-| Tests | `npm test -- --reporter=basic \| tail -4` | **663/663 en 57 ficheros** (unit 408 + contrato 172 + dom 83) |
+| Tests | `npm test -- --reporter=basic \| tail -4` | **689/689 en 62 ficheros** (unit 431 + contrato 172 + dom 86) |
 | Navegador (dev) | `npm run test:browser` (fase 1) | **9/9** en Chromium real |
-| Navegador (prod) | `npm run test:browser` (fase 2) | **11/11** contra `dist/` con el `_headers` real |
+| Navegador (prod) | `npm run test:browser` (fase 2) | **12/12** contra `dist/` con el `_headers` real |
 | Tipos | `npx tsc --noEmit` | Limpio (`strict` + `noUncheckedIndexedAccess` + `verbatimModuleSyntax` + `noUnusedLocals` + `noUnusedParameters` + `exactOptionalPropertyTypes`) |
 | Build | `npm run build` | OK (`tsc && vite build`) |
-| Bundle JS | `npm run build` + `cat dist/assets/*.js \| gzip -c \| wc -c` | **102 871 bytes gzip (~100,5 KiB)**, presupuesto < 350 kB |
+| Bundle JS | `npm run build` + `cat dist/assets/*.js \| gzip -c \| wc -c` | **104 030 bytes gzip (~101,6 KiB)**, presupuesto < 350 kB |
 
-Desglose del build medido (`npm run build`): vendor 45,26 kB gzip +
-app 48,50 kB gzip + CSS 6,52 kB gzip + modales lazy
-(ExportModal 6,76 kB, PluginRackModal 3,81 kB, `useModalFocus` 0,68 kB).
+Desglose del build medido (`npm run build`): vendor 45,20 kB gzip +
+app 49,37 kB gzip + CSS 6,54 kB gzip + modales lazy
+(ExportModal 6,79 kB, PluginRackModal 3,92 kB, `useModalFocus` 0,71 kB).
 
 ## Arquitectura
 
@@ -41,7 +41,8 @@ y fase de navegador).
   `persistence.ts` (IndexedDB vía `idb-keyval`, autosave con flush en
   `beforeunload`/`pagehide`, importación presupuestada y saneada).
 - **Audio (`src/audio/`)**: `AudioEngine.ts` (play con generación, punch-in,
-  metrónomo sin doble click, loop pre-programado sin hueco, fugas cerradas),
+  metrónomo sin doble click, loop pre-programado sin hueco bajo reloj simulado
+  (sin medir en hardware real), fugas cerradas),
   `MasterBus.ts`, `TrackNode.ts`, `pluginSandbox.ts` (puente de capacidades hacia
   `<iframe sandbox>` opaco), `WavExporter.ts` / `aacExporter.ts`, `loudness.ts`
   (BS.1770-4), `importAudio.ts`.
@@ -75,7 +76,7 @@ y fase de navegador).
 | F16 | Header responsive | **Implementado** |
 | F17 | Retención de controles esenciales de transporte | **Implementado** (metrónomo + VU siempre visibles) |
 | F18 | Suite de tests por capas | **Implementado** (unit + contract + dom + browser; la etiqueta "E2E" se retiró por deshonesta) |
-| F19 | Puerta de calidad + adversarial | **Implementado** (9/9 + 11/11; 4 payloads maliciosos rechazados, cero ejecución) |
+| F19 | Puerta de calidad + adversarial | **Implementado** (9/9 + 12/12; 4 payloads maliciosos rechazados, cero ejecución) |
 | F20 | Importar audio desde el header | **Implementado** (`importAudioFiles`, sin depender de drag-and-drop) |
 | F21 | Portapapeles de clips (copiar/pegar/duplicar) | **Implementado** (deshacíble, con ids monotónicos únicos) |
 | F22 | Multi-selección de clips | **Implementado** (`selectedClipIds`; `S` corta todos los seleccionados bajo el playhead, `Delete` los borra) |
@@ -86,7 +87,8 @@ Correcciones P0/P1 verificadas: el undo ya no cruza proyectos y restaura
 transporte + mixer; el stop conserva la posición aparcada y el botón Stop
 rebobina a 0 (pausa conserva); master fader/mute afectan a la exportación;
 loudness conforme a ITU-R BS.1770-4; sin doble audio en `play()` solapados ni
-zombis tras stop; metrónomo sin doble click; loop sin hueco; sin fugas de nodos;
+zombis tras stop; metrónomo sin doble click; loop sin hueco bajo reloj
+simulado (sin medir en hardware real); sin fugas de nodos;
 un plugin roto no enmudece la app; los atajos no disparan tras un modal; el
 autosave no pierde el último cambio; importación presupuestada y saneada;
 utilidades numéricas que rechazan no-finitos.

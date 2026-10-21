@@ -23,12 +23,12 @@
 
 | Capa | Dónde | Qué cubre | Qué **NO** cubre | Medida |
 |---|---|---|---|---|
-| **unit** | `src/tests/*.test.ts`, `src/audio/*.test.ts` (+ `src/tests/dom/setup.ts` como setup global) | Lógica pura y store: timeline, audioMath, waveform, plugins/puente, persistencia/migración, atajos, historial, portapapeles, WAV/AAC, loudness, SW, PWA | Sin DOM (entorno `node`), sin audio real, sin navegador | **408/408** (36 ficheros) — `npx vitest run --exclude 'src/tests/contract/**' --exclude 'src/tests/dom/**' --reporter=basic` |
+| **unit** | `src/tests/*.test.ts`, `src/audio/*.test.ts` (+ `src/tests/dom/setup.ts` como setup global) | Lógica pura y store: timeline, audioMath, waveform, plugins/puente, plantilla del editor, persistencia/migración, atajos, historial, portapapeles, presupuestos de importación, WAV/AAC, loudness, SW, PWA | Sin DOM (entorno `node`), sin audio real, sin navegador | **431/431** (40 ficheros) — `npx vitest run --exclude 'src/tests/contract/**' --exclude 'src/tests/dom/**' --reporter=basic` |
 | **contract** | `src/tests/contract/` (opaco, sin DOM; antes `src/tests/e2e/`, renombrado en T2) | Contratos observables F1–F17 nominal + bordes + combinaciones + escenarios; oráculos matemáticos | No monta componentes, no verifica CSS/DOM real ni Pointer Events, no abre navegador | **172/172** (6 ficheros: 29+40+45+40+12+6) — `npx vitest run src/tests/contract --reporter=basic` |
-| **dom** | `src/tests/dom/` (jsdom 25.x + Testing Library) | Componentes montados: roles/aria, estilos computados (`touch-action`), eventos simulados, scroll, playhead, foco, teclado, sandbox-backend | Sin layout real (jsdom no maqueta: los rectángulos se miden en `browser`), sin Web Audio real | **83/83** (15 ficheros) — `npx vitest run src/tests/dom --reporter=basic` (alias `npm run test:dom`) |
-| **browser** | `tests/browser/` (puppeteer-core + Chromium real) | Layout real, pointer/touch, regresión visual, cabeceras de producción, sandbox end-to-end | Nada: es la capa de mayor fidelidad; es más lenta y necesita Chromium + build | **9/9** dev + **11/11** prod — `npm run test:browser` |
+| **dom** | `src/tests/dom/` (jsdom 25.x + Testing Library) | Componentes montados: roles/aria, estilos computados (`touch-action`), eventos simulados, scroll, playhead, foco, teclado, sandbox-backend, presupuestos de carga | Sin layout real (jsdom no maqueta: los rectángulos se miden en `browser`), sin Web Audio real | **86/86** (16 ficheros) — `npx vitest run src/tests/dom --reporter=basic` (alias `npm run test:dom`) |
+| **browser** | `tests/browser/` (puppeteer-core + Chromium real) | Layout real, pointer/touch, regresión visual, cabeceras de producción, sandbox end-to-end | Nada: es la capa de mayor fidelidad; es más lenta y necesita Chromium + build | **9/9** dev + **12/12** prod — `npm run test:browser` |
 
-Total: **663/663 en 57 ficheros** — `npm test -- --reporter=basic | tail -4`.
+Total: **689/689 en 62 ficheros** — `npm test -- --reporter=basic | tail -4`.
 
 ### La fase de producción del navegador (por qué existe)
 
@@ -46,10 +46,10 @@ arranque del build, plugin benigno aceptado, 4 payloads maliciosos rechazados
 ## 3. Comandos
 
 ```bash
-npm test                                   # todo: 663/663, 57 ficheros
+npm test                                   # todo: 689/689, 62 ficheros
 npx vitest run src/tests/contract          # contrato opaco: 172/172
-npm run test:dom                            # dom: 83/83
-npm run test:browser                        # navegador: 9/9 dev + 11/11 prod
+npm run test:dom                            # dom: 86/86
+npm run test:browser                        # navegador: 9/9 dev + 12/12 prod
 npm run test:all                            # unit+contract+dom+browser
 npx vitest run src/tests/contract/tier3_combinations.test.ts  # un tier concreto
 npx tsc --noEmit                            # tipos (debe salir limpio)
@@ -110,8 +110,8 @@ src/tests/contract/
 ├── tier2_m3_m4_boundaries.test.ts      # 40 bordes F10–F17
 ├── tier3_combinations.test.ts          # 12 combinaciones
 └── tier4_scenarios.test.ts             # 6 escenarios
-src/tests/dom/                          # 15 ficheros, 83 tests (setup.ts + audioContextStub.ts)
-tests/browser/                          # smoke.mjs (9) + prodCheck.mjs (11) + harness/serveDist
+src/tests/dom/                          # 16 ficheros, 86 tests (setup.ts + audioContextStub.ts)
+tests/browser/                          # smoke.mjs (9) + prodCheck.mjs (12) + harness/serveDist
 ```
 
 Nota toolchain: jsdom fijado a la serie 25.x (`engines >=18`) porque jsdom 30

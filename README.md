@@ -26,10 +26,10 @@ Sin servidor: todo ocurre en tu dispositivo.
 ## Estado de calidad (medido)
 
 ```bash
-npm test            # 663/663 en 57 ficheros (unit + contrato + dom)
-npm run test:browser  # 9/9 dev + 11/11 prod (Chromium real, cabeceras reales)
+npm test            # 689/689 en 62 ficheros (unit + contrato + dom)
+npm run test:browser  # 9/9 dev + 12/12 prod (Chromium real, cabeceras reales)
 npx tsc --noEmit    # limpio (6 flags estrictos)
-npm run build       # OK — JS ~100,5 KiB gzip, presupuesto < 350 kB
+npm run build       # OK — JS ~101,6 KiB gzip, presupuesto < 350 kB
 ```
 
 Detalle por capa y límites honestos: [`TEST_READY.md`](./TEST_READY.md) ·

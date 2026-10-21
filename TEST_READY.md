@@ -1,7 +1,7 @@
 # HydraDAW — Declaración de readiness de tests (TEST_READY.md)
 
-**Estado**: VERDE MEDIDO — unit 408/408 · contrato 172/172 · dom 83/83 ·
-navegador 9/9 dev + 11/11 prod · `tsc` limpio · build OK
+**Estado**: VERDE MEDIDO — unit 431/431 · contrato 172/172 · dom 86/86 ·
+navegador 9/9 dev + 12/12 prod · `tsc` limpio · build OK
 **Fecha**: 2026-10-21 · Rama: `feature/audit-hardening-2026-10`
 
 > La antigua etiqueta "READY — 100% Passing" era teatro: 16 tests afirmaban
@@ -13,24 +13,24 @@ navegador 9/9 dev + 11/11 prod · `tsc` limpio · build OK
 ## 1. Cómo reproducir cada cifra
 
 ```bash
-npm test -- --reporter=basic | tail -4        # 663/663, 57 ficheros
+npm test -- --reporter=basic | tail -4        # 689/689, 62 ficheros
 npx vitest run src/tests/contract --reporter=basic   # 172/172 (29+40+45+40+12+6)
-npx vitest run src/tests/dom --reporter=basic        # 83/83, 15 ficheros
-npm run test:browser                          # 9/9 dev + 11/11 prod
+npx vitest run src/tests/dom --reporter=basic        # 86/86, 16 ficheros
+npm run test:browser                          # 9/9 dev + 12/12 prod
 npx tsc --noEmit                               # limpio (6 flags estrictos)
-npm run build                                  # OK; JS 102 871 bytes gzip
-cat dist/assets/*.js | gzip -c | wc -c         # 102871 (< 350 000 presupuesto)
+npm run build                                  # OK; JS 104 030 bytes gzip
+cat dist/assets/*.js | gzip -c | wc -c         # 104030 (< 350 000 presupuesto)
 ```
 
 ## 2. Resumen por capa
 
 | Capa | Resultado medido | Qué cubre | Qué **NO** cubre |
 |---|---|---|---|
-| **unit** | 408/408 (36 ficheros) | timeline/audioMath/waveform, store, historial, persistencia/migración, atajos, portapapeles, WAV/AAC, loudness BS.1770-4, puente del sandbox, SW, PWA | Sin DOM, sin audio real, sin navegador |
+| **unit** | 431/431 (40 ficheros) | timeline/audioMath/waveform, store, historial, persistencia/migración, atajos, portapapeles, WAV/AAC, loudness BS.1770-4, puente del sandbox, plantilla del editor, SW, PWA | Sin DOM, sin audio real, sin navegador |
 | **contract** | 172/172 (tiers 29+40+45+40+12+6) | Contratos F1–F17 nominal + bordes + combinaciones + escenarios, sin DOM | No monta componentes; no verifica CSS, Pointer Events ni layout; no abre navegador |
-| **dom** | 83/83 (15 ficheros, jsdom 25.x) | Componentes montados: nombres accesibles, `touch-action` computado, trim/knob/ruler/playhead, scroll, foco, teclado, responsive, backend del sandbox | Sin layout real (los px se miden en `browser`), sin Web Audio real |
+| **dom** | 86/86 (16 ficheros, jsdom 25.x) | Componentes montados: nombres accesibles, `touch-action` computado, trim/knob/ruler/playhead, scroll, foco, teclado, responsive, backend del sandbox, presupuestos de carga | Sin layout real (los px se miden en `browser`), sin Web Audio real |
 | **browser dev** | 9/9 (`smoke.mjs`) | Chromium real: arranque, demo, play/stop, split con S (también en pausa — el bug que motivó la T20), export, 320 px, `touch-action: none`, cero errores de consola | Sin cabeceras de producción |
-| **browser prod** | 11/11 (`prodCheck.mjs`) | `dist/` + `_headers` real: CSP sin `unsafe-eval`, CSP del sandbox, caché inmutable, arranque, benigno aceptado, 4 maliciosos rechazados, cero ejecución/red/errores | No sustituye probar el merge de `_headers` en Cloudflare tras el despliegue |
+| **browser prod** | 12/12 (`prodCheck.mjs`) | `dist/` + `_headers` real: CSP sin `unsafe-eval`, CSP del sandbox, caché inmutable, arranque, benigno aceptado, 4 maliciosos rechazados, plantilla real del editor aceptada (P9), cero ejecución/red/errores | No sustituye probar el merge de `_headers` en Cloudflare tras el despliegue |
 
 ## 3. Cobertura F1–F17 (contrato + dónde vive el nominal real)
 
@@ -55,11 +55,11 @@ hitboxes) + B6/B7 de navegador. Tier 3 (12) y Tier 4 (6) intactos.
 ## 5. Evidencia de ejecución (2026-10-21)
 
 ```
-Test Files  57 passed (57) / Tests  663 passed (663)          # npm test
+Test Files  62 passed (62) / Tests  689 passed (689)          # npm test
 Test Files  6 passed (6)   / Tests  172 passed (172)          # contract
-Test Files  15 passed (15) / Tests  83 passed (83)            # dom
+Test Files  16 passed (16) / Tests  86 passed (86)            # dom
 [browser] 9/9 checks verdes                                   # dev
-[prod] 11/11 checks verdes                                     # prod
+[prod] 12/12 checks verdes                                     # prod
 npx tsc --noEmit → limpio · npm run build → ✓ built in ~4s
-vendor 45,26 kB + app 48,50 kB gzip, CSS 6,52 kB, 2 modales lazy
+vendor 45,20 kB + app 49,37 kB gzip, CSS 6,54 kB, 2 modales lazy
 ```

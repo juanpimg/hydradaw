@@ -9,14 +9,14 @@ barrido de documentación. Toda cifra lleva su comando.
 
 | Comprobación | Comando | Resultado |
 |---|---|---|
-| Tests | `npm test -- --reporter=basic \| tail -4` | **663/663 en 57 ficheros** |
-| — capa unit | `npx vitest run --exclude 'src/tests/contract/**' --exclude 'src/tests/dom/**' --reporter=basic` | 408/408 (36 ficheros) |
+| Tests | `npm test -- --reporter=basic \| tail -4` | **689/689 en 62 ficheros** |
+| — capa unit | `npx vitest run --exclude 'src/tests/contract/**' --exclude 'src/tests/dom/**' --reporter=basic` | 431/431 (40 ficheros) |
 | — capa contrato | `npx vitest run src/tests/contract --reporter=basic` | 172/172 (6 ficheros, tiers 29+40+45+40+12+6) |
-| — capa dom | `npx vitest run src/tests/dom --reporter=basic` | 83/83 (15 ficheros, jsdom 25.x) |
+| — capa dom | `npx vitest run src/tests/dom --reporter=basic` | 86/86 (16 ficheros, jsdom 25.x) |
 | Navegador dev | `npm run test:browser` (fase `smoke.mjs`) | **9/9** (arranque, demo, play/stop, split con S, split en pausa, export, 320 px, touch-action, cero errores) |
-| Navegador prod | `npm run test:browser` (fase `prodCheck.mjs`) | **11/11** (build de `dist/` servido con el `_headers` real: CSP sin `unsafe-eval`, CSP del sandbox, caché inmutable, arranque, benigno aceptado, 4 maliciosos rechazados, cero ejecución/red, cero errores) |
+| Navegador prod | `npm run test:browser` (fase `prodCheck.mjs`) | **12/12** (build de `dist/` servido con el `_headers` real: CSP sin `unsafe-eval`, CSP del sandbox, caché inmutable, arranque, benigno aceptado, 4 maliciosos rechazados, plantilla real del editor aceptada, cero ejecución/red, cero errores) |
 | Tipos | `npx tsc --noEmit` | Limpio (`strict` + `noUncheckedIndexedAccess` + `verbatimModuleSyntax` + `noUnusedLocals` + `noUnusedParameters` + `exactOptionalPropertyTypes`) |
-| Build | `npm run build` | OK. JS **102 871 bytes gzip** (`cat dist/assets/*.js \| gzip -c \| wc -c`), presupuesto < 350 kB: vendor ~45,3 kB, app ~48,5 kB, CSS ~6,5 kB + 2 modales lazy |
+| Build | `npm run build` | OK. JS **104 030 bytes gzip** (`cat dist/assets/*.js \| gzip -c \| wc -c`), presupuesto < 350 kB: vendor ~45,2 kB, app ~49,4 kB, CSS ~6,5 kB + 2 modales lazy |
 
 - **Repo:** rama `feature/audit-hardening-2026-10` sobre `aca438b`. CI en
   `.github/workflows/ci.yml` (unit + `tsc` + build + navegador con Chrome).
@@ -57,7 +57,7 @@ barrido de documentación. Toda cifra lleva su comando.
 
 ```bash
 npm run dev      # :5175 (dev usa COEP require-corp; prod credentialless)
-npm test         # 663/663 — puerta de calidad
-npm run test:browser  # 9/9 dev + 11/11 prod (necesita Chromium + build)
+npm test         # 689/689 — puerta de calidad
+npm run test:browser  # 9/9 dev + 12/12 prod (necesita Chromium + build)
 npm run build    # tsc + vite build -> dist/
 ```

@@ -173,11 +173,11 @@ provisionales que hubiera más abajo):
 
 | Comprobación | Comando | Resultado |
 |---|---|---|
-| Tests | `npm test -- --reporter=basic \| tail -4` | **663/663 en 57 ficheros** (unit 408 + contrato 172 + dom 83) |
+| Tests | `npm test -- --reporter=basic \| tail -4` | **689/689 en 62 ficheros** (unit 431 + contrato 172 + dom 86) |
 | Navegador dev | `npm run test:browser` (fase `smoke.mjs`) | **9/9** |
-| Navegador prod | `npm run test:browser` (fase `prodCheck.mjs`) | **11/11** (`dist/` + `_headers` real) |
+| Navegador prod | `npm run test:browser` (fase `prodCheck.mjs`) | **12/12** (`dist/` + `_headers` real) |
 | Tipos | `npx tsc --noEmit` | Limpio (`strict` + `noUncheckedIndexedAccess` + `verbatimModuleSyntax` + `noUnusedLocals` + `noUnusedParameters` + `exactOptionalPropertyTypes`) |
-| Build | `npm run build` + `cat dist/assets/*.js \| gzip -c \| wc -c` | OK, JS **102 871 bytes gzip** (presupuesto < 350 kB): vendor ~45,3 kB, app ~48,5 kB, CSS ~6,5 kB + 2 modales lazy |
+| Build | `npm run build` + `cat dist/assets/*.js \| gzip -c \| wc -c` | OK, JS **104 030 bytes gzip** (presupuesto < 350 kB): vendor ~45,2 kB, app ~49,4 kB, CSS ~6,5 kB + 2 modales lazy |
 
 Hallazgo extra del programa (no estaba en la tabla: lo cazó la capa de
 navegador en WP2): el transporte perdía la posición al parar (`stop()` nunca
@@ -203,7 +203,7 @@ auditada (`aca438b`).
 | SEO-01 | **Resuelto.** `og:image` + `twitter:card` añadidos. El canonical sigue fijo (sin `VITE_SITE_URL`: fuera del alcance del brief). El fichero de Search Console **se eliminó** (ronda fix 1): contenía el nombre repetido, no un token real; sin token no se envía nada. |
 | CFG-02 | **Resuelto.** `vite.config.ts`: `base: './'` + `build.target: 'es2020'`. **Ronda fix 1:** coherencia sub-path — registro del SW derivado de `import.meta.env.BASE_URL` (`src/main.tsx`), manifest/iconos/manifest-link relativos, precache y rutas del SW relativas al scope de registro (`registration.scope`), fallback a `./index.html`. |
 | TS-01 | **Resuelto.** `exactOptionalPropertyTypes: true` activo; fallout (10 errores) corregido ajustando tipos reales (`\| undefined` en opcionales que lo admiten; omisión condicional en `SerializedClip` para que `undefined` no se cuele en el DTO). Sin `!` ni `as`. |
-| Flake de la suite | **Resuelto (causa encontrada y corregida).** Bajo saturación de CPU se reprodujo un colapso del worker (`Timeout calling "onTaskUpdate"`, 10 tests perdidos, 136 s) con mecanismo identificado: tests de DSP síncrono pesado (~4.6 s medidos, 92% del timeout de 5 s por defecto). Fix: presupuestos explícitos de 60 s con margen comentado + ancla de regresión `src/tests/suiteStability.test.ts`. Verificación: 30/30 verdes post-fix (recuento de entonces 638/638; hoy 663/663 tras las capas siguientes). |
+| Flake de la suite | **Resuelto (causa encontrada y corregida).** Bajo saturación de CPU se reprodujo un colapso del worker (`Timeout calling "onTaskUpdate"`, 10 tests perdidos, 136 s) con mecanismo identificado: tests de DSP síncrono pesado (~4.6 s medidos, 92% del timeout de 5 s por defecto). Fix: presupuestos explícitos de 60 s con margen comentado + ancla de regresión `src/tests/suiteStability.test.ts`. Verificación: 30/30 verdes post-fix (recuento de entonces 638/638; hoy 689/689 tras las capas siguientes). |
 
 ### 5.2 Tabla completa de resolución (todas las §§1–2)
 

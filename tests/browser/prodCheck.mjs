@@ -251,6 +251,13 @@ async function main() {
           timeout: 30000,
         });
         await clickButtonByText(page, 'Empezar con la demo', 'Seguir editando');
+        // La vista persiste (P5 dejó el mixer): volver al timeline antes de
+        // contar clips ([role="option"] solo existe en el timeline).
+        await page.waitForFunction(
+          () => !document.querySelector('[aria-label="Pantalla de inicio de HydraDAW"]'),
+          { timeout: 30000 },
+        );
+        await page.click('button[aria-label="Ver timeline"]');
         await page.waitForFunction(
           () => document.querySelectorAll('[role="option"]').length === 4,
           { timeout: 30000 }
