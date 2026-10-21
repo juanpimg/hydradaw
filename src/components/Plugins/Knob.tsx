@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 
 interface KnobProps {
   label: string;
@@ -25,6 +25,8 @@ export const Knob: React.FC<KnobProps> = ({
 }) => {
   const [editing, setEditing] = useState(false);
   const [editVal, setEditVal] = useState(String(value));
+  const dialRef = useRef<HTMLDivElement>(null);
+  const dragRef = useRef<{ pointerId: number; startY: number; startVal: number } | null>(null);
 
   // Normalize value to 0..1
   const normalized = Math.max(0, Math.min(1, (value - min) / (max - min)));
@@ -42,7 +44,8 @@ export const Knob: React.FC<KnobProps> = ({
     return next;
   };
 
-  // Fix(waveA): eventos pointer (táctil/lápiz/ratón) en vez de solo mouse.
+  // Fix(waveA): eventos pointer (táctil/lápiz/ratón) en vez de solo mouse,
+  // con captura SOBRE EL ELEMENTO para que el gesto no se pierda fuera de él.
   const handlePointerDown = (e: React.PointerEvent) => {
     if (e.altKey) {
       e.preventDefault();
@@ -50,25 +53,46 @@ export const Knob: React.FC<KnobProps> = ({
       return;
     }
     e.preventDefault();
-    const startY = e.clientY;
-    const startVal = value;
+    const el = e.currentTarget as HTMLElement;
+    if (el.setPointerCapture) {
+      try {
+        el.setPointerCapture(e.pointerId);
+      } catch {
+        // jsdom o puntero ya liberado: el arrastre sigue funcionando.
+      }
+    }
+    dragRef.current = { pointerId: e.pointerId, startY: e.clientY, startVal: value };
+  };
 
-    const onPointerMove = (moveEvent: PointerEvent) => {
-      const deltaY = startY - moveEvent.clientY;
-      const range = max - min;
-      const stepChange = (deltaY / 150) * range;
-      onChange(clampToStep(startVal + stepChange));
-    };
+  const handlePointerMove = (e: React.PointerEvent) => {
+    const drag = dragRef.current;
+    if (!drag) return;
+    const deltaY = drag.startY - e.clientY;
+    const range = max - min;
+    const stepChange = (deltaY / 150) * range;
+    onChange(clampToStep(drag.startVal + stepChange));
+  };
 
-    const onPointerUp = () => {
-      window.removeEventListener('pointermove', onPointerMove);
-      window.removeEventListener('pointerup', onPointerUp);
-      window.removeEventListener('pointercancel', onPointerUp);
-    };
+  const endPointerDrag = (e: React.PointerEvent) => {
+    const drag = dragRef.current;
+    dragRef.current = null;
+    if (!drag) return;
+    const el = e.currentTarget as HTMLElement;
+    if (el.releasePointerCapture) {
+      try {
+        el.releasePointerCapture(drag.pointerId);
+      } catch {
+        // Sin captura activa: nada que liberar.
+      }
+    }
+  };
 
-    window.addEventListener('pointermove', onPointerMove);
-    window.addEventListener('pointerup', onPointerUp);
-    window.addEventListener('pointercancel', onPointerUp);
+  const handlePointerUp = (e: React.PointerEvent) => {
+    endPointerDrag(e);
+  };
+
+  const handlePointerCancel = (e: React.PointerEvent) => {
+    endPointerDrag(e);
   };
 
   // Fix(waveA): teclado accesible — flechas ±step (Shift fino ×0.1), Home/End.
@@ -90,13 +114,23 @@ export const Knob: React.FC<KnobProps> = ({
     }
   };
 
-  // Fix(waveA): rueda del ratón para ajuste fino sin arrastrar.
-  const handleWheel = (e: React.WheelEvent) => {
-    e.preventDefault();
-    const fine = e.shiftKey ? 0.1 : 1;
-    const delta = e.deltaY < 0 ? step * fine : -step * fine;
-    onChange(clampToStep(value + delta));
-  };
+  // Fix: rueda con listener NATIVO no pasivo. El `onWheel` sintético de React
+  // se registra como pasivo y su `preventDefault()` es un no-op: la página
+  // hacía scroll al girar el knob. El nativo con `{ passive: false }` sí frena.
+  useEffect(() => {
+    const el = dialRef.current;
+    if (!el) return;
+    const onWheelNative = (e: WheelEvent) => {
+      e.preventDefault();
+      const fine = e.shiftKey ? 0.1 : 1;
+      const delta = e.deltaY < 0 ? step * fine : -step * fine;
+      onChange(clampToStep(value + delta));
+    };
+    el.addEventListener('wheel', onWheelNative, { passive: false });
+    return () => {
+      el.removeEventListener('wheel', onWheelNative);
+    };
+  }, [value, min, max, step, onChange]);
 
   const handleDoubleClick = () => {
     onChange(defaultValue);
@@ -110,10 +144,13 @@ export const Knob: React.FC<KnobProps> = ({
 
       {/* Rotary Dial */}
       <div
+        ref={dialRef}
         onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerCancel}
         onDoubleClick={handleDoubleClick}
         onKeyDown={handleKeyDown}
-        onWheel={handleWheel}
         tabIndex={0}
         role="slider"
         aria-label={label}
@@ -121,8 +158,8 @@ export const Knob: React.FC<KnobProps> = ({
         aria-valuemax={max}
         aria-valuenow={Math.round(value * 100) / 100}
         aria-valuetext={`${Math.round(value * 10) / 10}${unit}`}
-        className="relative rounded-full bg-gradient-to-b from-dark-surfaceLight to-dark-surface border-2 border-dark-border hover:border-cyan-500/60 focus-visible:border-cyan-400 focus-visible:outline-none shadow-md cursor-ns-resize transition-colors flex items-center justify-center"
-        style={{ width: `${size}px`, height: `${size}px` }}
+        className="relative rounded-full bg-gradient-to-b from-dark-surfaceLight to-dark-surface border-2 border-dark-border hover:border-cyan-500/60 focus-visible:border-cyan-400 focus-visible:outline-none shadow-md cursor-ns-resize transition-colors flex items-center justify-center touch-none"
+        style={{ width: `${size}px`, height: `${size}px`, touchAction: 'none' }}
       >
         {/* Indicator Needle */}
         <div
