@@ -395,7 +395,8 @@ describe('waveA: fixes del engine', () => {
     }
     expect(typeof engine.stop()).toBe('number');
     expect(typeof engine.stop(true)).toBe('number');
-    await expect(engine.play([makeTrack()], [makeClip()], 0)).resolves.toBeUndefined();
+    // I2: play() informa la supervivencia (true = arrancó).
+    await expect(engine.play([makeTrack()], [makeClip()], 0)).resolves.toBe(true);
   });
 
   it('telemetría: reutiliza scratch y emite solo si playing o cambió el nivel', async () => {

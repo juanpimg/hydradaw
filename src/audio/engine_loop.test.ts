@@ -455,9 +455,10 @@ describe('wave3: compatibilidad hacia atrás', () => {
 
   it('play acepta 3 args (store actual) y 4 args con opts (nuevo)', async () => {
     const { engine } = setupEngine();
-    await expect(engine.play([makeTrack()], [makeClip()], 0)).resolves.toBeUndefined();
+    // I2: play() informa la supervivencia (true = arrancó).
+    await expect(engine.play([makeTrack()], [makeClip()], 0)).resolves.toBe(true);
     await expect(
       engine.play([makeTrack()], [makeClip()], 0, { loop: true, loopStart: 0, loopEnd: 8 })
-    ).resolves.toBeUndefined();
+    ).resolves.toBe(true);
   });
 });

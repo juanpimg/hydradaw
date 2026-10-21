@@ -929,7 +929,8 @@ describe('AUD-10: un plugin roto no rompe el transporte', () => {
     const goodTrack = makeT10Track('good');
     await expect(
       engine.play([badTrack, goodTrack], [makeT10Clip('good')], 0)
-    ).resolves.toBeUndefined();
+      // I2: play() informa la supervivencia (true = arrancó).
+    ).resolves.toBe(true);
     // La pista sana programó su clip; la rota quedó puenteada.
     expect(mockCtx.sources.length).toBe(1);
     expect(engine.getTrackNodes().get('good')).toBeDefined();
@@ -958,7 +959,8 @@ describe('AUD-10: un plugin roto no rompe el transporte', () => {
     const goodTrack = makeT10Track('wgood');
     await expect(
       engine.play([badTrack, goodTrack], [makeT10Clip('wgood')], 0)
-    ).resolves.toBeUndefined();
+      // I2: play() informa la supervivencia (true = arrancó).
+    ).resolves.toBe(true);
     expect(mockCtx.sources.length).toBe(1);
   });
 
