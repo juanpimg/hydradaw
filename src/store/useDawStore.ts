@@ -107,6 +107,8 @@ export function resetHistory(): void {
   redoStack = [];
   lastPluginParamHistoryAt = 0;
   selectionAnchorId = null;
+  historyBatchDepth = 0;
+  batchedSnapshot = null;
   // M-3: el portapapeles interno no cruza proyectos (los caminos de proyecto
   // nuevo/demo/carga ya llaman aquí).
   clipClipboard = [];
@@ -114,10 +116,32 @@ export function resetHistory(): void {
 }
 
 function recordHistory(snapshot: HistorySnapshot): void {
+  // Dentro de un lote (`beginHistoryBatch`) los snapshots intermedios se
+  // omiten: `endHistoryBatch` registra el snapshot previo al lote una sola vez.
+  if (historyBatchDepth > 0) return;
   undoStack.push(snapshot);
   if (undoStack.length > MAX_HISTORY) undoStack.shift();
   redoStack = [];
   useDawStore?.setState?.({ canUndo: true, canRedo: false });
+}
+
+// Lotes de historial: una acción lógica de usuario (p. ej. importar N
+// archivos) registra UN snapshot aunque llame a varias acciones con
+// historial. Sin anidar en la práctica; el contador lo tolera.
+let historyBatchDepth = 0;
+let batchedSnapshot: HistorySnapshot | null = null;
+
+export function beginHistoryBatch(): void {
+  if (historyBatchDepth === 0) batchedSnapshot = cloneHistoryState(useDawStore.getState());
+  historyBatchDepth++;
+}
+
+export function endHistoryBatch(commit: boolean): void {
+  historyBatchDepth = Math.max(0, historyBatchDepth - 1);
+  if (historyBatchDepth > 0) return;
+  const snap = batchedSnapshot;
+  batchedSnapshot = null;
+  if (commit && snap) recordHistory(snap);
 }
 
 interface DawState {
