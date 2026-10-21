@@ -1534,6 +1534,72 @@ npx tsc --noEmit && npm test && npm run build
 
 ---
 
+### Task 40: Cerrar los dos huecos de persistencia restantes y la cola de menores
+
+**Ficheros:**
+- Modificar: `src/types/daw.ts` (`PluginInstance`, `AudioClip`)
+- Modificar: `src/store/persistence.ts` (serializar/sanear/restaurar código de plugin y fades)
+- Modificar: `src/store/useDawStore.ts` (re-registrar plugins custom al cargar)
+- Modificar: `src/audio/PluginHost.ts` (re-registro)
+- Modificar: `src/components/Mixer/ChannelStrip.tsx` (títulos M/S/R en español)
+- Modificar: `public/manifest.webmanifest` (`start_url` relativo)
+- Modificar: `src/audio/WavExporter.ts` (comentario obsoleto)
+- Modificar: `src/audio/aacExporter.ts` (canal 7 explícito)
+- Modificar: `src/tests/persistence.test.ts`, `src/tests/persistence_migration.test.ts`,
+  `src/tests/globalShortcuts.test.ts`
+- Crear: `src/tests/plugin_persistence.test.ts`
+
+**Interfaces:**
+- Produce: `PluginInstance` conserva `customJsCode?: string` / `customWamUrl?: string` a través del
+  ciclo de guardado/carga, y el plugin se **re-registra** en el `PluginHost` al restaurar el
+  proyecto.
+- Produce: `AudioClip.fadeIn` / `fadeOut` sobreviven al round-trip de persistencia.
+
+**Por qué (dos hallazgos de la auditoría que quedaban abiertos tras el barrido de documentación):**
+- **ST-04** — el código del plugin de usuario **nunca se persistía**: `addPluginToTrack` no rellena
+  `customJsCode`/`customWamUrl` y el saneado los descarta. Tras recargar, el plugin aparece sin
+  knobs y **sin DSP** ⇒ la función de plugins personalizados es efímera.
+- **ST-09** — `fadeIn`/`fadeOut` los respeta el motor (realtime y offline) pero **no**
+  `SerializedClip` ⇒ un clip con fades los pierde al guardar ⇒ cambio de mezcla audible sin aviso.
+
+**Menores incluidos (de la cola de la revisión final):**
+- `ChannelStrip.tsx` — los `title` de M/S/R están en **inglés** (`"Mute"`, `"Solo"`, `"Record Arm"`)
+  ⇒ violan la regla de copy en español. Traducir y añadir `aria-label` coherente.
+- `public/manifest.webmanifest` — `start_url` es `"/"` ⇒ bajo un despliegue en sub-path la PWA
+  instalada arranca en la ruta equivocada. Relativizar.
+- `src/store/persistence.ts` — `VALID_SNAP_MODES` tipado `readonly string[]` en vez de
+  `readonly SnapMode[]` ⇒ un cambio futuro en la unión no daría error de tipo.
+- `src/tests/persistence.test.ts` — falta el pin de round-trip de `snapMode: '1/2'` (justo el valor
+  que motivó la corrección del brief).
+- `src/tests/globalShortcuts.test.ts` — el `beforeEach` no llama a `resetHistory()` ⇒ los tests de
+  S/M filtran entradas al `undoStack` compartido.
+- `src/audio/WavExporter.ts` — comentario obsoleto que afirma que "ExportModal sigue con la
+  síncrona" (ya usa la asíncrona).
+- `src/audio/aacExporter.ts` — un stream de **7** canales escribe `channel_config` 7, que el parser
+  relee como 8 (no existe código de 7 canales en MPEG-4 Audio) ⇒ rechazarlo explícitamente o
+  documentarlo.
+- `src/audio/timelineOps.ts` — los ids de las mitades de un corte no usan el generador con contador
+  monotónico introducido en el WP9 ⇒ inconsistencia.
+
+- [ ] **Paso 1: tests que fallan** (al menos: round-trip de `customJsCode` con re-registro y knobs
+  presentes; round-trip de `fadeIn`/`fadeOut`; `snapMode: '1/2'`; `resetHistory` en el `beforeEach`
+  de los atajos)
+
+- [ ] **Paso 2: verificar que fallan** → `npx vitest run src/tests/plugin_persistence.test.ts src/tests/persistence.test.ts`
+
+- [ ] **Paso 3: implementar** — incluir `customJsCode`/`customWamUrl` en `SerializedPluginInstance`
+  y en el saneado (con límite de tamaño, p. ej. 256 KiB por plugin); re-registrar en
+  `applySerializedProject` **antes** de `syncTracks`; incluir `fadeIn`/`fadeOut` en `SerializedClip`
+  (sólo si son finitos y > 0) y restaurarlos; y aplicar los menores.
+
+- [ ] **Paso 4: verificar** → `npm test` + `npx tsc --noEmit` + `npm run build` + `npm run test:browser`
+
+- [ ] **Paso 5: commit**
+
+```bash
+git commit -m "fix(persistence): el codigo de plugin y los fades sobreviven al guardado"
+```
+
 ## Verificación final
 
 - [ ] `npm test` verde, **con el recuento exacto anotado**.
