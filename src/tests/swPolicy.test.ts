@@ -30,4 +30,16 @@ describe('SW-01: service worker versionado y con política por rutas', () => {
     expect(src).toContain('cache-first');
     expect(src).toContain('/assets/');
   });
+
+  it('un 5xx de red cae a la caché en navegaciones (no sirve el error teniendo shell)', () => {
+    const src = swSource();
+    expect(src).toContain('networkResponse.ok');
+  });
+
+  it('cache-first no rechaza sin entrada: devuelve Response.error()', () => {
+    const src = swSource();
+    const body = src.slice(src.indexOf('async function cacheFirst'));
+    expect(body).toContain('catch');
+    expect(body).toContain('Response.error()');
+  });
 });

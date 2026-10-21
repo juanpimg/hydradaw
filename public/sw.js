@@ -51,37 +51,45 @@ self.addEventListener('activate', (event) => {
   self.clients.claim();
 });
 
-// network-first: la red manda; la caché es el respaldo offline.
+// network-first: la red manda si responde OK; ante 5xx o sin red, la caché
+// es el respaldo (stale), luego el shell, y solo al final el error.
 async function networkFirst(request) {
   const cache = await caches.open(CACHE_NAME);
+  let networkResponse = null;
   try {
-    const networkResponse = await fetch(request);
-    if (networkResponse && networkResponse.status === 200 && networkResponse.type === 'basic') {
-      cache.put(request, networkResponse.clone()).catch(() => {});
-    }
-    return networkResponse;
+    networkResponse = await fetch(request);
   } catch {
-    const cached = await cache.match(request);
-    if (cached) return cached;
-    if (request.mode === 'navigate') {
-      // Relativo al scope: vale en raíz y en sub-path.
-      const shell = await cache.match('./index.html');
-      if (shell) return shell;
-    }
-    return Response.error();
+    networkResponse = null;
   }
+  if (networkResponse && networkResponse.ok && networkResponse.type === 'basic') {
+    cache.put(request, networkResponse.clone()).catch(() => {});
+    return networkResponse;
+  }
+  const cached = await cache.match(request);
+  if (cached) return cached;
+  if (request.mode === 'navigate') {
+    // Relativo al scope: vale en raíz y en sub-path.
+    const shell = await cache.match('./index.html');
+    if (shell) return shell;
+  }
+  return networkResponse || Response.error();
 }
 
-// cache-first: el disco manda (assets inmutables con hash).
+// cache-first: el disco manda (assets inmutables con hash). Sin entrada y sin
+// red no se rechaza: se devuelve Response.error().
 async function cacheFirst(request) {
   const cache = await caches.open(CACHE_NAME);
   const cached = await cache.match(request);
   if (cached) return cached;
-  const networkResponse = await fetch(request);
-  if (networkResponse && networkResponse.status === 200 && networkResponse.type === 'basic') {
-    cache.put(request, networkResponse.clone()).catch(() => {});
+  try {
+    const networkResponse = await fetch(request);
+    if (networkResponse.ok && networkResponse.type === 'basic') {
+      cache.put(request, networkResponse.clone()).catch(() => {});
+    }
+    return networkResponse;
+  } catch {
+    return Response.error();
   }
-  return networkResponse;
 }
 
 self.addEventListener('fetch', (event) => {
