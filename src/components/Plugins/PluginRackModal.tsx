@@ -208,6 +208,7 @@ const customPlugin = {
                         {/* Bypass Button */}
                         <button
                           onClick={() => togglePlugin(track.id, plugin.instanceId)}
+                          aria-label={plugin.enabled ? `Desactivar ${plugin.name}` : `Activar ${plugin.name}`}
                           className={`p-1.5 rounded-lg border transition-all ${
                             plugin.enabled
                               ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-400 shadow-sm shadow-emerald-500/20'
@@ -221,6 +222,7 @@ const customPlugin = {
                         {/* Remove Button */}
                         <button
                           onClick={() => removePluginFromTrack(track.id, plugin.instanceId)}
+                          aria-label={`Eliminar ${plugin.name} del rack`}
                           className="p-1.5 rounded-lg border border-dark-border hover:border-red-500/40 text-slate-400 hover:text-red-400 transition-colors"
                           title="Eliminar del rack"
                         >

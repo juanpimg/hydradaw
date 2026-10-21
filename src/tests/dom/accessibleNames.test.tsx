@@ -7,6 +7,7 @@ import { TransportBar } from '../../components/Transport/TransportBar';
 import { Timeline } from '../../components/Timeline/Timeline';
 import { TrackHeader } from '../../components/Timeline/TrackHeader';
 import { ChannelStrip } from '../../components/Mixer/ChannelStrip';
+import { PluginRackModal } from '../../components/Plugins/PluginRackModal';
 
 function seedBase() {
   useDawStore.setState({
@@ -80,5 +81,36 @@ describe('Nombres accesibles en controles de icono (UI-05)', () => {
     const track = useDawStore.getState().tracks[0]!;
     render(<ChannelStrip track={track} levels={{ rms: 0, peak: 0 }} />);
     expect(screen.getByRole('button', { name: 'Añadir efecto' })).toHaveAttribute('aria-label', 'Añadir efecto');
+  });
+
+  it('A6: el botón de añadir pista del timeline tiene nombre', () => {
+    render(<Timeline />);
+    expect(screen.getByRole('button', { name: 'Añadir pista' })).toHaveAttribute('aria-label', 'Añadir pista');
+  });
+
+  it('A7: bypass y eliminar del rack tienen nombre con el plugin', () => {
+    useDawStore.setState({
+      pluginModalTrackId: 't1',
+      tracks: [
+        {
+          id: 't1', name: 'Voz', type: 'vocal' as const, color: '#a855f7',
+          volume: 1, pan: 0, mute: false, solo: false, armed: false,
+          plugins: [
+            {
+              instanceId: 'inst_1', pluginId: 'eq3', name: 'Prueba EQ',
+              enabled: true, parameters: {},
+            },
+          ],
+        },
+      ],
+    });
+    render(<PluginRackModal />);
+    expect(screen.getByRole('button', { name: 'Desactivar Prueba EQ' })).toHaveAttribute(
+      'aria-label', 'Desactivar Prueba EQ',
+    );
+    expect(screen.getByRole('button', { name: 'Eliminar Prueba EQ del rack' })).toHaveAttribute(
+      'aria-label', 'Eliminar Prueba EQ del rack',
+    );
+    useDawStore.setState({ pluginModalTrackId: null });
   });
 });

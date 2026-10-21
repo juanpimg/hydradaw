@@ -218,6 +218,7 @@ export const Timeline: React.FC = () => {
             <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Pistas ({tracks.length})</span>
             <button
               onClick={() => addTrack()}
+              aria-label="Añadir pista"
               className="p-1 text-slate-400 hover:text-cyan-400"
               title="Añadir Pista"
             >
