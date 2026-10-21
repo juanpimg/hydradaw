@@ -56,3 +56,20 @@ Todas estas correcciones están ejecutadas en el plan maestro
 - EXP-01, EXP-03, EXP-04, EXP-05, EXP-11 ⇒ **Tarea 17** (Exportación fiel al mixer).
 - EXP-02, EXP-12 ⇒ **Tarea 18** (LUFS conforme a BS.1770-4).
 - AAC-06, DSP-07, DSP-08, DSP-09, DSP-10 ⇒ **Tarea 19** (Guarding numérico).
+
+## Estado tras el hardening (2026-10-21, verificado en código y tests)
+
+| ID | Estado |
+|---|---|
+| EXP-01 | **Resuelto.** El render offline respeta volumen master y mute (`ExportModal` + `AudioEngine.renderOffline`); test de no-divergencia. |
+| EXP-02 | **Resuelto.** K-weighting con los coeficientes exactos de la Tabla 1 de BS.1770-4 a 48 kHz (derivación bilineal verificada término a término); la ventana del test se movió al valor del estándar. |
+| EXP-03 | **Resuelto.** El modal usa `encodeWavAsync` (por bloques, cede el event loop, reporta progreso); el comentario que decía lo contrario se corrigió. |
+| EXP-04 | **Resuelto (mitigado con presupuesto).** Codificación por bloques + guardas de memoria; el test solo de igualdad de bytes se complementó con presupuestos explícitos. |
+| EXP-05 | **Resuelto.** Padding RIFF (`padBytes = dataSize % 2`, RIFF size `36 + dataSize + padBytes`), verificado aritméticamente contra la spec. |
+| EXP-11 | **Resuelto.** El selector ofrece 16, 24 y **32-bit float** (`ExportModal.tsx`: `useState<16 \| 24 \| 32>`). |
+| EXP-12 | **Resuelto.** Entradas cortas conformes al estándar (cero-pad), no lectura caliente del bloque parcial. |
+| AAC-06 | **Resuelto (8→7); resto aceptado.** 8 canales escribe `channel_config` 7; un stream genuino de 7 canales sigue escribiendo 7 (sin código de 7 canales en MPEG-4 Audio): extremadamente raro, documentado en código. |
+| DSP-07 | **Resuelto.** Guard antes de alocar (`targetPoints <= 0` no lanza). |
+| DSP-08 | **Resuelto.** `dbToLinear(NaN)` ⇒ 1 (unity: un NaN suelto significa "sin atenuación", no "silencio"); `secondsToSamples` y `calculatePeakAndRMS` saneados. |
+| DSP-09 | **Resuelto.** `calculateConstantPowerPan(NaN)` devuelve las ganancias reales de `pan = 0` (potencia constante, no `{1,1}` que serían +3 dB). |
+| DSP-10 | **Resuelto.** Split y trim validan finitud: un NaN no envenena la geometría. |

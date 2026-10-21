@@ -1,192 +1,118 @@
-# HydraDAW — Test Infrastructure Specification (TEST_INFRA.md)
+# HydraDAW — Especificación de infraestructura de tests (TEST_INFRA.md)
 
-## 1. Testing Philosophy & Principles
+> Estado a 2026-10-21. Cifras medidas con los comandos de §3.
+> Regla: ninguna cifra sin su comando.
 
-The HydraDAW test architecture follows a strict **requirement-driven, opaque-box (black-box)** methodology designed for dual-track engineering in client-side Web Audio applications:
+## 1. Filosofía
 
-1. **Requirement-Driven**: Every test case traces directly to an explicit requirement in `ORIGINAL_REQUEST.md` (R1–R4) and interface contract in `PROJECT.md` (F1–F17).
-2. **Opaque-Box Verification**: Tests validate observable public contracts, state store actions (`useDawStore`), audio engine state transitions, DOM layout invariants, accessibility attributes, and user event mechanics. Implementation details and private structures are never coupled to tests.
-3. **Deterministic Oracle Derivation**: Expected outputs are derived mathematically from specification bounds (e.g., minimum 44x44px hitboxes, clamped bounds `[0, duration]`, minimum 0.2s clip duration, exact fallback sequences for Web Audio API context initialization).
-4. **Progressive Testability**: The test suite is organized modularly by feature sets (Milestones M1–M4) and tiers. During incremental implementation, milestone suites verify their respective contracts without circular dependencies on unmerged features.
-5. **Adversarial & Boundary Rigor**: Tests explicitly probe edge cases, rapid repeated interactions, floating-point drift, invalid media payloads, and constrained viewports down to 320px.
+1. **Por requisitos**: cada test traza a un requisito (`ORIGINAL_REQUEST.md`
+   R1–R4), a un contrato de `PROJECT.md` (F1–F24) o a un hallazgo de
+   `docs/auditoria/`.
+2. **Caja opaca**: se verifican contratos observables (acciones del store,
+   transiciones del engine, atributos DOM, estilos computados, layout real en
+   navegador). Los tests no se acoplan a estructuras privadas.
+3. **Oráculos deterministas**: salidas derivadas de la spec (hitboxes ≥ 44 px,
+   clamp `[0, duración]`, duración mínima 0,2 s, coeficientes BS.1770-4).
+4. **Sin teatro**: un test que no puede fallar es un bug del test. En la Tarea 2
+   se eliminaron 16 tautologías literales (F5/F8 nominales se re-implementaron
+   como tests DOM/Browser reales).
+5. **Adversarial**: payloads hostiles contra el sandbox, JSON hostil contra el
+   import, bordes numéricos (NaN, ±∞, subpíxeles), viewports hasta 320 px.
 
----
+## 2. Las 4 capas (lo más importante de este documento)
 
-## 2. Feature Inventory Mapping (F1–F17)
+| Capa | Dónde | Qué cubre | Qué **NO** cubre | Medida |
+|---|---|---|---|---|
+| **unit** | `src/tests/*.test.ts`, `src/audio/*.test.ts` (+ `src/tests/dom/setup.ts` como setup global) | Lógica pura y store: timeline, audioMath, waveform, plugins/puente, persistencia/migración, atajos, historial, portapapeles, WAV/AAC, loudness, SW, PWA | Sin DOM (entorno `node`), sin audio real, sin navegador | **408/408** (36 ficheros) — `npx vitest run --exclude 'src/tests/contract/**' --exclude 'src/tests/dom/**' --reporter=basic` |
+| **contract** | `src/tests/contract/` (opaco, sin DOM; antes `src/tests/e2e/`, renombrado en T2) | Contratos observables F1–F17 nominal + bordes + combinaciones + escenarios; oráculos matemáticos | No monta componentes, no verifica CSS/DOM real ni Pointer Events, no abre navegador | **172/172** (6 ficheros: 29+40+45+40+12+6) — `npx vitest run src/tests/contract --reporter=basic` |
+| **dom** | `src/tests/dom/` (jsdom 25.x + Testing Library) | Componentes montados: roles/aria, estilos computados (`touch-action`), eventos simulados, scroll, playhead, foco, teclado, sandbox-backend | Sin layout real (jsdom no maqueta: los rectángulos se miden en `browser`), sin Web Audio real | **83/83** (15 ficheros) — `npx vitest run src/tests/dom --reporter=basic` (alias `npm run test:dom`) |
+| **browser** | `tests/browser/` (puppeteer-core + Chromium real) | Layout real, pointer/touch, regresión visual, cabeceras de producción, sandbox end-to-end | Nada: es la capa de mayor fidelidad; es más lenta y necesita Chromium + build | **9/9** dev + **11/11** prod — `npm run test:browser` |
 
-| Feature | Description | Milestone | Source Requirement | Target Test Suite |
-|---------|-------------|-----------|--------------------|-------------------|
-| **F1** | Resilient Audio Startup & Toast | M1 | ORIGINAL_REQUEST §R1 | `src/tests/contract/tier1_m1_m2_features.test.ts` / `tier2_m1_m2_boundaries.test.ts` |
-| **F2** | AudioEngine Context Fallback | M1 | ORIGINAL_REQUEST §R1 | `src/tests/contract/tier1_m1_m2_features.test.ts` / `tier2_m1_m2_boundaries.test.ts` |
-| **F3** | Safe Demo & Blank Project Boot | M1 | ORIGINAL_REQUEST §R1 | `src/tests/contract/tier1_m1_m2_features.test.ts` / `tier2_m1_m2_boundaries.test.ts` |
-| **F4** | Pointer Events for WaveformCanvas | M2 | ORIGINAL_REQUEST §R2 | `src/tests/contract/tier1_m1_m2_features.test.ts` / `tier2_m1_m2_boundaries.test.ts` |
-| **F5** | Touch-Action None on Interactive Surfaces | M2 | ORIGINAL_REQUEST §R2 | `src/tests/contract/tier1_m1_m2_features.test.ts` / `tier2_m1_m2_boundaries.test.ts` |
-| **F6** | Touch Ergonomic Trim Zones | M2 | ORIGINAL_REQUEST §R2 | `src/tests/contract/tier1_m1_m2_features.test.ts` / `tier2_m1_m2_boundaries.test.ts` |
-| **F7** | Rotary Control Pointer Capture | M2 | ORIGINAL_REQUEST §R2 | `src/tests/contract/tier1_m1_m2_features.test.ts` / `tier2_m1_m2_boundaries.test.ts` |
-| **F8** | Touch Hitbox Standards (>=44x44px) | M2 | ORIGINAL_REQUEST §R2 | `src/tests/contract/tier1_m1_m2_features.test.ts` / `tier2_m1_m2_boundaries.test.ts` |
-| **F9** | UI Clip Deletion Action | M2 | ORIGINAL_REQUEST §R2 | `src/tests/contract/tier1_m1_m2_features.test.ts` / `tier2_m1_m2_boundaries.test.ts` |
-| **F10** | Timeline Bidirectional Scroll Sync | M3 | ORIGINAL_REQUEST §R3 | `src/tests/contract/tier1_m3_m4_features.test.ts` / `tier2_m3_m4_boundaries.test.ts` |
-| **F11** | Sticky Ruler & Alignment | M3 | ORIGINAL_REQUEST §R3 | `src/tests/contract/tier1_m3_m4_features.test.ts` / `tier2_m3_m4_boundaries.test.ts` |
-| **F12** | Ruler Horizontal Width Unification | M3 | ORIGINAL_REQUEST §R3 | `src/tests/contract/tier1_m3_m4_features.test.ts` / `tier2_m3_m4_boundaries.test.ts` |
-| **F13** | Ruler Seek Clamping | M3 | ORIGINAL_REQUEST §R3 | `src/tests/contract/tier1_m3_m4_features.test.ts` / `tier2_m3_m4_boundaries.test.ts` |
-| **F14** | Timeline 320px Usability & Adaptive Headers | M3 | ORIGINAL_REQUEST §R4 | `src/tests/contract/tier1_m3_m4_features.test.ts` / `tier2_m3_m4_boundaries.test.ts` |
-| **F15** | Responsive Floating Toolbar | M3 | ORIGINAL_REQUEST §R4 | `src/tests/contract/tier1_m3_m4_features.test.ts` / `tier2_m3_m4_boundaries.test.ts` |
-| **F16** | Responsive Header Layout | M4 | ORIGINAL_REQUEST §R4 | `src/tests/contract/tier1_m3_m4_features.test.ts` / `tier2_m3_m4_boundaries.test.ts` |
-| **F17** | Essential Transport Control Retention | M4 | ORIGINAL_REQUEST §R4 | `src/tests/contract/tier1_m3_m4_features.test.ts` / `tier2_m3_m4_boundaries.test.ts` |
+Total: **663/663 en 57 ficheros** — `npm test -- --reporter=basic | tail -4`.
 
----
+### La fase de producción del navegador (por qué existe)
 
-## 3. Test Architecture & Directory Layout
+La suite dev corre contra el dev server **sin cabeceras**: así se escapó un
+fallo real — el harness del sandbox en `srcdoc` hereda la CSP del padre y moría
+en producción. Por eso `npm run test:browser` tiene segunda fase
+(`tests/browser/prodCheck.mjs`): construye `dist/`, lo sirve con el
+`public/_headers` **real** y comprueba CSP del documento (sin `'unsafe-eval'`),
+CSP propia del sandbox (`default-src 'none'; script-src 'self' 'unsafe-eval';
+connect-src 'none'`), COOP/COEP/HSTS/XFO/RP, caché inmutable de `/assets/*`,
+arranque del build, plugin benigno aceptado, 4 payloads maliciosos rechazados
+(`globalThis.fetch`, `navigator.sendBeacon`, alias de `eval`,
+`window.__prodProbe`) y **cero ejecución / cero red / cero errores**.
 
-The contract suite — contrato (opaco, sin DOM), formerly `e2e` — resides under `src/tests/contract/` and runs natively using Vitest in the node environment (no DOM, no browser):
+## 3. Comandos
+
+```bash
+npm test                                   # todo: 663/663, 57 ficheros
+npx vitest run src/tests/contract          # contrato opaco: 172/172
+npm run test:dom                            # dom: 83/83
+npm run test:browser                        # navegador: 9/9 dev + 11/11 prod
+npm run test:all                            # unit+contract+dom+browser
+npx vitest run src/tests/contract/tier3_combinations.test.ts  # un tier concreto
+npx tsc --noEmit                            # tipos (debe salir limpio)
+npm run build                               # build (mide el bundle)
+```
+
+## 4. Metodología de 4 tiers (solo capa de contrato)
+
+> Los 4 tiers viven en `src/tests/contract/`: contratos observables sin montar
+> componentes ni abrir navegador. La cobertura real de UI corresponde a `dom` y
+> `browser` (§2). La antigua etiqueta "E2E" se retiró: estos tests nunca abrieron
+> un navegador y llamarlos E2E era la falsa confianza que el programa eliminó.
+
+### Tier 1: cobertura nominal (69 tests: 29 + 40)
+
+Caminos nominales por feature F1–F17. Tras T2, **F5 y F8 no tienen nominal aquí**
+(sus tests eran literales `expect('none').toBe('none')` / `expect(44)...` y se
+eliminaron): su nominal vive como tests DOM reales (estilos computados) y como
+checks B6/B7 de navegador. El resto de features conserva ≥3–5 nominales.
+
+### Tier 2: bordes (85 tests: 45 + 40)
+
+Límites y degenerados: ficheros vacíos/corruptos, sample-rates extremos,
+pointerdown/up en 1 ms, multi-touch, deltas subpíxel, seeks en ±9999 px, zoom
+0, viewports de 280–320 px, BPM 260, toggles ×100.
+
+### Tier 3: combinaciones (12 tests)
+
+Interacciones pareadas (F1+F3, F4+F5+F6, F10+F11+F12, …): trim táctil con
+captura sin scroll del padre, scroll sincronizado con regla sticky, seek al
+ancho máximo con clamp, layout 320 px cohesionado, etc.
+
+### Tier 4: escenarios (6 tests)
+
+Journeys multi-paso: grabación táctil a 320 px, producción multi-pista con
+split, fallo de audio + edición silenciosa, mezcla responsive con knobs,
+composición + pre-export, sesión de estrés (resize 1920→320, seeks fuera de
+rango, trims al mínimo).
+
+## 5. Matriz de cobertura (medida)
+
+| Tier | Foco | Objetivo mín. | Medido |
+|---|---|---|---|
+| Tier 1 | Nominal F1–F17 | 85 | **69** (16 tautológicos eliminados en T2; F5/F8 nominal en DOM/browser) |
+| Tier 2 | Bordes F1–F17 | 85 | **85** |
+| Tier 3 | Combinaciones | 10 | **12** |
+| Tier 4 | Escenarios | 5 | **6** |
+| **Total contrato** | | 185 | **172** |
+
+## 6. Ficheros
 
 ```
 src/tests/contract/
-├── helpers/
-│   └── testHelpers.ts                 # Shared mock factories, DOM/event simulation, store resets
-├── tier1_m1_m2_features.test.ts       # Tier 1: F1–F9 Feature Coverage (>=5 test cases per feature)
-├── tier1_m3_m4_features.test.ts       # Tier 1: F10–F17 Feature Coverage (>=5 test cases per feature)
-├── tier2_m1_m2_boundaries.test.ts     # Tier 2: F1–F9 Boundary & Corner Cases (>=5 test cases per feature)
-├── tier2_m3_m4_boundaries.test.ts     # Tier 2: F10–F17 Boundary & Corner Cases (>=5 test cases per feature)
-├── tier3_combinations.test.ts         # Tier 3: Pairwise Cross-Feature Interactions (12 test cases)
-└── tier4_scenarios.test.ts            # Tier 4: Real-World End-to-End Workflows (6 test cases)
+├── helpers/testHelpers.ts              # factorías, resets (+resetHistory), oráculos
+├── tier1_m1_m2_features.test.ts        # 29 nominales F1–F9
+├── tier1_m3_m4_features.test.ts        # 40 nominales F10–F17
+├── tier2_m1_m2_boundaries.test.ts      # 45 bordes F1–F9
+├── tier2_m3_m4_boundaries.test.ts      # 40 bordes F10–F17
+├── tier3_combinations.test.ts          # 12 combinaciones
+└── tier4_scenarios.test.ts             # 6 escenarios
+src/tests/dom/                          # 15 ficheros, 83 tests (setup.ts + audioContextStub.ts)
+tests/browser/                          # smoke.mjs (9) + prodCheck.mjs (11) + harness/serveDist
 ```
 
-### Test Runner Commands
-
-- **Run all contract tests** (contrato opaco, sin DOM):
-  ```bash
-  npx vitest run src/tests/contract
-  ```
-- **Run complete project test suite** (unit + integration + contract):
-  ```bash
-  npm test
-  ```
-- **Run specific tier**:
-  ```bash
-  npx vitest run src/tests/contract/tier1_m1_m2_features.test.ts
-  npx vitest run src/tests/contract/tier2_m1_m2_boundaries.test.ts
-  npx vitest run src/tests/contract/tier3_combinations.test.ts
-  npx vitest run src/tests/contract/tier4_scenarios.test.ts
-  ```
-- **Run DOM-layer tests** (jsdom + Testing Library, componentes montados):
-  ```bash
-  npm run test:dom
-  ```
-- **Run every layer** (unit + contract + dom + browser):
-  ```bash
-  npm run test:all
-  ```
-
-### Test Layers (4 capas)
-
-| Capa | Qué cubre | Qué NO cubre | Estado |
-|------|-----------|--------------|--------|
-| **unit** (`src/tests/*.test.ts`, `src/audio/*.test.ts`) | Lógica pura y store: operaciones de timeline, utilidades de forma de onda, plugins, persistencia, atajos | Sin DOM, sin motor de audio real, sin navegador | Verde |
-| **contract** (`src/tests/contract/`, opaco, sin DOM) | Contratos observables: acciones del store, transiciones del engine, oráculos matemáticos, flujos nominales y bordes F1–F17 | No monta componentes, no verifica CSS/DOM real ni eventos de puntero, no abre navegador | Verde (172 tests tras eliminar 16 tautológicos en T2) |
-| **dom** (`src/tests/dom/`, jsdom + Testing Library) | Componentes montados: roles/aria, estilos computados, eventos de usuario simulados | Sin layout real (jsdom no maqueta), sin Web Audio real, sin navegador | Verde (1 test de humo; jsdom 25.x, ver TEST_READY.md §6) |
-| **browser** (`tests/browser/`, puppeteer-core) | Navegador Chromium real: layout, pointer/touch, regresión visual | Nada (es la capa de mayor fidelidad) | No existe aún (se añade en la Tarea 3) |
-
----
-
-## 4. 4-Tier Test Methodology (capa de contrato: opaco, sin DOM)
-
-> Los 4 tiers viven en la capa de contrato: verifican contratos observables sin montar
-> componentes ni abrir un navegador. La cobertura real de UI (DOM y navegador) corresponde a
-> las capas `dom` y `browser` descritas en §3.
-
-### Tier 1: Feature Coverage (>=5 tests per feature)
-Verifies the nominal and standard operating paths for each individual feature:
-- **F1 (Resilient Audio Startup & Toast)**: `handleContinue`, `handleBlank`, and `handlePickFile` boot resilience, toast notification on audio failure, `busy` flag cleared in `finally`, file error handling, transition into workspace.
-- **F2 (AudioEngine Context Fallback)**: Initial 44.1kHz attempt, automatic native sample-rate fallback on `NotSupportedError`, graceful handling of `resume()` autoplay restrictions, singleton context reuse, environment detection.
-- **F3 (Safe Demo & Blank Project Boot)**: `loadDemoProject` succeeds silently on context failure, `createBlankProject` cleanses state and stops previous engine, finishBoot triggers initial autosave snapshot, duration & BPM defaults set, workspace is unblocked.
-- **F4 (Pointer Events for WaveformCanvas)**: Pointer down/move/up event cycle, defensive `setPointerCapture` execution, multi-pointer device support (mouse, touch, pen), pointercancel event handling, clean listener cleanup.
-- **F5 (Touch-Action None on Interactive Surfaces)**: CSS `touch-action: none` / `touch-none` enforcement on WaveformCanvas clip elements, Knob rotary dial element, scroll prevention verification, non-interactive parent isolation.
-- **F6 (Touch Ergonomic Trim Zones)**: Dynamic trim edge computation (up to 20px on touch, up to 8px on mouse), narrow clip (<24px) drag priority, left trim delta clamping, right trim duration clamping, minimum 0.2s duration preservation.
-- **F7 (Rotary Control Pointer Capture)**: Pointer capture with primary pointer enforcement (`e.isPrimary`), vertical delta mapping to parameter change, floating-point drift elimination via step precision, keyboard arrows & double-click reset, pointer cancellation.
-- **F8 (Touch Hitbox Standards >=44x44px)**: Zoom In/Out toolbar buttons, Cut button, TrackHeader Mute/Solo/Arm buttons (`w-11 h-11`), Delete Track button hitbox, Transport controls, ChannelStrip controls, Master Mute.
-- **F9 (UI Clip Deletion Action)**: Toolbar Delete button presence, disabled state when no clip selected, enabled state when clip selected, `removeClip` action invocation, accessibility attributes (`aria-label`).
-- **F10 (Timeline Bidirectional Scroll Sync)**: Track headers scroll updates lanes `scrollTop`, lanes scroll updates track headers `scrollTop`, loop prevention guard (`isSyncingFrom...`), subpixel threshold (>0.5px), dynamic track list resilience.
-- **F11 (Sticky Ruler & Alignment)**: Ruler sticky positioning (`sticky top-0 z-20`), opaque background styling (`bg-dark-surface`), z-index ordering above waveform lanes, horizontal scroll alignment, playhead cursor alignment.
-- **F12 (Ruler Horizontal Width Unification)**: Identical width calculation (`Math.max(viewportWidth - headerWidth, duration * zoom)`), elimination of phantom horizontal scrollbars, zoom scaling reactivity, duration change responsiveness, zero discrepancy between ruler and lane containers.
-- **F13 (Ruler Seek Clamping)**: Playhead seek clamped to `[0, duration]`, rejection of negative time seeks, rejection of past-duration seeks, exact boundary seeking at 0.0s and project end, floating-point click coordinate normalization.
-- **F14 (Timeline 320px Usability & Adaptive Headers)**: Track header width adapts responsively (`w-36` on mobile <640px, `w-60` on desktop), 320px viewport retains >=170px for waveform lanes, header controls scale without overflow, track selection functions on compact screens.
-- **F15 (Responsive Floating Toolbar)**: Floating toolbar compact footprint (<80px / responsive wrapping) on `<sm`, positioning at `bottom-2 right-2` without occluding headers or lanes, button tap accessibility, cut button state synchronization.
-- **F16 (Responsive Header Layout)**: Compact 320px layout preservation, decorative badge ("Local 100%") hidden on `<sm`, view switcher and action button text hidden on `<sm` with icons retained, full `aria-label` retention, header maintains single-row height.
-- **F17 (Essential Transport Control Retention)**: Unconditional metronome retention (no unconditional `hidden`), metronome displays "MET" on `<sm` and "CLICK" on `>=sm`, unconditional Master VU meter retention (`w-8 sm:w-14`), live meter responsiveness across breakpoints.
-
-*Total Tier 1 Target: 17 features × 5 test cases = 85 tests.*
-
----
-
-### Tier 2: Boundary & Corner Cases (>=5 tests per feature)
-Probes limits, degenerate inputs, hardware constraints, and extreme conditions:
-- **F1**: Empty file imports, non-JSON corrupted files, network/IO permission errors, rapid consecutive boot clicks, simultaneous import and blank project triggers.
-- **F2**: Context creation throwing generic Error, sample rates of 96kHz/192kHz, context state stuck in `'closed'`, zero-sample-rate audio environment, context resume rejecting with SecurityError.
-- **F3**: Blank project creation with existing 50-track project, demo project loaded while transport is playing, project duration 0s fallback, extreme tempo (260 BPM) reset, memory cleanup of previous audio buffers.
-- **F4**: Rapid pointerdown/pointerup within 1ms, pointer movement with deltaX = 0, multi-touch simultaneous pointer IDs, pointer event with missing `setPointerCapture` on target, pointer release outside viewport.
-- **F5**: Nested scroll container touch-action verification, dynamic style updates, touch-action style retention during drag state changes, touch-action presence on newly added tracks.
-- **F6**: Trimming a 0.2s minimum clip (cannot shrink further), trimming past project end duration, trimming with zero audioBuffer duration, negative offset compensation, sub-pixel trim delta (<0.01px).
-- **F7**: Dragging knob 10,000px beyond maximum, dragging knob to negative infinity, knob with step = 0.0001, rapid pointer reversal during drag, secondary touch points during active primary drag.
-- **F8**: Hitboxes on screens with devicePixelRatio = 3, hitboxes inside scrolled containers, hitboxes with focus outlines, hitboxes when track is armed vs disarmed, hover vs active target expansion.
-- **F9**: Deleting a clip that was already removed, deleting clip during active playback, keyboard shortcut 'Delete' while dialog is focused, rapid double-tap on UI delete button, deleting clip from empty track.
-- **F10**: Rapid alternating scroll events between headers and lanes (stress test), fractional subpixel scroll deltas (0.1px, 0.4px), scroll event with target scrolled to maximum bottom, zero tracks scroll behavior, scroll sync when viewport resizes.
-- **F11**: Ruler rendering at 1000s duration, ruler rendering at zoom = 1 px/s, ruler rendering at zoom = 500 px/s, ruler ticks in odd time signatures (7/8, 5/4), sticky positioning stability during vertical fling.
-- **F12**: Ruler width with duration = 0.1s, ruler width with 0px viewport, zoom = 0 protection, total width with 100 tracks, width calculation with fractional zoom levels (33.333 px/s).
-- **F13**: Seek click with clientX = -9999px, seek click with clientX = +9999px, seek at exact boundary (duration - 0.0001s), seek during active playback, seek with zoom = 1000.
-- **F14**: Timeline at exactly 320px screen width, timeline at 280px ultra-compact screen, track name with 200 characters in 144px header, 0 tracks layout at 320px, 30 tracks layout at 320px.
-- **F15**: Floating toolbar when right edge touches screen border, floating toolbar with zoom level at minimum (10 px/s), floating toolbar with zoom level at maximum (200 px/s), rapid toggle between zoom in and zoom out.
-- **F16**: Header at 320px with project name = 100 characters, header when all actions are triggered sequentially, header layout when window resized from 1920px to 320px in single frame, header with active dropdowns.
-- **F17**: Transport bar at 320px with BPM = 260, time display formatting at hour boundary (3600s), master peak meter clipping at +6 dBFS, rapid metronome toggling (100 times), transport loop range with start = end.
-
-*Total Tier 2 Target: 17 features × 5 test cases = 85 tests.*
-
----
-
-### Tier 3: Cross-Feature Combinations (Pairwise Interactions)
-Validates system behavior when multiple features interact concurrently:
-1. **F1 + F3**: Safe fallback boot allows full blank project creation without throwing audio exceptions.
-2. **F4 + F5 + F6**: Touch-driven clip trimming on WaveformCanvas with dynamic edge detection and pointer capture without parent scroll interference.
-3. **F6 + F9**: Clip selection visual handles and subsequent deletion via UI toolbar button.
-4. **F7 + F8**: Rotary dial adjustments with pointer capture in close proximity to 44px channel strip controls.
-5. **F10 + F11 + F12**: Vertical scroll synchronization with sticky ruler overlay across unified track width.
-6. **F12 + F13**: Seeking near maximum unified width clamps safely to duration.
-7. **F14 + F15 + F16**: 320px mobile layout cohesion: compact header, adaptive 144px track headers, and responsive floating toolbar.
-8. **F16 + F17**: Compact header navigation concurrently with retained metronome and live metering in transport bar.
-9. **F4 + F10**: Clip dragging across vertically synchronized tracks without losing scroll position.
-10. **F2 + F17**: Audio engine running under suspended audio context updates telemetry and transport metrics gracefully.
-11. **F8 + F9 + F15**: Floating toolbar buttons meet 44px touch targets while housing delete clip and zoom controls.
-12. **F13 + F17**: Ruler seek updates transport bar high-resolution time display, bar/beat indicators, and playback position.
-
-*Total Tier 3 Target: 12 pairwise test cases.*
-
----
-
-### Tier 4: Real-World Scenarios (End-to-End Workflows)
-Exercises complete, multi-step application user journeys:
-1. **Scenario 1: Mobile Touch Recording & Arrangement Workflow (320px)**:
-   Launch on mobile, create blank project, add vocal track, arm with 44px touch button, enable metronome, record audio take, trim edges with touch grab handle, and delete unwanted clip via UI toolbar.
-2. **Scenario 2: Tablet Multi-Track Production & Splitting Session**:
-   Load demo project, scroll vertically across 6 tracks with sticky ruler and synchronized headers, zoom in via floating toolbar, seek playhead to beat boundary, split clip, trim slice, and reposition slice with magnetic snapping.
-3. **Scenario 3: Resilient Audio Failure & Silent Editing Session**:
-   Simulate browser autoplay/sample-rate rejection during startup, receive non-blocking toast, enter workspace smoothly, rename project, adjust mixer faders, add tracks, and verify autosave snapshots persist.
-4. **Scenario 4: Responsive Mixing Console & Live Transport Control**:
-   Switch between Timeline and Mixer on a 375px mobile viewport, adjust plugin knobs with pointer capture, toggle track mutes via 44px buttons, adjust master volume, and monitor live master VU meter without layout distortion.
-5. **Scenario 5: Full Project Composition & Master Export Preparation**:
-   Create project, add 4 tracks (Drums, Bass, Guitar, Lead), import audio clips, set 128 BPM and 4/4 time signature, configure loop range in transport bar, verify ruler width matches duration, and launch master/export dialog.
-6. **Scenario 6: High-Stress Boundary Session**:
-   Perform rapid resizing (1920px -> 320px), seek past duration, trim clips to 0.2s minimum limit, rapid-click zoom controls, and verify complete state consistency and zero unhandled rejections.
-
-*Total Tier 4 Target: 6 workflow scenarios.*
-
----
-
-## 5. Summary Matrix & Coverage Counts
-
-| Test Tier | Focus Area | Minimum Target | Actual Count |
-|-----------|------------|----------------|--------------|
-| **Tier 1** | Feature Coverage (F1–F17) | 85 (5/feature) | 85 |
-| **Tier 2** | Boundary & Corner Cases (F1–F17) | 85 (5/feature) | 85 |
-| **Tier 3** | Cross-Feature Pairwise Interactions | 10 | 12 |
-| **Tier 4** | Real-World Application Workflows | 5 | 6 |
-| **Total** | Full contract suite | **185** | **172** |
+Nota toolchain: jsdom fijado a la serie 25.x (`engines >=18`) porque jsdom 30
+exige Node ≥22 y el proyecto fija Node 20 (`.nvmrc`, Cloudflare Pages).

@@ -166,11 +166,33 @@ motor, los 6 huecos de deshacer y los 14 de UI no tienen ninguna red. Así que e
 5. **W4** — Funciones nuevas: importar audio, copiar/pegar/duplicar, multi-select, CI.
 6. **W5** — Seguridad y operaciones: sandbox de plugins, service worker versionado, iconos, cabeceras, docs.
 
-## 5. Cierre W5 — estado final de los hallazgos (2026-10-21, rama `feature/audit-hardening-2026-10`)
+## 5. Cierre del hardening — estado final de los hallazgos (2026-10-21, rama `feature/audit-hardening-2026-10`)
 
-Verificación final: `npm test` **638/638** (55 ficheros), `npx tsc --noEmit` limpio con
-`exactOptionalPropertyTypes`, `npm run build` OK (JS total **99.6 kB gzip**, presupuesto 350 kB),
-`npm run test:browser` **9/9**.
+Verificación final (barrido de documentación, Tarea 34 — manda sobre las cifras
+provisionales que hubiera más abajo):
+
+| Comprobación | Comando | Resultado |
+|---|---|---|
+| Tests | `npm test -- --reporter=basic \| tail -4` | **663/663 en 57 ficheros** (unit 408 + contrato 172 + dom 83) |
+| Navegador dev | `npm run test:browser` (fase `smoke.mjs`) | **9/9** |
+| Navegador prod | `npm run test:browser` (fase `prodCheck.mjs`) | **11/11** (`dist/` + `_headers` real) |
+| Tipos | `npx tsc --noEmit` | Limpio (`strict` + `noUncheckedIndexedAccess` + `verbatimModuleSyntax` + `noUnusedLocals` + `noUnusedParameters` + `exactOptionalPropertyTypes`) |
+| Build | `npm run build` + `cat dist/assets/*.js \| gzip -c \| wc -c` | OK, JS **102 871 bytes gzip** (presupuesto < 350 kB): vendor ~45,3 kB, app ~48,5 kB, CSS ~6,5 kB + 2 modales lazy |
+
+Hallazgo extra del programa (no estaba en la tabla: lo cazó la capa de
+navegador en WP2): el transporte perdía la posición al parar (`stop()` nunca
+escribía `playheadOffset` y el store forzaba `currentTime: 0`), lo que hacía del
+corte con `S` en pausa un no-op silencioso → **Tarea 20**. Ruling del
+controlador: el motor aparca la posición (`rewind()` nuevo) y **Stop rebobina a
+0 mientras Pausa conserva** (convención DAW); cubierto por el check B4b que lee
+el display real.
+
+Nota histórica: las rutas `src/tests/e2e/` citadas en este informe son la
+ubicación **anterior** a la Tarea 2; hoy es `src/tests/contract/` (renombre
+honesto: nunca fue E2E). Se conservan en el texto como evidencia de la base
+auditada (`aca438b`).
+
+### 5.1 Estado final por hallazgo (ruling = libro de decisiones en `.superpowers/sdd/2026-10-21-hydradaw-hardening/progress.md`)
 
 | ID | Estado final |
 |---|---|
@@ -181,4 +203,97 @@ Verificación final: `npm test` **638/638** (55 ficheros), `npx tsc --noEmit` li
 | SEO-01 | **Resuelto.** `og:image` + `twitter:card` añadidos. El canonical sigue fijo (sin `VITE_SITE_URL`: fuera del alcance del brief). El fichero de Search Console **se eliminó** (ronda fix 1): contenía el nombre repetido, no un token real; sin token no se envía nada. |
 | CFG-02 | **Resuelto.** `vite.config.ts`: `base: './'` + `build.target: 'es2020'`. **Ronda fix 1:** coherencia sub-path — registro del SW derivado de `import.meta.env.BASE_URL` (`src/main.tsx`), manifest/iconos/manifest-link relativos, precache y rutas del SW relativas al scope de registro (`registration.scope`), fallback a `./index.html`. |
 | TS-01 | **Resuelto.** `exactOptionalPropertyTypes: true` activo; fallout (10 errores) corregido ajustando tipos reales (`\| undefined` en opcionales que lo admiten; omisión condicional en `SerializedClip` para que `undefined` no se cuele en el DTO). Sin `!` ni `as`. |
-| Flake de la suite | **Resuelto (causa encontrada y corregida).** Bajo saturación de CPU se reprodujo un colapso del worker (`Timeout calling "onTaskUpdate"`, 10 tests perdidos, 136 s) con mecanismo identificado: tests de DSP síncrono pesado (~4.6 s medidos, 92% del timeout de 5 s por defecto). Fix: presupuestos explícitos de 60 s con margen comentado + ancla de regresión `src/tests/suiteStability.test.ts`. Verificación: 30/30 verdes post-fix con el mismo recuento (638/638). |
+| Flake de la suite | **Resuelto (causa encontrada y corregida).** Bajo saturación de CPU se reprodujo un colapso del worker (`Timeout calling "onTaskUpdate"`, 10 tests perdidos, 136 s) con mecanismo identificado: tests de DSP síncrono pesado (~4.6 s medidos, 92% del timeout de 5 s por defecto). Fix: presupuestos explícitos de 60 s con margen comentado + ancla de regresión `src/tests/suiteStability.test.ts`. Verificación: 30/30 verdes post-fix (recuento de entonces 638/638; hoy 663/663 tras las capas siguientes). |
+
+### 5.2 Tabla completa de resolución (todas las §§1–2)
+
+**Motor (AUD)** — Tareas 5–8, 11, 19, 20:
+
+| ID | Estado final |
+|---|---|
+| AUD-01 (doble `play()` solapado, +6 dB) | **Resuelto (T5).** Guarda de generación: dos `play()` solapados no duplican fuentes. |
+| AUD-02 (`play()` zombi tras stop rápido) | **Resuelto (T5).** El `play()` en vuelo se cancela; stop no deja sonido huérfano. |
+| AUD-03 (punch-in sella antes de `getUserMedia`) | **Resuelto (T6).** `recordingStartTime` se sella tras el permiso. |
+| AUD-04 (metrónomo programa cada click 2×) | **Resuelto (T7).** Cada click se programa exactamente una vez. |
+| AUD-05 (loop con `setTimeout` de pared) | **Resuelto (T8).** La iteración siguiente se pre-programa en el reloj de audio en el límite exacto (lead 0,1 s), sin solape. Ruling aceptado: gapless bajo reloj simulado; en hardware real "gapless módulo latencia", **sin medir** (no se afirma). |
+| AUD-06 (`clipGain` de fades nunca liberado) | **Resuelto (T9).** Cleanup junto a la fuente, idempotente, en **todas** las vías de teardown (no solo `onended`); `dispose()` lo reclama. |
+| AUD-07 (`gain` del click fugado) | **Resuelto (T9).** Clicks como `{osc, gain, done}` con suelta en stop. |
+| AUD-08 (sandbox evadible) | **Resuelto (T35).** Ver fila SEC-01 en §5. |
+| AUD-09 (`addClip` no resincroniza) | **Aceptado como residual menor (sin tarea asignada).** `addClip` sigue sin llamar a `syncTracks`: el punch-in para el transporte antes de añadir (sin efecto) y las acciones vecinas (`addTrack`, `updateClip`, `removeClip`, `removeTrack`) sí resincronizan; importar audio **durante la reproducción** suena tras parar/reanudar. Documentado en `PROJECT.md`. |
+| AUD-10 (cadena de efectos inválida enmudece todo) | **Resuelto (T10).** `try/catch` + nodo pass-through registrado y reclamado por `dispose()` + `console.warn` con `pluginId`; `outputNode` validado. |
+| AUD-11 (recreación de contexto deja `trackNodes` viejos) | **Resuelto (T11).** Se reconstruyen master **y** pistas; sin `connect` cruzado. |
+| AUD-12 (NaN en utilidades) | **Resuelto (T19).** Guardas de finitud; `dbToLinear(NaN)` ⇒ 1 (unity, ruling: un NaN suelto es "sin atenuación", no "silencio"); pan NaN ⇒ ganancias de `pan = 0`. |
+
+**Estado y persistencia (ST)** — Tareas 12–16:
+
+| ID | Estado final |
+|---|---|
+| ST-01 (historial cruza proyectos) | **Resuelto (T13).** `resetHistory()` en demo/blanco/carga/import; undo con alcance por proyecto. |
+| ST-02 (6 acciones sin `recordHistory`) | **Resuelto (T13).** Todas registran; `updatePluginParam` coalesce; arrastres registran por evento (trade-off explícito del brief, documentado). |
+| ST-03 (snapshot solo `{tracks, clips}`) | **Resuelto con desviación documentada (T13).** El snapshot incluye transporte + mixer y se restauran al deshacer. Ruling aceptado: BPM/loop/metrónomo/volumen **no** son deshacibles por sí mismos (convención DAW), pero sí se restauran con una acción registrable. |
+| ST-04 (código custom del plugin no persiste) | **Abierto, aceptado como limitación residual (sin tarea asignada).** El saneador de carga reconstruye cada plugin sin `customJsCode`/`customWamUrl`: tras recargar, el plugin custom pierde su DSP. Documentado en `PROJECT.md`. |
+| ST-05 (autosave sin flush) | **Resuelto (T14).** Flush en `beforeunload`/`pagehide`; `stop()` no descarta el pendiente. |
+| ST-06 (`snapMode` no persiste) | **Resuelto (T14).** Persistido y validado contra la unión real de 8 valores (el brief listaba `'1/1'`, que no existe; faltaban `'1/2'` y `'triplet'` — brief defectuoso, código correcto). |
+| ST-07 (atajos tras un modal) | **Resuelto (T15).** Gated por `exportModalOpen`/`pluginModalTrackId`; Escape pasa a los modales. |
+| ST-08 (import sin sanear) | **Resuelto (T16).** Topes 512 pistas / 20 000 clips, parámetros saneados por plugin, ids deduplicados, selección validada, `duration` acotada. |
+| ST-09 (fades no sobreviven al guardado) | **Abierto, aceptado como limitación residual (sin tarea asignada).** `SerializedClip` no tiene campos de fade; el engine sí los aplica en vivo y en export. Documentado en `PROJECT.md`. |
+| ST-10 (efectos dentro de updaters `set()`) | **Resuelto (T12).** Updaters puros: calcular con `get()`, `set(...)`, y el efecto después. |
+| ST-11 (mutación in-place + historial de no-ops) | **Resuelto parcial (T12/T13).** El trim sin cambios no registra (guard añadido); los `c.audioBuffer = null` in-place persisten como P3 aceptado. |
+| ST-12 (snapshot con selección/scroll + sin filtro `repeat`) | **Resuelto parcial.** `e.repeat` filtrado en atajos; el snapshot conserva selección/zoom (P3 aceptado, sin impacto medido). |
+
+**UI / React / A11y (UI)** — Tareas 21–30:
+
+| ID | Estado final |
+|---|---|
+| UI-01 (headers/lanes desincronizados) | **Resuelto (T22).** Scroll bidireccional con banderas anti-reentrada; test de ping-pong sensible (falla sin las banderas). |
+| UI-02 (regla no sticky) | **Resuelto (T23).** `sticky top-0`, fondo opaco. |
+| UI-03 (sin Pointer Events) | **Resuelto (T21).** `onPointerDown` + captura + `pointermove/up/cancel`. |
+| UI-04 (knob intocable + wheel pasivo) | **Resuelto (T21).** `setPointerCapture`, `touch-action: none`, listener de rueda no pasivo. |
+| UI-05 (iconos sin nombre accesible) | **Resuelto (T26).** `aria-label` en todo control sólo-icono (incluido "Añadir Pista", que faltaba). |
+| UI-06 (`useDawStore()` sin selector) | **Resuelto (T27).** Los 4 subárboles usan selector. |
+| UI-07 (playhead no sigue al scroll) | **Resuelto (T24).** Follow-scroll con puerta: reproduciendo + fuera de vista (40 px) + 3 s sin scroll manual. |
+| UI-08 (seek sin cota superior, sin teclado) | **Resuelto (T25).** Clamp a `[0, duración]`; regla focusable con seek por teclado. |
+| UI-09 (fijo 240 px, hitboxes < 44 px) | **Resuelto (T27/T28).** Headers `w-36 sm:w-60`; hitboxes ≥ 44 px (B6 cazó "Cortar clip" a 82×40 y se corrigió). |
+| UI-10 (callejones sin teclado) | **Resuelto (T29).** Selección de pista, reset dB, editor exacto del knob, `listbox`/`option` correctos. |
+| UI-11 (modales sin foco atrapado) | **Resuelto (T30).** Trampa de foco + fondo `inert` (B5 lo verifica). |
+| UI-12 (2 bucles rAF + 2 suscripciones) | **Resuelto (T24).** Un único bucle rAF compartido que solo corre reproduciendo. |
+| UI-13 (`rounded-lg`, `tabular-nums` sin usar) | **Resuelto.** Radio de clips 2–4 px; `tabular-nums` en uso (ChannelStrip, MixerConsole). |
+| UI-14 (animaciones sin `reduced-motion`) | **Resuelto.** `motion-safe:` en spins/pulses/pings. |
+
+**Build, seguridad, docs, tests (CFG)** — Tareas 2, 4, 34–38:
+
+| ID | Estado final |
+|---|---|
+| DOC-01 (suite "E2E" en Node) | **Resuelto (T2 + T34).** 16 tautologías eliminadas; capa renombrada a `contract`; este barrido reescribe las 5 docs con cifras medidas. |
+| TEST-01 (~15 tautologías) | **Resuelto (T2).** Fueron 16; base 438. |
+| SEC-02 (import sin presupuesto) | **Resuelto (T16).** Límites de tamaño, cota de arrays, `duration` acotada. |
+| CFG-01 (icono SVG `data:` maskable) | **Resuelto (T36).** PNG reales 192/512/512-maskable + `apple-touch-icon` + `og:image`; test `pwaAssets`. |
+| OPS-01 (sin CI) | **Resuelto (T4).** `.github/workflows/ci.yml` (unit + tsc + build + navegador). |
+| HDR-01 (sin CSP/HSTS/…) | **Resuelto (T36).** CSP (documento sin `'unsafe-eval'`, sandbox con la suya), HSTS, `DENY` + `frame-ancestors 'none'`, `no-referrer`. |
+| SEO-01 (sin og:, canonical fijo, placeholder) | **Resuelto parcial (T36).** `og:image` + `twitter:card`; placeholder de Search Console **eliminado** (era el nombre repetido, no un token); canonical fijo fuera de alcance (sin `VITE_SITE_URL`). |
+| CFG-02 (`base` sin fijar) | **Resuelto (T36).** `base: './'` + `target: es2020` + rutas desde `import.meta.env.BASE_URL` + SW relativo al scope. |
+| TS-01 (sin `exactOptionalPropertyTypes`) | **Resuelto (T37).** Activo; fallout corregido con tipos reales, sin `!` ni `as`. |
+
+**Exportación/DSP (EXP)** — Tareas 17–19: ver `02-export-dsp.md` (todo resuelto salvo AAC-06 parcial documentado).
+
+**Huecos funcionales (G)**:
+
+| ID | Estado final |
+|---|---|
+| G1 (importar solo por DnD) | **Resuelto (T31).** Botón en el header + `importAudioFiles` (un snapshot; resuelve pista por archivo). |
+| G2 (sin portapapeles) | **Resuelto (T31).** Copiar/pegar/duplicar, deshacible, ids monotónicos. |
+| G3 (sin automatización) | **Roadmap aceptado.** No existe; declarado en `PROJECT.md`. |
+| G4 (sin MIDI) | **Roadmap aceptado.** `grep -ri midi` ⇒ 0 en producto; declarado. |
+| G5 (sin multi-selección) | **Resuelto (T32).** `selectedClipIds`; split/borrado sobre la selección; modos single/toggle/range preservando `pointer capture`. |
+| G6 (sin CI) | **Resuelto (T4).** Ver OPS-01. |
+| G7 (sin remuestreo/elasticidad) | **Roadmap aceptado.** Declarado en `PROJECT.md`. |
+| G8 (sin MP3) | **Roadmap aceptado.** WAV + AAC cubren el caso; declarado. |
+
+Rulings transversales del controlador que estos estados aplican: jsdom 25.x
+(Node 20 es restricción, no preferencia); Stop rebobina / Pausa conserva
+(corrección de un ruling previo incompleto); el loop se pre-programa de verdad;
+el follow-scroll no pelea con el usuario; strips anchos incondicionales;
+`splitSelectedClips` en un snapshot con ambas mitades seleccionadas;
+aislamiento por puente RPC (el padre nunca evalúa); placeholder de Search
+Console borrado, no sustituido; `BASE_URL` para sub-path; `dbToLinear(NaN)` =
+unity; transporte no-deshacible pero restaurado.

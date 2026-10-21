@@ -1,52 +1,64 @@
 # HydraDAW — Handoff para la próxima sesión
 
-Última actualización: 2026-10-08 (noche, tras waveA + waveB + waveC + E2E)
+Última actualización: 2026-10-21 (cierre del hardening, rama
+`feature/audit-hardening-2026-10`). Este documento tiene un **único** bloque de
+estado; los bloques duplicados y contradictorios anteriores se eliminaron en el
+barrido de documentación. Toda cifra lleva su comando.
 
-## Estado actual
-- **Repo independiente:** https://github.com/juanpimg/hydradaw.git (`main`), local en `~/Escritorio/Proyectos/hydradaw`. ESTE repo es la fuente de verdad; `apps/hydra-daw` del monorepo editor es copia divergente sin sincronizar.
-- `npm test`: **228/228 pasan** (17 ficheros). `npx tsc --noEmit` limpio con `strict + noUncheckedIndexedAccess + verbatimModuleSyntax`. Build OK: vendor 141kB + app 116kB + modales lazy (~79kB gzip inicial, <350kB).
-- E2E en Chrome real (scripts en `/tmp/opencode/daw-*/verify*.mjs`): **0 errores de consola**. Verificado: demo 4/4, play/pause/stop, split con ratón real + S (4→5), plugins add/remove, export modal, loop/metrónomo, persistencia tras recarga, mixer con limiter, WAV 16-bit con sonido (peak ~1.0, RMS ~0.36), lectura LUFS visible ("Integrada: -7.1 LUFS"), AAC con degradación elegante donde no hay encoder (aviso + toast, sin crash).
-- **Cloudflare Pages: NO desplegado todavía.** Conectar repo en el dashboard (build `npm run build`, output `dist`, Node 20).
-- Subagentes detenidos. Dev server de verificación corriendo en :5175 (pararlo si molesta).
+## Estado actual (medido, no declarado)
 
-## Estado actual
-- **Repo independiente:** https://github.com/juanpimg/hydradaw.git (`main`), local en `~/Escritorio/Proyectos/hydradaw`. ESTE repo es la fuente de verdad; `apps/hydra-daw` del monorepo editor es copia divergente sin sincronizar.
-- `npm test`: **122/122 pasan** (8 ficheros). `npm run build` OK (JS ~251 kB / ~75 kB gzip).
-- E2E en Chrome real (puppeteer-core, scripts en `/tmp/opencode/daw-e2e/` y `/tmp/opencode/daw-clickfix/verify.mjs`): **0 errores de consola, 0 pageerrors**. Verificado: demo 4 pistas/4 clips, play/pause/stop, split con ratón real + tecla S (4→5 clips), add/remove plugin, modal export, loop/metrónomo sin errores, persistencia tras recarga, mixer con limiter -0.1 dBFS. Carga ~1.2 s (networkidle0, SwiftShader).
-- **Cloudflare Pages: NO desplegado todavía.** Solo preparado (ver README).
-- Subagentes detenidos. Dev server de verificación corriendo en :5175 (pararlo si molesta).
+| Comprobación | Comando | Resultado |
+|---|---|---|
+| Tests | `npm test -- --reporter=basic \| tail -4` | **663/663 en 57 ficheros** |
+| — capa unit | `npx vitest run --exclude 'src/tests/contract/**' --exclude 'src/tests/dom/**' --reporter=basic` | 408/408 (36 ficheros) |
+| — capa contrato | `npx vitest run src/tests/contract --reporter=basic` | 172/172 (6 ficheros, tiers 29+40+45+40+12+6) |
+| — capa dom | `npx vitest run src/tests/dom --reporter=basic` | 83/83 (15 ficheros, jsdom 25.x) |
+| Navegador dev | `npm run test:browser` (fase `smoke.mjs`) | **9/9** (arranque, demo, play/stop, split con S, split en pausa, export, 320 px, touch-action, cero errores) |
+| Navegador prod | `npm run test:browser` (fase `prodCheck.mjs`) | **11/11** (build de `dist/` servido con el `_headers` real: CSP sin `unsafe-eval`, CSP del sandbox, caché inmutable, arranque, benigno aceptado, 4 maliciosos rechazados, cero ejecución/red, cero errores) |
+| Tipos | `npx tsc --noEmit` | Limpio (`strict` + `noUncheckedIndexedAccess` + `verbatimModuleSyntax` + `noUnusedLocals` + `noUnusedParameters` + `exactOptionalPropertyTypes`) |
+| Build | `npm run build` | OK. JS **102 871 bytes gzip** (`cat dist/assets/*.js \| gzip -c \| wc -c`), presupuesto < 350 kB: vendor ~45,3 kB, app ~48,5 kB, CSS ~6,5 kB + 2 modales lazy |
 
-## Lo hecho en el bucle (oleadas 1-4 + waveA + waveB + waveC)
-- Oleadas 1-4 (base): persistencia idb-keyval + audio WAV32 por clip, audioMath/timelineOps reales, knobs en vivo, loop/metronomo reales, fix click-select (`WaveformCanvas` stopPropagation), fix export silenciosa (MasterBus→destination en offline).
-- WaveA (8 frentes, 125→193 tests): punch-in sin autodestrucción, loop con lookahead+jitter, lastTake, syncTracks por firma, seek stop-primero, telemetría sin alloc; feedback clamp + clampToDef + IR con semilla/debounce + demo determinista 0.89 + split/trim/snap con límites y compás; store con resync/clamps/duration/setTimeSignature/setLoopRange; timeline con guard de atajos/DnD en cascada/Cortar deshabilitado/trim proporcional/foco+snap; transporte con BPM local-state + meters 15fps + VU dB; modales dialog/ESC/foco + knob teclado; buses con duck-typing + clamps + connect idempotente; persistencia con migración/sanitize/claves v1/tope 300MiB/autosave sin reloj.
-- WaveB (193→212): alias `buffer` eliminado; loop inicio/fin + compás editables; WAV por bloques + round + `encodeWavAsync` + revoke segura; tsconfig endurecido (172 errores corregidos); lazy modals + vendor split + toast (adiós alert/confirm) + Permissions-Policy.
-- WaveC (212→228): AAC-LC vía WebCodecs + ADTS manual, sonoridad BS.1770 con gating, pico verdadero estimado, normalizado -14 LUFS pre-codificación.
-- Oleada 1: `src/store/persistence.ts` (autosave idb-keyval `hydradaw:project:v1`, regenera stems demo) + `App.tsx` (load guard StrictMode); `src/audio/audioMath.ts` + `src/audio/timelineOps.ts` (split/trim/snap reales, tests migrados de lógica duplicada a imports); engine: grabación deduplicada, `updateTrackPluginParam`, trim con clamp/offset, Ruler con denominador, listeners resize, Knob limpio.
-- Oleada 2: store integrado (knobs en vivo, BPM→`setTempo`, split/trim delegados con minDuration 0.2 e ids únicos, `trimClip` nuevo) + audio de usuario persistido en WAV 32-bit float bit-exacto (`hydradaw:audio:<clipId>`, limpieza de huérfanos, degradación ante quota, clips >64 MiB omitidos).
-- Oleada 3: loop real (stop+replanificación, `setLoop`, wrap en getCurrentTime; offline lineal a propósito) + metrónomo real (oscilador 2000/1000 Hz al tempo, `setMetronome`/`setTimeSignature`); store cableado (`toggleLoop/toggleMetronome` → engine).
-- Oleada 4 (fix bloqueador E2E): `WaveformCanvas.tsx` — `onClick stopPropagation` para que el `onClick` del lane no borre la selección hecha en `mousedown`; sin esto ningún clip era seleccionable con ratón real.
+- **Repo:** rama `feature/audit-hardening-2026-10` sobre `aca438b`. CI en
+  `.github/workflows/ci.yml` (unit + `tsc` + build + navegador con Chrome).
+- **Lo que cambió en el programa:** la suite "E2E" de objetos falsos ahora es la
+  capa `contract` (opaca, sin DOM, honestamente renombrada); hay capa `dom` real
+  y capa `browser` real con fase de producción; el sandbox de plugins es un
+  iframe opaco con puente de capacidades y la CSP principal no tiene
+  `'unsafe-eval'`; el SW es network-first con versión por SHA; hay iconos PWA,
+  importar-audio por botón, portapapeles y multi-selección.
+- **Cloudflare Pages: NO desplegado todavía.** Conectar repo (build
+  `npm run build`, output `dist`, Node 20). Tras el primer despliegue,
+  comprobar una vez el merge de `_headers` por ruta (`/sandbox.html`).
 
-## Limitaciones conocidas / pendientes ( roadmap )
-1. **Plugins:** DSP con nodos nativos; sin WAM 2.0 / WebCLAP / WASM / AudioWorklet. `new Function(code)` sin sandbox (validar o aislar).
-2. **Móvil/táctil:** sin responsive <768px ni hitboxes 44px (header/mixer/transporte con scroll-x como paliativo).
-3. **Remuestreo:** clips restaurados a tasa original sin remuestreo si cambia el dispositivo; stems demo fijos a 120 BPM (rejillaWalk no estira audio).
-4. **AAC real:** verificado solo degradación elegante en headless sin encoder; probar en Chrome headed con codecs propietarios.
-5. **Mezcla caliente:** el demo suma ~+1.1 dBFS pre-limiter (el WAV int16 lo recorta); considerar ganancia de etapa o normalizado por defecto.
-6. **Cabeceras:** COOP/COEP por higiene (Web Audio no los exige); `_headers` solo Pages/Netlify.
-1. **Plugins:** solo JS custom en el rack; no hay carga real de WAM 2.0 / WebCLAP / WASM ni AudioWorklet (el DSP usa nodos nativos de Web Audio). `new Function(code)` sin sandbox.
-2. **Exportación:** solo WAV. Faltan MP3/AAC (WebCodecs `AudioEncoder`) y medición LUFS / true peak.
-3. **Móvil/táctil:** sin diseño responsivo < 768px ni hitboxes de 44px (regla del workspace).
-4. **Cabeceras:** `_headers` usa COEP `credentialless`; el dev server de Vite usa `require-corp`. Unificar si se usa SharedArrayBuffer.
-5. Bundle ~251 kB JS (~75 kB gzip); sin code-splitting.
-6. Stems demo usan `Math.random`: tras recargar el ruido difiere ligeramente (estructura/tempo idénticos). Renombrar un clip demo lo marca para reimportar.
-7. Sin Web Audio (SSR/Node) la restauración de audio queda pendiente hasta tener contexto.
+## Limitaciones reales y actuales (roadmap)
 
-## Cómo desplegar en Cloudflare Pages
-Build `npm run build`, output `dist`, Node 20. Detalles en `README.md`.
+1. **Sin MIDI** (`grep -ri midi src/` ⇒ 0 resultados en producto).
+2. **Sin automatización de parámetros.**
+3. **Sin export a MP3** (WAV 16/24/32-bit + AAC-LC vía WebCodecs).
+4. **Sin time-stretch / conversión de sample-rate** (un clip no se estira al
+   cambiar el BPM; al cambiar de dispositivo no hay remuestreo).
+5. **Sin WAM 2.0 / WebCLAP / WASM / AudioWorklet** (DSP con nodos nativos; los
+   plugins custom usan el proxy allowlisted: sin IR de convolver ni curvas de
+   shaper).
+6. **Sin migración a React 19 / Vite 7 / Vitest 3** (decisión deliberada).
+7. Residuales aceptados: el JS custom de un plugin no sobrevive a la recarga; los
+   fades por clip no sobreviven al guardado; importar durante la reproducción
+   suena tras parar/reanudar; AAC de 7 canales escribe `channel_config` 7
+   (documentado en código, extremadamente raro).
+
+## Decisiones deliberadas que hay que respetar
+
+- Stop rebobina a 0; pausa conserva la posición (convención DAW).
+- Los ajustes de transporte (BPM, loop, metrónomo, volumen master) no entran en
+  la pila de undo, pero se restauran al deshacer una acción registrable.
+- Strips del mixer anchos (44 px táctiles) a costa de densidad en escritorio.
+- `base: './'` + rutas derivadas de `import.meta.env.BASE_URL` (sub-path seguro).
 
 ## Comandos útiles
+
 ```bash
-npm run dev     # :5175
-npm test
-npm run build
+npm run dev      # :5175 (dev usa COEP require-corp; prod credentialless)
+npm test         # 663/663 — puerta de calidad
+npm run test:browser  # 9/9 dev + 11/11 prod (necesita Chromium + build)
+npm run build    # tsc + vite build -> dist/
 ```

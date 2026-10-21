@@ -16,45 +16,45 @@ layout real, canvas, audio y foco.
 
 ```bash
 npm run dev -- --port 5199 &
-npm run test:browser                  # http://localhost:5175 por defecto
-node tests/browser/smoke.mjs http://localhost:5199   # o por argumento
+npm run test:browser                  # dev (smoke.mjs, 9 checks) + prod (prodCheck.mjs, 11 checks)
+node tests/browser/smoke.mjs http://localhost:5199   # solo fase dev, o por argumento
 BASE_URL=http://localhost:5199 npm run test:browser  # o por env var
 ```
 
-## Checks (smoke.mjs)
+## Checks (smoke.mjs — fase dev, 9/9)
 
 | # | Check | Aserción |
 |---|---|---|
 | B1 | Arranque | aparece el diálogo de inicio; 0 `pageerror` |
 | B2 | Carga de la demo | "Empezar con la demo" ⇒ 4 pistas y 4 clips visibles |
-| B3 | Play/stop | Play ⇒ el botón pasa a Pausar; Stop ⇒ vuelve |
+| B3 | Play/stop | Play ⇒ el botón pasa a Pausar; Stop ⇒ vuelve a 0 |
 | B4 | Split | seleccionar un clip y pulsar `S` ⇒ clips de 4 a 5 |
-| B5 | Modal de export | el diálogo aparece con `aria-modal="true"` (fondo inerte según W3C ARIA) y foco dentro |
-| B6 | Layout 320 px | viewport 320×640 ⇒ `document.documentElement.scrollWidth <= 320` |
-| B7 | `touch-action` | `getComputedStyle(clip).touchAction === 'none'` — **expectedFailure** (ver abajo) |
+| B4b | Split en pausa | pausar, pulsar `S` ⇒ el corte cae en la posición aparcada (bug T20) |
+| B5 | Modal de export | el diálogo aparece con `aria-modal="true"`, fondo inerte y foco dentro |
+| B6 | Layout 320 px | viewport 320×640 ⇒ `document.documentElement.scrollWidth <= 320`; todo control táctil ≥ 44 px |
+| B7 | `touch-action` | `getComputedStyle(clip).touchAction === 'none'` (real desde WP7; la marca `expectedFailure` se retiró) |
 | B8 | Errores de consola | 0 `pageerror` y 0 `console.error` en todo el recorrido |
 
 El script sale con código 1 si falla cualquier check o si hay cualquier
 `pageerror` / `console.error`.
 
-## B7: fallo esperado (quitar en WP7)
+## Checks (prodCheck.mjs — fase producción, 11/11)
 
-El clip no tiene `touch-action: none` ni pointer events, así que el arrastre
-falla en táctil. El check está marcado `expectedFailure` a propósito:
-
-```js
-// TODO(Task 18 / Task 20, WP7): quitar la marca expectedFailure al implementar
-// pointer events + touch-action:none en los clips (WaveformCanvas).
-```
-
-- Si B7 **falla** ⇒ se informa como "fallo esperado" y el script sale con 0.
-- Si B7 **pasa** ⇒ se informa como "PASA INESPERADO" y el script sale con 1
-  (obliga a quitar la marca al implementar el arreglo).
+Construye `dist/`, lo sirve con el `public/_headers` **real** (`serveDist.mjs`)
+y comprueba: CSP del documento sin `'unsafe-eval'` + COOP/COEP/HSTS/XFO/RP (P1),
+CSP propia del sandbox (`default-src 'none'; script-src 'self' 'unsafe-eval';
+connect-src 'none'`) (P2), caché inmutable de `/assets/*` (P3), arranque del
+build (P4), plugin benigno aceptado (P5), 4 payloads maliciosos rechazados
+(P6), cero ejecución/red (P7) y cero errores (P8). Sin esta fase, ningún fallo
+que solo exista bajo cabeceras de producción (como el harness `srcdoc`
+bloqueado por la CSP heredada) puede cazarse.
 
 ## Ficheros
 
 - `harness.mjs` — `withPage(fn, opts)` → `fn(page, shot, errors)`; `shot(name)`
   guarda en `test-artifacts/browser/<nombre>.png`; `collectErrors(page)` devuelve
   `{ pageErrors, consoleErrors }`; `withViewport(page, w, h)`.
-- `smoke.mjs` — los 8 checks + resumen + código de salida.
+- `smoke.mjs` — los 9 checks dev + resumen + código de salida.
+- `prodCheck.mjs` — los 11 checks de producción (construye `dist/` primero).
+- `serveDist.mjs` — sirve `dist/` aplicando el `_headers` real (respeta la sangría).
 - Artefactos: `test-artifacts/browser/*.png` (`test-artifacts/` está en `.gitignore`).

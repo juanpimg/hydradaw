@@ -2,6 +2,9 @@
 
 > Fecha: 2026-10-21 · Rama: `feature/audit-hardening-2026-10` · Base: `aca438b`
 > Todos los datos de esta página fueron verificados ejecutando comandos, no leyendo documentación.
+> **Nota histórica (Tarea 34):** las rutas `src/tests/e2e/` citadas aquí son la
+> ubicación anterior a la Tarea 2; hoy es `src/tests/contract/`. Se conservan
+> como evidencia de la base auditada.
 
 ## 1. Veredicto de la línea base
 
