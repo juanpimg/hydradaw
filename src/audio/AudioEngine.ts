@@ -71,6 +71,9 @@ export class AudioEngine {
   private loopTimer: ReturnType<typeof setTimeout> | null = null;
   private metroTimer: ReturnType<typeof setInterval> | null = null;
   private metronomeNodes: OscillatorNode[] = [];
+  // Fix(AUD-04): watermark del metrónomo (segundos de timeline): hasta dónde ya
+  // se programaron clicks. Cada disparo del extensor continúa desde aquí.
+  private metroScheduledUntil = 0;
 
   // Recording
   private mediaStream: MediaStream | null = null;
@@ -217,6 +220,8 @@ export class AudioEngine {
 
   setMetronome(on: boolean): void {
     this.metronomeEnabled = on;
+    // Fix(AUD-04): al apagar, el watermark se resetea para la próxima reproducción.
+    if (!on) this.metroScheduledUntil = 0;
   }
 
   isMetronomeEnabled(): boolean {
@@ -490,6 +495,9 @@ export class AudioEngine {
     if (this.activeMetronome) {
       const horizon = this.activeLoop ? this.activeLoop.end : this.playheadOffset + this.getBeatStep() * 64;
       this.scheduleMetronomeRange(ctx, this.playheadOffset, horizon, this.startTime);
+      // Fix(AUD-04): siembra el watermark en horizon para que el extensor
+      // continúe desde ahí sin duplicar lo ya programado.
+      this.metroScheduledUntil = horizon;
       // Extiende clicks en reproducción lineal larga (el loop se replanifica en el wrap).
       if (!this.activeLoop) this.armMetroExtender(ctx);
     }
@@ -531,6 +539,8 @@ export class AudioEngine {
     }
 
     this.activeLoop = null;
+    // Fix(AUD-04): al parar, el watermark del metrónomo vuelve a 0.
+    this.metroScheduledUntil = 0;
 
     return currentPos;
   }
@@ -970,6 +980,8 @@ export class AudioEngine {
 
   // Fix(wave3): extiende el metrónomo en reproducciones lineales largas (cada 1 s
   // programa el siguiente tramo de 2 s). En loop no hace falta: el wrap replanifica.
+  // Fix(AUD-04): ventana sin solape [max(now, watermark), now+2). El watermark es
+  // monótono (max, no asignación directa) para no retroceder tras la siembra en play().
   private armMetroExtender(ctx: BaseAudioContext): void {
     if (this.metroTimer) clearInterval(this.metroTimer);
     this.metroTimer = setInterval(() => {
@@ -979,8 +991,13 @@ export class AudioEngine {
         const dest = (this.masterBus?.inputNode ?? (ctx as unknown as AudioContext).destination) as unknown as AudioNode;
         if (!dest) return;
         const audioNow = ctx.currentTime;
-        // Programa [now, now+2) alineado a audioNow.
-        this.scheduleMetronomeOnContext(ctx, dest, now, now + 2, audioNow, this.tempoBpm, this.activeTimeSig);
+        const windowStart = Math.max(now, this.metroScheduledUntil);
+        const windowEnd = now + 2;
+        if (windowEnd > windowStart) {
+          // La base de audio se desplaza con windowStart para conservar el alineado.
+          this.scheduleMetronomeOnContext(ctx, dest, windowStart, windowEnd, audioNow + (windowStart - now), this.tempoBpm, this.activeTimeSig);
+        }
+        this.metroScheduledUntil = Math.max(this.metroScheduledUntil, windowEnd);
       } catch (err) {
         // Fix(waveA): warn con contexto en el extensor del metrónomo.
         console.warn('[AudioEngine] armMetroExtender: no se pudo extender el metrónomo', err);
