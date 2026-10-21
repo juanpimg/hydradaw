@@ -7,6 +7,7 @@ export const Ruler: React.FC<{ lanesWidth?: number }> = ({ lanesWidth }) => {
   const zoom = useDawStore((s) => s.zoom);
   const bpm = useDawStore((s) => s.bpm);
   const timeSignature = useDawStore((s) => s.timeSignature);
+  const currentTime = useDawStore((s) => s.currentTime);
   const setCurrentTime = useDawStore((s) => s.setCurrentTime);
   const isPlaying = useDawStore((s) => s.isPlaying);
 
@@ -65,8 +66,34 @@ export const Ruler: React.FC<{ lanesWidth?: number }> = ({ lanesWidth }) => {
     if (!rulerRef.current) return;
     const rect = rulerRef.current.getBoundingClientRect();
     const clickX = e.clientX - rect.left;
-    const newTime = Math.max(0, clickX / zoom);
+    // Acotado a [0, duration]: sin el clamp superior el cursor podía irse
+    // más allá del final del proyecto.
+    const newTime = Math.min(duration, Math.max(0, clickX / zoom));
     setCurrentTime(newTime);
+  };
+
+  const seekBy = (delta: number) => {
+    // Lectura fresca del store (no del closure): las repeticiones rápidas de
+    // tecla encadenan deltas sobre el valor vigente, no sobre el del render.
+    const now = useDawStore.getState().currentTime;
+    setCurrentTime(Math.min(duration, Math.max(0, now + delta)));
+  };
+
+  // Seek por teclado: la regla es un slider enfocable (←/→ 1 s, Home/End).
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'ArrowRight') {
+      e.preventDefault();
+      seekBy(1);
+    } else if (e.key === 'ArrowLeft') {
+      e.preventDefault();
+      seekBy(-1);
+    } else if (e.key === 'Home') {
+      e.preventDefault();
+      setCurrentTime(0);
+    } else if (e.key === 'End') {
+      e.preventDefault();
+      setCurrentTime(duration);
+    }
   };
 
   const bars = [];
@@ -101,6 +128,14 @@ export const Ruler: React.FC<{ lanesWidth?: number }> = ({ lanesWidth }) => {
       ref={rulerRef}
       data-testid="ruler"
       onClick={handleSeek}
+      onKeyDown={handleKeyDown}
+      role="slider"
+      tabIndex={0}
+      aria-label="Posición del cursor"
+      aria-valuemin={0}
+      aria-valuemax={duration}
+      aria-valuenow={Math.round(currentTime * 100) / 100}
+      aria-valuetext={`${Math.round(currentTime * 10) / 10} segundos`}
       // Sticky: la regla (números de compás + superficie de seek) no se va con
       // el scroll vertical. Fondo OPACO para que las lanes no se transparenten.
       className="sticky top-0 z-20 h-7 bg-dark-surface border-b border-dark-border relative cursor-pointer select-none overflow-hidden"
