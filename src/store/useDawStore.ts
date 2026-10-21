@@ -276,8 +276,11 @@ export const useDawStore = create<DawState>((set, get) => ({
       void get().toggleRecord();
       return;
     }
-    const time = audioEngine.stop();
-    set({ isPlaying: false, isRecording: false, currentTime: time });
+    // Stop aparca el motor y rebobina al inicio (convención DAW; el título del
+    // botón lo promete). Pause conserva la posición aparcada.
+    audioEngine.stop();
+    audioEngine.rewind();
+    set({ isPlaying: false, isRecording: false, currentTime: 0 });
   },
 
   toggleRecord: async () => {

@@ -9,6 +9,7 @@ vi.mock('../audio/AudioEngine', () => ({
   audioEngine: {
     play: vi.fn(),
     stop: vi.fn(() => 0),
+    rewind: vi.fn(),
     syncTracks: vi.fn(),
     rebuildTrackEffects: vi.fn(),
     getMasterBus: vi.fn(() => null),

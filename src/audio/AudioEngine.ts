@@ -313,6 +313,17 @@ export class AudioEngine {
     this.stop();
   }
 
+  /**
+   * Parks the cursor at the project start without restarting playback.
+   * Only meaningful once the engine is stopped (the store's `stop` action
+   * calls stop() first: stop rewinds per DAW convention, pause keeps the
+   * parked position). Deliberately not seek(0): seek() restarts playback
+   * when the engine is playing.
+   */
+  rewind(): void {
+    this.playheadOffset = 0;
+  }
+
   seek(time: number): void {
     // Fix(AUD-01): invalida los play() en vuelo antes del reinicio.
     this.playGen++;

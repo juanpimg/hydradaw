@@ -6,6 +6,7 @@ vi.mock('../audio/AudioEngine', () => ({
   audioEngine: {
     play: vi.fn(),
     stop: vi.fn(() => 0),
+    rewind: vi.fn(),
     getCurrentTime: vi.fn(() => 5.0),
     setLoop: vi.fn(),
     setMetronome: vi.fn(),

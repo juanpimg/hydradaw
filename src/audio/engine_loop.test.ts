@@ -429,6 +429,7 @@ describe('wave3: compatibilidad hacia atrás', () => {
     // Nuevos métodos exigidos
     expect(typeof engine.setLoop).toBe('function');
     expect(typeof engine.setMetronome).toBe('function');
+    expect(typeof engine.rewind).toBe('function');
     // stop() sigue devolviendo number
     expect(typeof engine.stop()).toBe('number');
   });

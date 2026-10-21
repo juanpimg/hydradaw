@@ -164,39 +164,31 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe('Task 20: el transporte conserva la posición al parar', () => {
-  it('stop() conserva la posición del cursor', async () => {
+describe('stop rebobina / pause conserva (stop→0, pause→posición)', () => {
+  it('engine.stop() aparca el motor en la posición actual', async () => {
     const { engine, mockCtx } = setupEngine();
     await engine.play([makeTrack()], [makeClip()], 0);
     mockCtx.currentTime += 5.02; // compensa el lookahead 0.02 → posición exacta 5
     const pos = engine.stop();
     expect(pos).toBeCloseTo(5, 2);
-    // Hoy getCurrentTime() devuelve el playheadOffset obsoleto (0).
     expect(engine.getCurrentTime()).toBeCloseTo(5, 2);
   });
 
-  it('la acción stop del store no rebobina a 0', async () => {
-    const { mockCtx } = setupEngine();
-    useDawStore.setState({
-      tracks: [makeTrack()],
-      clips: [makeClip()],
-      currentTime: 0,
-      isPlaying: true,
-      isRecording: false,
-    });
-    const { tracks, clips } = useDawStore.getState();
-    await audioEngine.play(tracks, clips, 0);
+  it('rewind() devuelve el cursor a 0 sin reanudar', async () => {
+    const { engine, mockCtx } = setupEngine();
+    await engine.play([makeTrack()], [makeClip()], 0);
     mockCtx.currentTime += 5.02;
-    useDawStore.getState().stop();
-    expect(useDawStore.getState().isPlaying).toBe(false);
-    expect(useDawStore.getState().currentTime).toBeCloseTo(5, 2);
+    engine.stop();
+    engine.rewind();
+    expect(engine.getCurrentTime()).toBe(0);
+    expect((engine as unknown as { isPlaying: boolean }).isPlaying).toBe(false);
   });
 
-  it('la acción pause del store sigue conservando la posición', async () => {
+  it('pause conserva la posición en el store y en el motor', async () => {
     const { mockCtx } = setupEngine();
     useDawStore.setState({
       tracks: [makeTrack()],
-      clips: [makeClip()],
+      clips: [makeClip({ audioBuffer: null })],
       currentTime: 0,
       isPlaying: true,
       isRecording: false,
@@ -207,5 +199,45 @@ describe('Task 20: el transporte conserva la posición al parar', () => {
     useDawStore.getState().pause();
     expect(useDawStore.getState().isPlaying).toBe(false);
     expect(useDawStore.getState().currentTime).toBeCloseTo(5, 2);
+    expect(audioEngine.getCurrentTime()).toBeCloseTo(5, 2);
+  });
+
+  it('stop rebobina a 0 en el store y en el motor', async () => {
+    const { mockCtx } = setupEngine();
+    useDawStore.setState({
+      tracks: [makeTrack()],
+      clips: [makeClip({ audioBuffer: null })],
+      currentTime: 0,
+      isPlaying: true,
+      isRecording: false,
+    });
+    const { tracks, clips } = useDawStore.getState();
+    await audioEngine.play(tracks, clips, 0);
+    mockCtx.currentTime += 5.02;
+    useDawStore.getState().stop();
+    expect(useDawStore.getState().isPlaying).toBe(false);
+    expect(useDawStore.getState().currentTime).toBe(0);
+    expect(audioEngine.getCurrentTime()).toBe(0);
+  });
+
+  it('partir con S en pausa cae en el cursor, no en 0', async () => {
+    const { mockCtx } = setupEngine();
+    useDawStore.setState({
+      tracks: [makeTrack()],
+      clips: [makeClip({ audioBuffer: null })],
+      currentTime: 0,
+      isPlaying: true,
+      isRecording: false,
+    });
+    const { tracks, clips } = useDawStore.getState();
+    await audioEngine.play(tracks, clips, 0);
+    mockCtx.currentTime += 5.02;
+    useDawStore.getState().pause();
+    // Lo que hace WaveformCanvas/handleKeyDown y el atajo global con 'S'.
+    useDawStore.getState().splitClip('clip_1', audioEngine.getCurrentTime());
+    const after = useDawStore.getState().clips;
+    expect(after).toHaveLength(2);
+    const boundary = after.find((c) => c.id !== 'clip_1')!;
+    expect(boundary.startTime).toBeCloseTo(5, 1);
   });
 });
