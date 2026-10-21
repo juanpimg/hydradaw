@@ -1,11 +1,13 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render, cleanup, act } from '@testing-library/react';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import React from 'react';
+import React, { Profiler } from 'react';
 import { useDawStore } from '../../store/useDawStore';
+import { audioEngine } from '../../audio/AudioEngine';
+import { MixerConsole } from '../../components/Mixer/MixerConsole';
 
 const TARGETS = [
   'src/components/Mixer/MixerConsole.tsx',
@@ -30,6 +32,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  vi.restoreAllMocks();
 });
 
 describe('Selectores granulares en Zustand (UI-06)', () => {
@@ -57,5 +60,36 @@ describe('Selectores granulares en Zustand (UI-06)', () => {
     const withMulti = TARGETS.filter((f) => /useShallow/.test(readSource(f)));
     // Al menos los tres con múltiples campos deben usarlo.
     expect(withMulti.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it('R4: MixerConsole (producto real) no se re-renderiza ante un toast', () => {
+    // Evidencia conductual de UI-06 sobre el componente real: con la
+    // suscripción al store completo, el toast re-renderiza el mixer (falla);
+    // con selectores granulares, no hay ningún commit nuevo (pasa).
+    useDawStore.setState({
+      tracks: [
+        {
+          id: 't1', name: 'Voz', type: 'vocal' as const, color: '#a855f7',
+          volume: 1, pan: 0, mute: false, solo: false, armed: false, plugins: [],
+        },
+      ],
+      masterVolume: 1,
+      masterMute: false,
+    });
+    // Los meters del engine no emiten en jsdom: se fija el unsub para que
+    // ningún tick real contamine el conteo de commits.
+    vi.spyOn(audioEngine, 'onMeterUpdate').mockReturnValue(() => {});
+    const onRender = vi.fn();
+    render(
+      <Profiler id="mixer" onRender={onRender}>
+        <MixerConsole />
+      </Profiler>,
+    );
+    const mounted = onRender.mock.calls.length;
+    expect(mounted).toBeGreaterThan(0);
+    act(() => {
+      useDawStore.getState().pushToast('aviso no relacionado');
+    });
+    expect(onRender.mock.calls.length).toBe(mounted);
   });
 });
