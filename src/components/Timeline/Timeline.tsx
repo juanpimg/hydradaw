@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useDawStore } from '../../store/useDawStore';
 import { audioEngine } from '../../audio/AudioEngine';
+import { usePlayheadSync } from '../../hooks/usePlayheadSync';
 import { Ruler } from './Ruler';
 import { TrackHeader } from './TrackHeader';
 import { WaveformCanvas } from './WaveformCanvas';
@@ -22,7 +23,6 @@ export const Timeline: React.FC = () => {
   const splitClip = useDawStore((s) => s.splitClip);
   const addClip = useDawStore((s) => s.addClip);
   const addTrack = useDawStore((s) => s.addTrack);
-  const isPlaying = useDawStore((s) => s.isPlaying);
   const pushToast = useDawStore((s) => s.pushToast);
   const snapMode = useDawStore((s) => s.snapMode);
   const setSnapMode = useDawStore((s) => s.setSnapMode);
@@ -33,7 +33,9 @@ export const Timeline: React.FC = () => {
   const lanesScrollRef = useRef<HTMLDivElement>(null);
   const headersScrollRef = useRef<HTMLDivElement>(null);
   const headerColRef = useRef<HTMLDivElement>(null);
-  const playheadRef = useRef<HTMLDivElement>(null);
+  // Playhead compartido (un solo rAF + una sola suscripción en toda la app)
+  // con seguimiento de scroll sobre el contenedor de lanes.
+  const playheadRef = usePlayheadSync({ containerRef: lanesScrollRef, zoom });
   // Banderas de reentrada: programar el scrollTop del otro contenedor no debe
   // rebotar de vuelta (ping-pong entre los dos onScroll).
   const isSyncingFromHeaders = useRef(false);
@@ -94,39 +96,8 @@ export const Timeline: React.FC = () => {
     return () => window.removeEventListener('resize', onResize);
   }, []);
 
-  // Fix (doble loop rAF): se mantiene este loop local del playhead (mutación directa del DOM sin
-  // re-renders) separado del loop de telemetría del engine (meters + time callbacks). Unificarlos
-  // Playhead smooth position sync: runs at 60fps via rAF ONLY when playing,
-  // and syncs immediately on zoom or time updates when paused.
-  useEffect(() => {
-    let animId: number;
-    const updatePlayhead = () => {
-      if (playheadRef.current) {
-        const time = audioEngine.getCurrentTime();
-        playheadRef.current.style.transform = `translateX(${time * zoom}px)`;
-      }
-    };
-    updatePlayhead();
-
-    const unsub = audioEngine.onTimeUpdate((time) => {
-      if (playheadRef.current) {
-        playheadRef.current.style.transform = `translateX(${time * zoom}px)`;
-      }
-    });
-
-    if (isPlaying) {
-      const syncPlayhead = () => {
-        updatePlayhead();
-        animId = requestAnimationFrame(syncPlayhead);
-      };
-      animId = requestAnimationFrame(syncPlayhead);
-    }
-
-    return () => {
-      unsub();
-      if (animId) cancelAnimationFrame(animId);
-    };
-  }, [zoom, isPlaying]);
+  // Playhead: lo mueve el bucle compartido `usePlayheadSync` (posición suave
+  // a 60 fps sin re-renders, más seguimiento de scroll). Nada local aquí.
 
   // Handle Drag & Drop of Audio Files directly onto Timeline
   const handleDrop = async (e: React.DragEvent, trackId?: string) => {

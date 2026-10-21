@@ -180,16 +180,12 @@ interface TimeDisplayProps {
   timeSignature: [number, number];
 }
 
-const TransportTimeDisplay: React.FC<TimeDisplayProps> = React.memo(({ bpm, timeSignature }) => {
-  const [time, setTime] = useState(() => audioEngine.getCurrentTime());
-
-  useEffect(() => {
-    const unsub = audioEngine.onTimeUpdate((curr) => {
-      setTime(curr);
-    });
-    return unsub;
-  }, []);
-
+// Partes visibles del timecode. Se exporta para el gate de re-render y tests.
+export function getTransportTimeParts(
+  time: number,
+  bpm: number,
+  timeSignature: [number, number],
+) {
   const beatDuration = 60 / bpm;
   const currentBeatTotal = time / beatDuration;
   const currentBar = Math.floor(currentBeatTotal / timeSignature[0]) + 1;
@@ -199,6 +195,40 @@ const TransportTimeDisplay: React.FC<TimeDisplayProps> = React.memo(({ bpm, time
   const minutes = Math.floor(time / 60);
   const seconds = Math.floor(time % 60);
   const millis = Math.floor((time % 1) * 100);
+  return { currentBar, currentBeatInBar, sixteenth, minutes, seconds, millis };
+}
+
+// Texto completo del timecode: el display sólo re-renderiza cuando CAMBIA.
+export function formatTransportTime(
+  time: number,
+  bpm: number,
+  timeSignature: [number, number],
+): string {
+  const p = getTransportTimeParts(time, bpm, timeSignature);
+  const format2 = (n: number) => n.toString().padStart(2, '0');
+  const format3 = (n: number) => n.toString().padStart(3, '0');
+  return `${format3(p.currentBar)}:${p.currentBeatInBar}:${format2(p.sixteenth)}|${format2(p.minutes)}:${format2(p.seconds)}.${format2(p.millis)}`;
+}
+
+const TransportTimeDisplay: React.FC<TimeDisplayProps> = React.memo(({ bpm, timeSignature }) => {
+  const [time, setTime] = useState(() => audioEngine.getCurrentTime());
+
+  useEffect(() => {
+    let last = formatTransportTime(audioEngine.getCurrentTime(), bpm, timeSignature);
+    const unsub = audioEngine.onTimeUpdate((curr) => {
+      // Gate: los ticks del engine llegan a alta frecuencia; si los dígitos
+      // mostrados no cambian, no se toca el estado (cero re-renders).
+      const next = formatTransportTime(curr, bpm, timeSignature);
+      if (next !== last) {
+        last = next;
+        setTime(curr);
+      }
+    });
+    return unsub;
+  }, [bpm, timeSignature]);
+
+  const { currentBar, currentBeatInBar, sixteenth, minutes, seconds, millis } =
+    getTransportTimeParts(time, bpm, timeSignature);
 
   const format2 = (n: number) => n.toString().padStart(2, '0');
   const format3 = (n: number) => n.toString().padStart(3, '0');
