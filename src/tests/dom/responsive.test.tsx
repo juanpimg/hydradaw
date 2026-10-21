@@ -69,7 +69,7 @@ describe('Responsive y objetivos táctiles (UI-09)', () => {
     // verifica en el navegador (B6). Aquí se afirma la causa: las clases.
     const zoomOut = screen.getByRole('button', { name: 'Alejar zoom' });
     expect(zoomOut.getBoundingClientRect().width).toBe(0);
-    for (const name of ['Alejar zoom', 'Acercar zoom'] as const) {
+    for (const name of ['Alejar zoom', 'Acercar zoom', 'Cortar clip'] as const) {
       const cls = screen.getByRole('button', { name }).className;
       expect(cls).toContain('min-w-[44px]');
       expect(cls).toContain('min-h-[44px]');
@@ -92,13 +92,22 @@ describe('Responsive y objetivos táctiles (UI-09)', () => {
 
     render(<TransportBar />);
     for (const name of [
-      'Detener', 'Reproducir', 'Grabar', 'Activar bucle', 'Silenciar master',
+      'Detener', 'Reproducir', 'Grabar', 'Activar bucle', 'Silenciar master', 'Metrónomo',
     ] as const) {
       const cls = screen.getByRole('button', { name }).className;
       expect(cls).toContain('min-w-[44px]');
       expect(cls).toContain('min-h-[44px]');
     }
     cleanup();
+
+    // El play en estado de reproducción (Pausar) usa el mismo elemento.
+    useDawStore.setState({ isPlaying: true });
+    render(<TransportBar />);
+    const pauseCls = screen.getByRole('button', { name: 'Pausar' }).className;
+    expect(pauseCls).toContain('min-w-[44px]');
+    expect(pauseCls).toContain('min-h-[44px]');
+    cleanup();
+    useDawStore.setState({ isPlaying: false });
 
     render(<ChannelStrip track={track} levels={{ rms: 0, peak: 0 }} />);
     const addFx = screen.getByRole('button', { name: 'Añadir efecto' });

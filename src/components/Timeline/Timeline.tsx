@@ -180,7 +180,7 @@ export const Timeline: React.FC = () => {
           }}
           disabled={!canSplit}
           aria-label="Cortar clip"
-          className="flex items-center space-x-1 px-2 py-1 rounded text-xs font-semibold bg-dark-surfaceLight hover:bg-dark-border disabled:opacity-40 text-cyan-400"
+          className="flex items-center justify-center space-x-1 px-2 py-1 rounded text-xs font-semibold bg-dark-surfaceLight hover:bg-dark-border disabled:opacity-40 text-cyan-400 min-w-[44px] min-h-[44px]"
           title={!selectedClip ? 'Selecciona un clip para cortar' : "Cortar clip seleccionado en el cursor ('S')"}
         >
           <Scissors className="w-3.5 h-3.5" />

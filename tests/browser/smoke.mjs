@@ -292,10 +292,15 @@ async function main() {
           'button[aria-label="Alejar zoom"]',
           'button[aria-label="Acercar zoom"]',
           'button[aria-label="Detener"]',
+          'button[aria-label="Reproducir"]',
           'button[aria-label="Grabar"]',
           'button[aria-label="Activar bucle"]',
+          'button[aria-label="Metrónomo"]',
           'button[aria-label="Silenciar master"]',
+          'button[aria-label="Cortar clip"]',
           'button[aria-label^="Silenciar pista"]',
+          'button[aria-label$="en solo"]',
+          'button[aria-label^="Armar pista"]',
           'button[aria-label^="Eliminar pista"]',
         ];
         const bad = [];
