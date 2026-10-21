@@ -1,5 +1,6 @@
 import { BUILTIN_PLUGINS } from './builtinPlugins';
 import type { PluginDefinition, PluginInstance } from '../types/daw';
+import { evaluateCustomPlugin, evaluateCustomPluginSandboxed } from './pluginSandbox';
 
 export interface ActiveDSPNode {
   instanceId: string;
@@ -113,48 +114,33 @@ export class PluginHost {
   }
 
   /**
-   * Registers a local custom audio plugin imported from a JS/JSON file
+   * Registers a local custom audio plugin imported from a JS/JSON file.
+   *
+   * SEC-01: vía síncrona (tests/compat) — escáner denegar-por-defecto +
+   * evaluación endurecida (ver `pluginSandbox.ts`). El punto de entrada de
+   * la UI es `registerCustomPluginSecure`, que pre-ejecuta el código en un
+   * iframe con origen opaco antes de materializar.
    */
   registerCustomPlugin(code: string): PluginDefinition {
-    // Sanitize input code against malicious globals and network/DOM exfiltration
-    const forbidden = [
-      /\b(window|document|localStorage|sessionStorage|indexedDB)\b/i,
-      /\b(fetch|XMLHttpRequest|WebSocket|EventSource)\b/i,
-      /\b(eval|Function)\s*\(/i,
-      /\bimport\s*\(/i,
-    ];
-
-    for (const pattern of forbidden) {
-      if (pattern.test(code)) {
-        throw new Error(
-          `Código de plugin bloqueado por seguridad: acceso restringido a APIs del navegador (${pattern}).`
-        );
-      }
+    const result = evaluateCustomPlugin(code);
+    if (!result.ok) {
+      throw new Error(result.error);
     }
+    this.customPlugins.set(result.definition.id, result.definition);
+    return result.definition;
+  }
 
-    // Custom plugin evaluation in a sandboxed wrapper shadowing dangerous globals
-    const fn = new Function(
-      'window',
-      'document',
-      'localStorage',
-      'sessionStorage',
-      'indexedDB',
-      'fetch',
-      'XMLHttpRequest',
-      'WebSocket',
-      'PluginHost',
-      `"use strict";
-       ${code}
-       return typeof customPlugin !== 'undefined' ? customPlugin : null;`
-    );
-
-    const pluginDef = fn(null, null, null, null, null, null, null, null, this) as PluginDefinition | null;
-    if (!pluginDef || !pluginDef.id || !pluginDef.createDSPNode) {
-      throw new Error('El plugin local no exporta una definición válida de PluginDefinition con createDSPNode.');
+  /**
+   * Vía segura para la UI: pre-ejecución aislada en iframe opaco y, solo si
+   * el descriptor es válido, materialización endurecida. Si el sandbox no
+   * está disponible, rechaza SIN ejecutar el código.
+   */
+  async registerCustomPluginSecure(code: string): Promise<PluginDefinition> {
+    const pre = await evaluateCustomPluginSandboxed(code);
+    if (!pre.ok) {
+      throw new Error(pre.error);
     }
-
-    this.customPlugins.set(pluginDef.id, pluginDef);
-    return pluginDef;
+    return this.registerCustomPlugin(code);
   }
 }
 

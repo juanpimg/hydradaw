@@ -95,15 +95,20 @@ const customPlugin = {
   const allPlugins = pluginHost.getAllPluginDefinitions();
 
   const handleImportCustom = () => {
-    try {
-      const def = pluginHost.registerCustomPlugin(customCode);
-      addPluginToTrack(track.id, def.id);
-      setImportingCustom(false);
-      // Fix(waveB-shell): toast no bloqueante en vez de alert().
-      pushToast(`Plugin local "${def.name}" importado e insertado en el rack.`);
-    } catch (err) {
-      pushToast('Error al compilar plugin local: ' + err);
-    }
+    void (async () => {
+      try {
+        // SEC-01: vía aislada (iframe opaco); si no hay sandbox, rechaza con toast.
+        const def = await pluginHost.registerCustomPluginSecure(customCode);
+        addPluginToTrack(track.id, def.id);
+        setImportingCustom(false);
+        // Fix(waveB-shell): toast no bloqueante en vez de alert().
+        pushToast(`Plugin local "${def.name}" importado e insertado en el rack.`);
+      } catch (err) {
+        pushToast(
+          'Error al compilar plugin local: ' + (err instanceof Error ? err.message : String(err))
+        );
+      }
+    })();
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {

