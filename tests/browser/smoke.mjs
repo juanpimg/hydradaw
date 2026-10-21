@@ -9,9 +9,9 @@
 //   node tests/browser/smoke.mjs http://localhost:5199
 //   BASE_URL=http://localhost:5199 npm run test:browser
 //
-// Sale con codigo 1 si falla cualquier check (salvo el expectedFailure B7)
-// o si hay cualquier pageerror / console.error. Una suite de navegador que
-// trague fallos es la enfermedad que este programa existe para curar.
+// Sale con codigo 1 si falla cualquier check o si hay cualquier pageerror /
+// console.error. Una suite de navegador que trague fallos es la enfermedad
+// que este programa existe para curar.
 
 import { withPage, withViewport, resolveBaseUrl } from './harness.mjs';
 
@@ -68,78 +68,120 @@ async function clipCount(page) {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+/**
+ * Espera a que el cursor de reproducción real supere `minSeconds`, leyendo el
+ * readout de tiempo (MM:SS.cc) en lugar de dormir un tiempo fijo: en una
+ * máquina de CI cargada el audio avanza más lento y el sleep fijo es flaky.
+ */
+async function waitForCursor(page, minSeconds, timeout = 20000) {
+  await page.waitForFunction(
+    (min) => {
+      const el = document.querySelector(
+        'div[title="Rejilla (no estira el audio)"] > div:last-child',
+      );
+      const m = (el?.textContent ?? '').match(/(\d+):(\d{2})\.(\d{2})/);
+      if (!m) return false;
+      return Number(m[1]) * 60 + Number(m[2]) + Number(m[3]) / 100 > min;
+    },
+    { timeout },
+    minSeconds,
+  );
+}
+
 async function main() {
   console.log(`[browser] base URL: ${resolveBaseUrl()}`);
   await withPage(async (page, shot, errors) => {
     await check('B1 arranque', async () => {
-      await page.waitForSelector('[aria-label="Pantalla de inicio de HydraDAW"]', {
-        visible: true,
-        timeout: 30000,
-      });
-      if (errors.pageErrors.length > 0) {
-        throw new Error(`pageerror en arranque: ${errors.pageErrors.join(' | ')}`);
+      try {
+        await page.waitForSelector('[aria-label="Pantalla de inicio de HydraDAW"]', {
+          visible: true,
+          timeout: 30000,
+        });
+        if (errors.pageErrors.length > 0) {
+          throw new Error(`pageerror en arranque: ${errors.pageErrors.join(' | ')}`);
+        }
+        await shot('b1-arranque');
+      } catch (err) {
+        await shot('b1-arranque-fallo');
+        throw err;
       }
-      await shot('b1-arranque');
     });
 
     await check('B2 carga de la demo', async () => {
-      await clickButtonByText(page, 'Empezar con la demo', 'Seguir editando');
-      await page.waitForFunction(
-        () => !document.querySelector('[aria-label="Pantalla de inicio de HydraDAW"]'),
-        { timeout: 30000 },
-      );
-      await page.waitForFunction(
-        () => document.querySelectorAll('[role="option"]').length === 4,
-        { timeout: 30000 },
-      );
-      const bodyText = await page.evaluate(() => document.body.textContent ?? '');
-      // textContent (no innerText): el CSS `uppercase` hace que innerText devuelva "PISTAS (4)".
-      if (!bodyText.includes('Pistas (4)')) {
-        throw new Error('no se ven 4 pistas (falta el texto "Pistas (4)")');
+      try {
+        await clickButtonByText(page, 'Empezar con la demo', 'Seguir editando');
+        await page.waitForFunction(
+          () => !document.querySelector('[aria-label="Pantalla de inicio de HydraDAW"]'),
+          { timeout: 30000 },
+        );
+        await page.waitForFunction(
+          () => document.querySelectorAll('[role="option"]').length === 4,
+          { timeout: 30000 },
+        );
+        const bodyText = await page.evaluate(() => document.body.textContent ?? '');
+        // textContent (no innerText): el CSS `uppercase` hace que innerText devuelva "PISTAS (4)".
+        if (!bodyText.includes('Pistas (4)')) {
+          throw new Error('no se ven 4 pistas (falta el texto "Pistas (4)")');
+        }
+        const n = await clipCount(page);
+        if (n !== 4) throw new Error(`clips visibles: ${n}, esperados 4`);
+        await shot('b2-demo');
+      } catch (err) {
+        await shot('b2-demo-fallo');
+        throw err;
       }
-      const n = await clipCount(page);
-      if (n !== 4) throw new Error(`clips visibles: ${n}, esperados 4`);
-      await shot('b2-demo');
     });
 
     await check('B3 play/stop', async () => {
-      await page.click('button[title="Reproducir (Espacio)"]');
-      await page.waitForFunction(
-        () => !!document.querySelector('button[title="Pausar (Espacio)"]'),
-        { timeout: 15000 },
-      );
-      await shot('b3-playing');
-      await page.click('button[title="Detener y volver al inicio (0:00)"]');
-      await page.waitForFunction(
-        () => !!document.querySelector('button[title="Reproducir (Espacio)"]'),
-        { timeout: 15000 },
-      );
+      try {
+        await page.click('button[title="Reproducir (Espacio)"]');
+        await page.waitForFunction(
+          () => !!document.querySelector('button[title="Pausar (Espacio)"]'),
+          { timeout: 15000 },
+        );
+        await shot('b3-playing');
+        await page.click('button[title="Detener y volver al inicio (0:00)"]');
+        await page.waitForFunction(
+          () => !!document.querySelector('button[title="Reproducir (Espacio)"]'),
+          { timeout: 15000 },
+        );
+        await shot('b3-stop');
+      } catch (err) {
+        await shot('b3-fallo');
+        throw err;
+      }
     });
 
     await check('B4 split con S', async () => {
-      const before = await clipCount(page);
-      if (before !== 4) throw new Error(`precondición: clips=${before}, esperados 4`);
-      await page.click('button[title="Reproducir (Espacio)"]');
-      await page.waitForFunction(
-        () => !!document.querySelector('button[title="Pausar (Espacio)"]'),
-        { timeout: 15000 },
-      );
-      // Avanza el cursor (~2 s) para que el corte caiga dentro del clip.
-      // NOTA: este check parte EN REPRODUCCIÓN. Partir en pausa también
-      // funciona: engine.stop() aparca playheadOffset y el store lo conserva
-      // en pause (stop rebobina a 0 por convención DAW); B4b lo cubre.
-      await sleep(2000);
-      const clips = await page.$$('[role="option"]');
-      const first = clips[0];
-      if (!first) throw new Error('no hay clips para seleccionar');
-      await first.click();
-      await page.keyboard.press('s');
-      await page.waitForFunction(
-        () => document.querySelectorAll('[role="option"]').length === 5,
-        { timeout: 15000 },
-      );
-      await page.click('button[title="Detener y volver al inicio (0:00)"]');
-      await shot('b4-split');
+      try {
+        const before = await clipCount(page);
+        if (before !== 4) throw new Error(`precondición: clips=${before}, esperados 4`);
+        await page.click('button[title="Reproducir (Espacio)"]');
+        await page.waitForFunction(
+          () => !!document.querySelector('button[title="Pausar (Espacio)"]'),
+          { timeout: 15000 },
+        );
+        // Avanza el cursor hasta >1.5 s para que el corte caiga dentro del clip,
+        // sondeando el readout real en vez de un sleep fijo (flaky en CI).
+        // NOTA: este check parte EN REPRODUCCIÓN. Partir en pausa también
+        // funciona: engine.stop() aparca playheadOffset y el store lo conserva
+        // en pause (stop rebobina a 0 por convención DAW); B4b lo cubre.
+        await waitForCursor(page, 1.5);
+        const clips = await page.$$('[role="option"]');
+        const first = clips[0];
+        if (!first) throw new Error('no hay clips para seleccionar');
+        await first.click();
+        await page.keyboard.press('s');
+        await page.waitForFunction(
+          () => document.querySelectorAll('[role="option"]').length === 5,
+          { timeout: 15000 },
+        );
+        await page.click('button[title="Detener y volver al inicio (0:00)"]');
+        await shot('b4-split');
+      } catch (err) {
+        await shot('b4-fallo');
+        throw err;
+      }
     });
 
     await check('B4b split con S en pausa', async () => {
@@ -150,7 +192,8 @@ async function main() {
         () => !!document.querySelector('button[title="Pausar (Espacio)"]'),
         { timeout: 15000 },
       );
-      await sleep(2000);
+      // Mismo sondeo del readout que B4: nada de sleeps fijos.
+      await waitForCursor(page, 1.5);
       // Pausa: el cursor queda aparcado en posición no nula (stop aparca el
       // motor y pause conserva la posición en el store).
       await page.click('button[title="Pausar (Espacio)"]');
@@ -246,24 +289,17 @@ async function main() {
       }
     });
 
-    // TODO(Task 18 / Task 20, WP7): quitar la marca expectedFailure al implementar
-    // pointer events + touch-action:none en los clips (WaveformCanvas). Hoy el
-    // estilo computado es "auto" y el arrastre falla en tactil.
-    await check(
-      'B7 touch-action none',
-      async () => {
-        const touchAction = await page.evaluate(() => {
-          const clip = document.querySelector('[role="option"]');
-          if (!clip) throw new Error('no hay clips');
-          return getComputedStyle(clip).touchAction;
-        });
-        await shot('b7-touch-action');
-        if (touchAction !== 'none') {
-          throw new Error(`touch-action computado: "${touchAction}", esperado "none"`);
-        }
-      },
-      { expectedFailure: true },
-    );
+    await check('B7 touch-action none', async () => {
+      const touchAction = await page.evaluate(() => {
+        const clip = document.querySelector('[role="option"]');
+        if (!clip) throw new Error('no hay clips');
+        return getComputedStyle(clip).touchAction;
+      });
+      await shot('b7-touch-action');
+      if (touchAction !== 'none') {
+        throw new Error(`touch-action computado: "${touchAction}", esperado "none"`);
+      }
+    });
 
     await check(
       'B8 cero errores de consola',

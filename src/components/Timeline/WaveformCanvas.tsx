@@ -124,10 +124,41 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     }
   }, [clip.peaks, width, height, clip.color, clip.fadeIn, clip.fadeOut, clip.duration]);
 
-  // Handle Drag Move & Trim
-  const handleMouseDown = (e: React.MouseEvent) => {
+  // Handle Drag Move & Trim con Pointer Events sobre el propio elemento:
+  // captura defensiva para que el gesto no lo robe el scroll táctil ni otro
+  // elemento, y `touch-action: none` (ver className) para que el navegador no
+  // compita con el arrastre. La zona de trim es dinámica según el puntero.
+  interface DragSession {
+    el: HTMLElement;
+    pointerId: number;
+    startX: number;
+    initialStartTime: number;
+    initialDuration: number;
+    initialOffset: number;
+    bufferDuration: number;
+    mode: 'move' | 'trimLeft' | 'trimRight';
+    pendingUpdates: Partial<typeof clip> | null;
+    hasMoved: boolean;
+  }
+  const dragRef = useRef<DragSession | null>(null);
+
+  const getTrimEdge = (pointerType: string): number => {
+    const isTouch = pointerType !== 'mouse';
+    return isTouch ? Math.min(20, width * 0.28) : Math.min(8, width * 0.2);
+  };
+
+  const handlePointerDown = (e: React.PointerEvent) => {
     e.stopPropagation();
     selectClip();
+
+    const el = e.currentTarget as HTMLElement;
+    if (el.setPointerCapture) {
+      try {
+        el.setPointerCapture(e.pointerId);
+      } catch {
+        // jsdom o puntero ya liberado: el arrastre sigue funcionando.
+      }
+    }
 
     const startX = e.clientX;
     const initialStartTime = clip.startTime;
@@ -137,64 +168,91 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     // Fix(waveB): solo `audioBuffer` (alias `buffer` eliminado).
     const bufferDuration = clip.audioBuffer?.duration ?? Number.POSITIVE_INFINITY;
 
-    const clipEl = e.currentTarget as HTMLElement;
-    let pendingUpdates: Partial<typeof clip> | null = null;
-    let hasMoved = false;
-
-    // Detect if clicking near left or right edge for trimming
+    // Detect if pressing near left or right edge for trimming.
+    // La zona depende del tipo de puntero: táctil más generosa.
     const rect = e.currentTarget.getBoundingClientRect();
     const clickOffset = e.clientX - rect.left;
-    // Fix: zona trim ergonómica ampliada a 12px con cursor col-resize.
-    const edge = Math.min(12, Math.max(8, width * 0.2));
+    const edge = getTrimEdge(e.pointerType);
     const canTrim = width >= 20;
     const isTrimLeft = canTrim && clickOffset < edge;
     const isTrimRight = canTrim && clickOffset > rect.width - edge;
 
-    const onMouseMove = (moveEvent: MouseEvent) => {
-      const deltaX = moveEvent.clientX - startX;
-      if (Math.abs(deltaX) > 2) hasMoved = true;
-      const deltaTime = deltaX / zoom;
-
-      if (isTrimLeft) {
-        // Fix: clamp del delta y actualización visual inmediata
-        const maxDelta = initialDuration - 0.2;
-        const clampedDelta = Math.max(-initialStartTime, -initialOffset, Math.min(maxDelta, deltaTime));
-        const newStart = Math.max(0, initialStartTime + clampedDelta);
-        const newDuration = Math.max(0.2, initialDuration - clampedDelta);
-        const newOffset = Math.max(0, initialOffset + clampedDelta);
-        pendingUpdates = { startTime: newStart, duration: newDuration, offset: newOffset };
-        clipEl.style.transform = `translateX(${clampedDelta * zoom}px)`;
-        clipEl.style.width = `${newDuration * zoom}px`;
-      } else if (isTrimRight) {
-        // Fix: clamp contra buffer.duration para no extender más allá del audio disponible.
-        const maxDuration = Math.max(0.2, bufferDuration - initialOffset);
-        const newDuration = Math.min(Math.max(0.2, initialDuration + deltaTime), maxDuration);
-        pendingUpdates = { duration: newDuration };
-        clipEl.style.width = `${newDuration * zoom}px`;
-      } else {
-        // Move clip con transformación suave en tiempo real sin reiniciar audio a cada pixel
-        const st = useDawStore.getState();
-        const rawStart = Math.max(0, initialStartTime + deltaTime);
-        const others = st.clips.filter((c) => c.id !== clip.id);
-        const { snappedTime } = calculateMagneticSnap(rawStart, st.bpm, st.timeSignature, others, 0.1, st.snapMode);
-        const maxStart = Math.max(0, st.duration - initialDuration);
-        const newStart = Math.min(Math.max(0, snappedTime), maxStart);
-        pendingUpdates = { startTime: newStart };
-        clipEl.style.transform = `translateX(${(newStart - initialStartTime) * zoom}px)`;
-      }
+    dragRef.current = {
+      el,
+      pointerId: e.pointerId,
+      startX,
+      initialStartTime,
+      initialDuration,
+      initialOffset,
+      bufferDuration,
+      mode: isTrimLeft ? 'trimLeft' : isTrimRight ? 'trimRight' : 'move',
+      pendingUpdates: null,
+      hasMoved: false,
     };
+  };
 
-    const onMouseUp = () => {
-      window.removeEventListener('mousemove', onMouseMove);
-      window.removeEventListener('mouseup', onMouseUp);
-      clipEl.style.transform = '';
-      if (hasMoved && pendingUpdates) {
-        updateClip(clip.id, pendingUpdates);
+  const handlePointerMove = (e: React.PointerEvent) => {
+    const drag = dragRef.current;
+    if (!drag) return;
+    const deltaX = e.clientX - drag.startX;
+    if (Math.abs(deltaX) > 2) drag.hasMoved = true;
+    const deltaTime = deltaX / zoom;
+
+    if (drag.mode === 'trimLeft') {
+      // Fix: clamp del delta y actualización visual inmediata
+      const maxDelta = drag.initialDuration - 0.2;
+      const clampedDelta = Math.max(-drag.initialStartTime, -drag.initialOffset, Math.min(maxDelta, deltaTime));
+      const newStart = Math.max(0, drag.initialStartTime + clampedDelta);
+      const newDuration = Math.max(0.2, drag.initialDuration - clampedDelta);
+      const newOffset = Math.max(0, drag.initialOffset + clampedDelta);
+      drag.pendingUpdates = { startTime: newStart, duration: newDuration, offset: newOffset };
+      drag.el.style.transform = `translateX(${clampedDelta * zoom}px)`;
+      drag.el.style.width = `${newDuration * zoom}px`;
+    } else if (drag.mode === 'trimRight') {
+      // Fix: clamp contra buffer.duration para no extender más allá del audio disponible.
+      const maxDuration = Math.max(0.2, drag.bufferDuration - drag.initialOffset);
+      const newDuration = Math.min(Math.max(0.2, drag.initialDuration + deltaTime), maxDuration);
+      drag.pendingUpdates = { duration: newDuration };
+      drag.el.style.width = `${newDuration * zoom}px`;
+    } else {
+      // Move clip con transformación suave en tiempo real sin reiniciar audio a cada pixel
+      const st = useDawStore.getState();
+      const rawStart = Math.max(0, drag.initialStartTime + deltaTime);
+      const others = st.clips.filter((c) => c.id !== clip.id);
+      const { snappedTime } = calculateMagneticSnap(rawStart, st.bpm, st.timeSignature, others, 0.1, st.snapMode);
+      const maxStart = Math.max(0, st.duration - drag.initialDuration);
+      const newStart = Math.min(Math.max(0, snappedTime), maxStart);
+      drag.pendingUpdates = { startTime: newStart };
+      drag.el.style.transform = `translateX(${(newStart - drag.initialStartTime) * zoom}px)`;
+    }
+  };
+
+  const endDrag = (commit: boolean) => {
+    const drag = dragRef.current;
+    dragRef.current = null;
+    if (!drag) return;
+    if (drag.el.releasePointerCapture) {
+      try {
+        drag.el.releasePointerCapture(drag.pointerId);
+      } catch {
+        // Sin captura activa: nada que liberar.
       }
-    };
+    }
+    drag.el.style.transform = '';
+    if (commit && drag.hasMoved && drag.pendingUpdates) {
+      updateClip(clip.id, drag.pendingUpdates);
+    }
+  };
 
-    window.addEventListener('mousemove', onMouseMove);
-    window.addEventListener('mouseup', onMouseUp);
+  const handlePointerUp = () => {
+    endDrag(true);
+  };
+
+  const handlePointerCancel = () => {
+    // El gesto se abortó (llamada, alerta del SO…): se descarta lo pendiente.
+    const drag = dragRef.current;
+    if (drag) drag.el.style.transform = '';
+    dragRef.current = null;
   };
 
   // Fix(waveA): clip focuseable con borrado/corte por teclado.
@@ -211,9 +269,12 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
 
   return (
     <div
-      onMouseDown={handleMouseDown}
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerUp}
+      onPointerCancel={handlePointerCancel}
       // Fix: el lane deselecciona en onClick; sin esto el click posterior al
-      // mousedown borraba la selección y ningún clip quedaba seleccionable con ratón.
+      // pointerdown borraba la selección y ningún clip quedaba seleccionable con ratón.
       onClick={(e) => e.stopPropagation()}
       onFocus={selectClip}
       onKeyDown={handleKeyDown}
@@ -221,7 +282,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
       role="option"
       aria-selected={isSelected}
       aria-label={`Clip ${clip.name}`}
-      className={`absolute top-1 bottom-1 rounded-lg overflow-hidden cursor-move border transition-shadow select-none ${
+      className={`absolute top-1 bottom-1 rounded-lg overflow-hidden cursor-move border transition-shadow select-none touch-none ${
         isSelected
           ? 'border-white ring-2 ring-cyan-400 shadow-lg shadow-cyan-500/30 z-10'
           : 'border-white/20 hover:border-white/50'
@@ -229,6 +290,10 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
       style={{
         left: `${clip.startTime * zoom}px`,
         width: `${width}px`,
+        // touch-action en línea además de `touch-none`: garantiza el valor
+        // computado aunque Tailwind no cargue, y bloquea el scroll del
+        // navegador durante el arrastre táctil del clip.
+        touchAction: 'none',
       }}
     >
       <canvas

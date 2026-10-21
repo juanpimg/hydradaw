@@ -1,7 +1,8 @@
 import { ensureMockAudioContext } from './audioContextStub';
 
 declare global {
-  var __canvasOps: string[] | undefined;
+  var __canvasOps: Array<{ op: string; args: unknown[] }> | undefined;
+  var __resetCanvasOps: (() => void) | undefined;
   var __hydraDomSetup: boolean | undefined;
 }
 
@@ -12,67 +13,99 @@ declare global {
 if (typeof document !== 'undefined' && !globalThis.__hydraDomSetup) {
   globalThis.__hydraDomSetup = true;
   globalThis.__canvasOps ??= [];
-  const canvasOps: string[] = globalThis.__canvasOps;
+  const canvasOps: Array<{ op: string; args: unknown[] }> = globalThis.__canvasOps;
 
-  const record = (op: string): void => {
-    canvasOps.push(op);
+  const record = (op: string, args: unknown[]): void => {
+    canvasOps.push({ op, args });
   };
 
+  // Vía de escape para que los tests no dependan del orden de ejecución.
+  globalThis.__resetCanvasOps = (): void => {
+    canvasOps.length = 0;
+  };
+
+  interface Ctx2DStub {
+    canvas: HTMLCanvasElement | null;
+    fillStyle: string | CanvasGradient;
+    strokeStyle: string;
+    lineWidth: number;
+    fillRect: (...args: number[]) => void;
+    clearRect: (...args: number[]) => void;
+    fillText: (...args: unknown[]) => void;
+    beginPath: () => void;
+    moveTo: (...args: number[]) => void;
+    lineTo: (...args: number[]) => void;
+    closePath: () => void;
+    fill: (...args: unknown[]) => void;
+    stroke: (...args: unknown[]) => void;
+    createLinearGradient: (...args: number[]) => { addColorStop: (...stop: unknown[]) => void };
+    scale: (...args: number[]) => void;
+    save: () => void;
+    restore: () => void;
+  }
+
   // Stub 2D no-op con todos los métodos usados por `WaveformCanvas`.
-  // Registra las llamadas en `globalThis.__canvasOps` para poder afirmar que se dibuja.
-  const ctx2dStub = {
+  // Registra las llamadas (con argumentos) en `globalThis.__canvasOps` para
+  // poder afirmar qué geometría se dibuja. Cada `getContext()` devuelve un
+  // objeto NUEVO (sin estado de estilo compartido); el registro es común.
+  const makeCtx2dStub = (): Ctx2DStub => ({
     canvas: null,
     fillStyle: '#000000',
     strokeStyle: '#000000',
     lineWidth: 1,
-    fillRect: (..._args: number[]): void => {
-      record('fillRect');
+    fillRect: (...args: number[]): void => {
+      record('fillRect', args);
     },
-    clearRect: (..._args: number[]): void => {
-      record('clearRect');
+    clearRect: (...args: number[]): void => {
+      record('clearRect', args);
     },
-    fillText: (..._args: unknown[]): void => {
-      record('fillText');
+    fillText: (...args: unknown[]): void => {
+      record('fillText', args);
     },
     beginPath: (): void => {
-      record('beginPath');
+      record('beginPath', []);
     },
-    moveTo: (..._args: number[]): void => {
-      record('moveTo');
+    moveTo: (...args: number[]): void => {
+      record('moveTo', args);
     },
-    lineTo: (..._args: number[]): void => {
-      record('lineTo');
+    lineTo: (...args: number[]): void => {
+      record('lineTo', args);
     },
     closePath: (): void => {
-      record('closePath');
+      record('closePath', []);
     },
-    fill: (..._args: unknown[]): void => {
-      record('fill');
+    fill: (...args: unknown[]): void => {
+      record('fill', args);
     },
-    stroke: (..._args: unknown[]): void => {
-      record('stroke');
+    stroke: (...args: unknown[]): void => {
+      record('stroke', args);
     },
-    createLinearGradient: (..._args: number[]): { addColorStop: (..._stop: unknown[]) => void } => {
-      record('createLinearGradient');
+    createLinearGradient: (...args: number[]): { addColorStop: (...stop: unknown[]) => void } => {
+      record('createLinearGradient', args);
       return {
-        addColorStop: (..._stop: unknown[]): void => {
-          record('addColorStop');
+        addColorStop: (...stop: unknown[]): void => {
+          record('addColorStop', stop);
         },
       };
     },
-    scale: (..._args: number[]): void => {
-      record('scale');
+    scale: (...args: number[]): void => {
+      record('scale', args);
     },
     save: (): void => {
-      record('save');
+      record('save', []);
     },
     restore: (): void => {
-      record('restore');
+      record('restore', []);
     },
-  };
+  });
 
-  HTMLCanvasElement.prototype.getContext = function () {
-    return ctx2dStub;
+  HTMLCanvasElement.prototype.getContext = function (this: HTMLCanvasElement, contextId: string) {
+    // Solo el contexto '2d' existe en el arnés: un componente que pida
+    // 'webgl'/'webgl2' debe recibir null, como en un navegador sin soporte.
+    if (contextId !== '2d') return null;
+    const ctx = makeCtx2dStub();
+    ctx.canvas = this as HTMLCanvasElement;
+    return ctx;
   } as unknown as typeof HTMLCanvasElement.prototype.getContext;
 
   interface StubPointerEventInit extends MouseEventInit {
