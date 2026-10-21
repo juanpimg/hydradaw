@@ -48,16 +48,29 @@ function makeSilence(sampleRate: number, seconds: number, channels = 1): Loudnes
 }
 
 describe('loudness BS.1770 (K + gating)', () => {
-  it('seno 997Hz a -3.01dBFS RMS → integrada ≈ -3.7 LUFS (±0.5)', () => {
-    // Pico 1.0 → RMS = 1/sqrt(2) = -3.01 dBFS; K a 1kHz ≈ +0dB → LUFS ≈ -0.691 - 3.01.
+  it('seno 997Hz a escala completa → integrada −3.0 LUFS ± 0.1 (ref. BS.1770-4)', () => {
+    // Referencia BS.1770-4: un seno de 997 Hz a escala completa (RMS −3.01 dBFS
+    // + K-weighting ≈ +0.66 dB a 1 kHz) mide −3.0 LUFS. La ventana anterior
+    // ([-4.2, -3.2]) estaba calibrada a la implementación desviada (shelf RBJ
+    // con S=1.2: +0.27 dB a 1 kHz ⇒ −3.44 LUFS).
     const buf = makeMonoSine(48000, 2, 997, 1.0);
     const m = measureLoudness(buf);
-    expect(m.integratedLUFS).toBeGreaterThan(-4.2);
-    expect(m.integratedLUFS).toBeLessThan(-3.2);
+    expect(m.integratedLUFS).toBeGreaterThan(-3.1);
+    expect(m.integratedLUFS).toBeLessThan(-2.9);
     expect(m.peak).toBeCloseTo(1.0, 2);
     // True peak ESTIMADO por sobremuestreo lineal ×4: cercano al pico.
     expect(m.truePeakEstimate).toBeGreaterThanOrEqual(m.peak - 1e-6);
     expect(m.truePeakEstimate).toBeLessThan(1.05);
+  });
+
+  it('entrada más corta que un bloque (400 ms) se rellena con ceros (EXP-12)', () => {
+    // 100 ms de tono a escala completa medidos sobre un bloque de 400 ms
+    // rellenado con ceros ⇒ −6.02 dB respecto al tono largo (10·log10(0.1/0.4)).
+    // Sin relleno se medía sobre el bloque parcial y leía ~6 dB de más.
+    const ref = measureLoudness(makeMonoSine(48000, 2, 997, 1.0));
+    const short = measureLoudness(makeMonoSine(48000, 0.1, 997, 1.0));
+    expect(short.integratedLUFS).toBeCloseTo(ref.integratedLUFS - 6.0206, 0);
+    expect(short.peak).toBeCloseTo(1.0, 2);
   });
 
   it('misma señal a 44100Hz da el mismo orden de magnitud (coefs por sampleRate)', () => {

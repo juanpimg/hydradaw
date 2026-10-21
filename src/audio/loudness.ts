@@ -44,33 +44,59 @@ export interface BiquadCoeffs {
   a2: number;
 }
 
-// Fix(waveC): high-shelf +4dB estilo K (RBJ cookbook) diseñado para el sampleRate dado.
-export function designHighShelf(
-  sampleRate: number,
-  f0: number = LOUDNESS_K_SHELF_F0,
-  gainDb: number = LOUDNESS_K_SHELF_GAIN_DB,
-  shelfSlopeS: number = LOUDNESS_K_SHELF_SLOPE_S,
-): BiquadCoeffs {
+// Fix(waveC): high-shelf K conforme a ITU-R BS.1770-4 Tabla 1.
+//
+// La implementación anterior usaba un high-shelf RBJ genérico (f0 = 1681 Hz,
+// +4 dB, S = 1.2) que NO reproduce el pre-filtro de referencia: +0.27 dB a
+// 1 kHz donde la norma exige +0.67 dB, con un sesgo sistemático de ~0.2-0.4 LU
+// en toda lectura integrada (un seno de 997 Hz a escala completa medía −3.44
+// LUFS en vez de los −3.0 LUFS de referencia).
+//
+// Coeficientes exactos de la Tabla 1 a 48 kHz:
+//   b = [1.53512486, -2.69169619, 1.19839281]
+//   a = [1, -1.69065929, 0.73248077]
+// Otras tasas se derivan del MISMO prototipo analógico por transformada
+// bilineal (como libebur128): el prototipo se obtiene por Tustin inversa de
+// la Tabla 1 a 48 kHz y se mapea a la tasa pedida por Tustin directa, así que
+// a 48 kHz el resultado coincide con la tabla al ulp (~4e-16) por construcción.
+const K_PRE_TABLE_B: readonly [number, number, number] = [1.53512486, -2.69169619, 1.19839281];
+const K_PRE_TABLE_A1 = -1.69065929;
+const K_PRE_TABLE_A2 = 0.73248077;
+const K_PRE_TABLE_RATE = 48000;
+
+// Prototipo analógico (variable Tustin λ = s·T₀/2, T₀ = 1/48000) derivado de
+// la Tabla 1: N(λ) = B0 + B1·λ + B2·λ², D(λ) = A0 + A1·λ + A2·λ².
+const K_PRE_PROTO_B0 = K_PRE_TABLE_B[0] + K_PRE_TABLE_B[1] + K_PRE_TABLE_B[2];
+const K_PRE_PROTO_B1 = 2 * (K_PRE_TABLE_B[0] - K_PRE_TABLE_B[2]);
+const K_PRE_PROTO_B2 = K_PRE_TABLE_B[0] - K_PRE_TABLE_B[1] + K_PRE_TABLE_B[2];
+const K_PRE_PROTO_A0 = 1 + K_PRE_TABLE_A1 + K_PRE_TABLE_A2;
+const K_PRE_PROTO_A1 = 2 * (1 - K_PRE_TABLE_A2);
+const K_PRE_PROTO_A2 = 1 - K_PRE_TABLE_A1 + K_PRE_TABLE_A2;
+
+export function designHighShelf(sampleRate: number): BiquadCoeffs {
   if (!Number.isFinite(sampleRate) || sampleRate <= 0) {
     throw new Error(`[loudness] sampleRate inválido: ${sampleRate}`);
   }
-  if (!Number.isFinite(f0) || f0 <= 0 || f0 >= sampleRate / 2) {
-    throw new Error(`[loudness] f0 de shelf inválida: ${f0} @ ${sampleRate}Hz`);
+  if (sampleRate === K_PRE_TABLE_RATE) {
+    return {
+      b0: K_PRE_TABLE_B[0],
+      b1: K_PRE_TABLE_B[1],
+      b2: K_PRE_TABLE_B[2],
+      a1: K_PRE_TABLE_A1,
+      a2: K_PRE_TABLE_A2,
+    };
   }
-  const A = Math.pow(10, gainDb / 40);
-  const w0 = (2 * Math.PI * f0) / sampleRate;
-  const sinW0 = Math.sin(w0);
-  const cosW0 = Math.cos(w0);
-  const sqrtA = Math.sqrt(A);
-  const alpha =
-    (sinW0 / 2) * Math.sqrt((A + 1 / A) * (1 / shelfSlopeS - 1) + 2);
-  const b0 = A * (A + 1 + (A - 1) * cosW0 + 2 * sqrtA * alpha);
-  const b1 = -2 * A * (A - 1 + (A + 1) * cosW0);
-  const b2 = A * (A + 1 + (A - 1) * cosW0 - 2 * sqrtA * alpha);
-  const a0 = A + 1 - (A - 1) * cosW0 + 2 * sqrtA * alpha;
-  const a1 = 2 * (A - 1 - (A + 1) * cosW0);
-  const a2 = A + 1 - (A - 1) * cosW0 - 2 * sqrtA * alpha;
-  return { b0: b0 / a0, b1: b1 / a0, b2: b2 / a0, a1: a1 / a0, a2: a2 / a0 };
+  // Tustin directa del prototipo: r = fs/48000 (λ₀ = r·λ₁).
+  const r = sampleRate / K_PRE_TABLE_RATE;
+  const r2 = r * r;
+  const d = K_PRE_PROTO_A0 + K_PRE_PROTO_A1 * r + K_PRE_PROTO_A2 * r2;
+  return {
+    b0: (K_PRE_PROTO_B0 + K_PRE_PROTO_B1 * r + K_PRE_PROTO_B2 * r2) / d,
+    b1: (2 * (K_PRE_PROTO_B0 - K_PRE_PROTO_B2 * r2)) / d,
+    b2: (K_PRE_PROTO_B0 - K_PRE_PROTO_B1 * r + K_PRE_PROTO_B2 * r2) / d,
+    a1: (2 * (K_PRE_PROTO_A0 - K_PRE_PROTO_A2 * r2)) / d,
+    a2: (K_PRE_PROTO_A0 - K_PRE_PROTO_A1 * r + K_PRE_PROTO_A2 * r2) / d,
+  };
 }
 
 // Fix(waveC): high-pass RLB (~60Hz, Butterworth Q≈0.707) diseñado para el sampleRate dado.
@@ -167,7 +193,6 @@ export function measureLoudness(buffer: LoudnessInput): LoudnessResult {
   }
   // Recorta vistas al mínimo común (canales con longitudes dispares).
   const trimmed = channels.map((c) => c.subarray(0, totalFrames));
-
   // Medición de True Peak según ITU-R BS.1770-4 (Anexo 2) mediante filtro polifase FIR x4
   let peak = 0;
   for (const data of trimmed) {
@@ -215,43 +240,47 @@ export function measureLoudness(buffer: LoudnessInput): LoudnessResult {
     }
   }
 
+  const blockSize = Math.max(1, Math.round(LOUDNESS_BLOCK_SECONDS * sampleRate));
+  const hop = Math.max(1, Math.round(LOUDNESS_HOP_SECONDS * sampleRate));
+
+  // EXP-12: entradas más cortas que un bloque se miden sobre un bloque
+  // completo rellenado con ceros (los medidores de referencia exigen al menos
+  // un bloque para el gating). Sin relleno, un tono de 100 ms se medía sobre
+  // el bloque parcial y leía ~6 dB de más. El relleno va ANTES del filtrado
+  // para que la cola del IIR caiga en la zona de silencio, como en la señal real.
+  const framed =
+    totalFrames < blockSize
+      ? trimmed.map((c) => {
+          const ext = new Float32Array(blockSize);
+          ext.set(c);
+          return ext;
+        })
+      : trimmed;
+  const framedTotal = framed[0]?.length ?? 0;
+
   // Filtrado K por canal (copia para no mutar el buffer original).
   const shelf = designHighShelf(sampleRate);
   const hp = designHighPass(sampleRate);
-  const filtered: Float32Array[] = trimmed.map((c) => {
+  const filtered: Float32Array[] = framed.map((c) => {
     const work = new Float32Array(c);
     filterBiquadInPlace(work, shelf);
     filterBiquadInPlace(work, hp);
     return work;
   });
 
-  const blockSize = Math.max(1, Math.round(LOUDNESS_BLOCK_SECONDS * sampleRate));
-  const hop = Math.max(1, Math.round(LOUDNESS_HOP_SECONDS * sampleRate));
-
   const blockPowers: number[] = [];
-  if (totalFrames < blockSize) {
+  const numBlocks = 1 + Math.floor((framedTotal - blockSize) / hop);
+  for (let b = 0; b < numBlocks; b++) {
+    const start = b * hop;
     let sum = 0;
     for (const f of filtered) {
-      for (let i = 0; i < totalFrames; i++) {
+      for (let i = start; i < start + blockSize; i++) {
         const v = f[i] ?? 0;
         sum += v * v;
       }
     }
-    blockPowers.push(sum / Math.max(1, totalFrames));
-  } else {
-    const numBlocks = 1 + Math.floor((totalFrames - blockSize) / hop);
-    for (let b = 0; b < numBlocks; b++) {
-      const start = b * hop;
-      let sum = 0;
-      for (const f of filtered) {
-        for (let i = start; i < start + blockSize; i++) {
-          const v = f[i] ?? 0;
-          sum += v * v;
-        }
-      }
-      // Suma de medias cuadráticas por canal (G = 1.0 para L/R; estéreo del DAW).
-      blockPowers.push(sum / blockSize);
-    }
+    // Suma de medias cuadráticas por canal (G = 1.0 para L/R; estéreo del DAW).
+    blockPowers.push(sum / blockSize);
   }
 
   const absThreshold = Math.pow(10, (LOUDNESS_ABSOLUTE_GATE_LUFS + 0.691) / 10);
