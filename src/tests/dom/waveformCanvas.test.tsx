@@ -164,4 +164,22 @@ describe('WaveformCanvas con Pointer Events (UI-03, F4, F5, F6)', () => {
     expect(clip?.duration).toBeCloseTo(4, 5);
     expect(clip?.startTime).toBeCloseTo(2, 5);
   });
+
+  it('W10: lostpointercapture cierra el gesto sin comprometer y libera el siguiente arrastre (M3)', () => {
+    const { el } = renderClip();
+    // Primer gesto: mover +1 s pendiente (200→250 px a 50 px/s).
+    el.dispatchEvent(pointerEvent('pointerdown', { pointerId: 1, pointerType: 'mouse', clientX: 200 }));
+    el.dispatchEvent(pointerEvent('pointermove', { pointerId: 1, pointerType: 'mouse', clientX: 250 }));
+    // El navegador pierde la captura: se descarta lo pendiente, sin commit.
+    el.dispatchEvent(pointerEvent('lostpointercapture', { pointerId: 1, pointerType: 'mouse', clientX: 250 }));
+    const mid = useDawStore.getState().clips.find((c) => c.id === 'c1');
+    expect(mid?.startTime).toBeCloseTo(2, 5);
+    // El siguiente arrastre debe funcionar: sin el fix, el pointerdown choca
+    // con el early-return de la sesión rancia y este gesto nunca compromete.
+    el.dispatchEvent(pointerEvent('pointerdown', { pointerId: 2, pointerType: 'mouse', clientX: 200 }));
+    el.dispatchEvent(pointerEvent('pointermove', { pointerId: 2, pointerType: 'mouse', clientX: 210 }));
+    el.dispatchEvent(pointerEvent('pointerup', { pointerId: 2, pointerType: 'mouse', clientX: 210 }));
+    const clip = useDawStore.getState().clips.find((c) => c.id === 'c1');
+    expect(clip?.startTime).toBeCloseTo(2.2, 5);
+  });
 });

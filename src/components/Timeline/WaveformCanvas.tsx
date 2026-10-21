@@ -282,6 +282,17 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
     clearDragVisual(drag.el);
   };
 
+  // M3: sin esto, una captura perdida deja `dragRef` rancio y el siguiente
+  // `pointerdown` choca con el early-return (arrastre muerto hasta desmontar).
+  // Solo el puntero dueño de la sesión puede cerrarla; la captura solo la
+  // toma ese puntero, así que basta con descartar sin comprometer —igual que
+  // una cancelación.
+  const handleLostPointerCapture = (e: React.PointerEvent) => {
+    const drag = dragRef.current;
+    if (!drag || e.pointerId !== drag.pointerId) return;
+    endDrag(false);
+  };
+
   // Limpieza al desmontar: un arrastre en vuelo no deja referencia rancia
   // (el store ya no se toca desde un componente desmontado).
   useEffect(() => {
@@ -315,6 +326,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
       onPointerCancel={handlePointerCancel}
+      onLostPointerCapture={handleLostPointerCapture}
       // Fix: el lane deselecciona en onClick; sin esto el click posterior al
       // pointerdown borraba la selección y ningún clip quedaba seleccionable con ratón.
       onClick={(e) => e.stopPropagation()}
